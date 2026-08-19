@@ -1,7 +1,6 @@
 """Decode DreamFactory script containers to text.
 
-Token layout and pretty-print rules follow DFET DFscript.cpp so Dust
-output can be diffed against the existing DFET extract.
+Token layout and pretty-print rules follow DFET DFscript.cpp.
 """
 
 from __future__ import annotations

@@ -7,8 +7,7 @@ Primary writeup:
 [mrxstudios, 2021-03-05](https://mrxstudios.home.blog/2021/03/05/reverse-engineering-dust-uncovering-game-scripts/).
 
 Implementation: `script.py`, `opcodes.py`. Pretty-print rules match
-DFET `DFscript.cpp` so Bolivar text diffs cleanly against
-`sources/dust-extract`.
+DFET `DFscript.cpp`.
 
 ## Token
 
@@ -58,7 +57,7 @@ token at data+16: cmd=3  info=1430  → "JENIX"   (quoted: parameter)
 `8 + 1432 = 1440` in the blog dump because that dump includes the
 block header.
 
-## Pretty-print quirks (kept for DFET diffs)
+## Pretty-print quirks (ported from DFET)
 
 - `(` (4018) and `-` (8002) get **no** trailing space, so you see
   `runyoself ()` and `puppetevent (-1)`.

@@ -5,13 +5,13 @@
 `SPEC.md` is a browser remake of **Dust: A Tale of the Wired West**
 (1995, Cyberflix / DreamFactory), not *Dust: An Elysian Tail*.
 
-DFET (M3tox) already extracts Titanic and, partially, Dust PUP/CST/SND.
+DFET (M3tox) extracts Titanic and, partially, Dust PUP/CST/SND.
 Its Dust SET and MOV paths **hard-fail** unless container-0 version is
-4. It has no FLT or PRP handler. The dump in `sources/dust-extract/`
-only ran 8 of 39 puppets.
+4. It has no FLT or PRP handler.
 
-This tool is Dust-only, CLI-only, GPL-3 where it ports DFET codecs, and
-lives in `tools/dfextract/` so it does not infect the remake tree.
+This tool **replaces DFET for Dust**. It is CLI-only, GPL-3 where it
+ports DFET codecs, and lives in `tools/dfextract/` so it does not
+infect the remake tree. We do not keep or test against DFET output.
 
 ## Sources we used
 
@@ -20,7 +20,6 @@ lives in `tools/dfextract/` so it does not infect the remake tree.
 | [mrxstudios 2021-03-05](https://mrxstudios.home.blog/2021/03/05/reverse-engineering-dust-uncovering-game-scripts/) | Script tokens, relative Pascal offsets, `DF.EXE` opcode table idea, Jenix gold listing |
 | [mrxstudios 2022-04-25](https://mrxstudios.home.blog/2022/04/25/reverse-engineering-dust-game-locations-and-map-layout/) | SET block kinds, 32-byte scene records, 50-byte waypoints, 28-byte framelist, 6 frames per transition, 255-unit tiles |
 | [M3tox/DFET](https://github.com/M3tox/DFET) (local `D:\dev\DFET`) | `LPPALPPA` reader, script pretty-printer + 4.0 opcode map, ADPCM v40/v41, both image codecs, PUP/CST/SND/BOOT Dust branches |
-| `sources/dust-extract/` | Golden scripts, WAVs, PNGs for Bolivar / EXTRA / TOWN.SND |
 | ResHax / ZenHAX thread | Only a pointer back at the 2021 blog. No extra layouts |
 | Dust `DF.EXE` | Confirmed opcode ASCII still present (`puppetspeak` @ 277700). Not parsed as a table |
 
@@ -31,13 +30,13 @@ stills.
 
 ## What we proved
 
-- Script tokens + DFET 4.0 names reprint Dust source. Bolivar matches
-  DFET text. Jenix day 1 matches the blog (`actorowner ("JENIX", "gavemoney")`).
+- Script tokens + DFET 4.0 names reprint Dust source. Jenix day 1
+  matches the blog (`actorowner ("JENIX", "gavemoney")`).
 - PUP dialogue at 2160 / 312-byte records is the same in Dust and Titanic.
 - Dust PUP faces are one stance, 11 tables in container 3.
 - `MAYOR.PUP` / `NED.PUP` are type-2 files with extra offset-0 holes.
 - CST actor table at `0x938` works on EXTRA, GANG, TARGET, MINE.
-- SND v1 name table and loop playlist match DFET WAVs (anvil PCM).
+- SND v1 name table and loop playlist decode (`anvil` at 22050 Hz).
 - SET grid at the **end** of container 0; APOTH 3×3 matches the blog
   diagram (A2/B2/C2 walkable).
 - SET header `+30` = framelist container, `+34` = waypoint container,
@@ -45,7 +44,8 @@ stills.
   the block prefix).
 - Framelist records really are 6 frames starting at `frame0`.
 - Indexed stills are 512×264 (walk/cutscene) or 512×384 (some FLT HUDs).
-- Transparent sprite codec is lossless vs DFET PNGs.
+- Transparent sprite codec decodes PUP faces and CST bodies (Bolivar
+  background 512×264; EXTRA Jenix `stand`).
 - MOV v1 is the same container file; audio clips are ordinary v40/v41
   containers mixed in with stills.
 - FLT/PRP are the same container + script token + the two image codecs.
@@ -63,15 +63,8 @@ stills.
 | Script encoder | Yes | No (not needed for the remake) |
 | GUI | Yes | CLI only |
 
-On this repo’s dumps (2026-08-18):
-
-| | `sources/dust-extract` (partial DFET run) | `tools/dfextract/out` |
-|---|---|---|
-| Puppets | 8 | 39 |
-| Script txt | 69 | ~640 |
-| WAV | 964 | ~4,300 |
-| PNG | 2,524 | ~30,000 after the SET/MOV pass |
-| SET / FLT / PRP / MOV | none | all playable files |
+`tools/dfextract/out` (2026-08-18): 39 puppets, ~640 script txt, ~4,300
+WAV, ~30,000 PNG after SET/MOV, and all playable SET / FLT / PRP / MOV.
 
 ## Limits (do not pretend these are done)
 

@@ -57,8 +57,8 @@ Each payload byte `flag`:
 Output is top-to-bottom RGBA. We clip a run that would overflow the
 current row (a few Dust sprites do).
 
-Proven: Bolivar `FRAMES/Background/frame_4.png` and EXTRA Jenix
-`stand/frame_195.png` match the DFET PNGs pixel-for-pixel.
+Proven: Bolivar `FRAMES/Background/frame_4.png` decodes at 512×264
+and EXTRA writes Jenix `stand/frame_195.png`.
 
 ## Indexed stills (SET walks, MOV cutscenes, FLT boards)
 

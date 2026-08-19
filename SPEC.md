@@ -1,7 +1,7 @@
-# Dust: A Tale of the Wired West — Three.js Rebuild Spec
+# Diamondback — Dust rebuild spec
 
 ## 1. Vision & Intent
-I want to use modern agentic coding tools to recreate the game "Dust: A Tale of the Wired West" such that it can be run directly and fully in the browser.  Dust is a first-person point-and-click adventure game released in 1995 by Cyberflix.
+**Diamondback** is this project: a non-commercial reconstruction of *Dust: A Tale of the Wired West* (CyberFlix, 1995) that runs fully in the browser, plus `dfextract` (a Dust-only DreamFactory extractor). The playable client is Three.js. This is not a remaster of visuals; it is not mrxstudios’ Unreal *Dust Remastered*.
 
 ## 2. Non-Goals & Constraints
 - This won't be a port of the engine itself, so we will have freedom in *how* it's built.
@@ -65,12 +65,13 @@ Original boot defaults (from extracted `_BOOTFILE`): `day = 1`, `clock = 2`, `ph
   transitions, stills, scene scripts), 4 CSTs, 40 SND banks, 20 FLT
   puzzles, 14 PRP packs, 247 MOV dests, boot script. SET/`TOWN` layout
   is no longer “binary-only.”
-- Old partial DFET dump: `sources/dust-extract/` — 8 puppets + some
-  CST/SFX. **Test goldens only.** Do not treat it as the content tree.
 - Static docs: `sources/generated-docs/`
+- Mac manual (box + install booklet): `sources/Dust_A_Tale_of_the_Wired_West_Manual_Mac_EN.pdf` — local only, not in git.
 - Web: mrxstudios reverse-engineering blogs
 - Official Strategy Guide: **not in hand** — scanning/OCR still TBD. Use extracted scripts + walkthroughs until then.
 - In-game screenshots; later Blender MCP for meshes from prompts + screenshots.
+
+**Do not commit** the CD/DOSBox tree, extracted media, or `tools/dfextract/out/` (or `out-backup/`). They are copyrighted and too large for GitHub. `.gitignore` already excludes them. Clone + this spec + `dfextract` source is enough to rebuild a dump if you have the game.
 
 The remake still **hand-ports** dialogue and does **not** interpret
 DreamFactory `.txt` at runtime (§2). The extract is the reference for
@@ -93,8 +94,10 @@ Slice 1 is playable: Vite + TypeScript + Three.js + Vitest, graybox Diamondback,
 - `npm test` — unit tests (time, layout, collision, interact)
 - `npm run dev` — http://localhost:5173
 - Sleep: enter the hotel (north of the saloon, south door) and click the bed. Clock is discrete; sleep always wakes next morning.
+- Debug query (not a menu): `?view=street` or `?view=hotel`, and `?clock=1|2|3`.
 - Layout in the running app is still inferred (walkthrough + SET names + box-art aerial). `TOWN.SET` is now extracted (`tools/dfextract/out/SET/_TOWN/`) but the graybox does not read it yet.
 - Extractor setup: [`tools/dfextract/README.md`](tools/dfextract/README.md). The remake does not run that tool.
+- npm package / repo name: `diamondback`. The local folder may still be `dust-threejs` until renamed on disk.
 
 **Next:** slice 2 — puppet system + Jones + Help, hand-ported JSON dialogue.
 
@@ -113,6 +116,9 @@ Slice 1 is playable: Vite + TypeScript + Three.js + Vitest, graybox Diamondback,
 | 2026-08-17 | Tests: unit tests now; higher-level tests later. |
 | 2026-08-17 | Strategy guide not available yet. |
 | 2026-08-17 | Slice 1 shipped: graybox town from walkthrough/SET names/box art. Clock 1/2/3 = Morning/Afternoon/Night. Sleep → next morning. No SET parse yet. |
-| 2026-08-18 | Dust-only extractor at `tools/dfextract/` is the asset pipeline. DFET (`sources/dust-extract/`) is a test oracle only. |
+| 2026-08-18 | Dust-only extractor at `tools/dfextract/` is the asset pipeline. |
 | 2026-08-18 | Extract covers all playable Dust types including SET/FLT/PRP/MOV v1 (39 PUPs, town/night grids). Remake still hand-ports scripts; see `tools/dfextract/docs/reconstruction-gaps.md`. |
 | 2026-08-18 | Graybox still inferred. SET JSON exists for a later layout pass. |
+| 2026-08-18 | Project name: **Diamondback**. Extractor stays `dfextract`. GitHub blurb: “Browser rebuild of Dust: A Tale of the Wired West, plus a DreamFactory extractor.” |
+| 2026-08-18 | Do not publish original game binaries or extract output. Mac manual stays local. |
+| 2026-08-18 | `tools/dfextract/` is the Dust extractor. DFET output is not kept or used as a test oracle. |

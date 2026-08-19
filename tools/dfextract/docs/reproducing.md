@@ -17,10 +17,9 @@ sources/dust.dbgl/dosroot/0/dust/DUSTCD/     # CD data
 sources/dust.dbgl/dosroot/0/dust/WIN31/DUST/ # installed BOOTFILE, DF.EXE, LOCAL copies
 ```
 
-Optional reference trees (not required to run the tool):
+Optional reference (not required to run the tool):
 
 - `D:\dev\DFET` — M3tox/DFET source (sibling clone)
-- `sources/dust-extract/` — partial DFET 0.89 dump used as a golden corpus
 
 ## Inventory we extract
 
@@ -114,12 +113,12 @@ python tests/test_frames.py
 python tests/test_remaining.py
 ```
 
-These assume the Dust CD and the DFET dump are present. Golden checks:
+These assume the Dust CD tree is present. Checks include:
 
-- Bolivar PUP scripts match `sources/dust-extract/_BOLIVAR/PUP/*.txt` (banner stripped)
-- Bolivar `frame_4.png` pixels match DFET
-- EXTRA.CST Jenix script and `stand/frame_195.png` match DFET
-- TOWN.SND `anvil.wav` PCM matches DFET
+- Bolivar PUP scripts are `Boot Script`, `DAY1`, `checkers vo`
+- Bolivar `FRAMES/Background/frame_4.png` decodes at 512×264
+- EXTRA.CST has Jenix `code resetactor ()` and writes `stand/frame_195.png`
+- TOWN.SND decodes `anvil` at 22050 Hz
 - APOTH.SET grid is the 3×3 from the mrxstudios blog
 - NITEFOUN.MOV and APOTH container 45 decode to 512×264 stills
 

@@ -75,4 +75,4 @@ taken from the first chunk, then raised to `chunksStart+1` if that
 rate is higher (DFET quirk, preserved).
 
 TOWN.SND example: 15 singles (`anvil`, `birdsing`, …) plus combined
-`town.snd.wav`. PCM of `anvil.wav` matches the DFET dump.
+`town.snd.wav`.

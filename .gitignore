@@ -3,6 +3,9 @@ dist
 .DS_Store
 *.local
 .vite
+.idea
+.junie
+*.iml
 
 # Python
 __pycache__/
@@ -13,7 +16,6 @@ venv/
 
 # Original game media and extracts — keep local, do not publish
 sources/dust.dbgl/
-sources/dust-extract/
 sources/*.pdf
 tools/dfextract/out/
 tools/dfextract/out-backup/

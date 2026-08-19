@@ -2,7 +2,7 @@
 
 Dust-only Python extractor for Cyberflix DreamFactory files.
 
-This is a sidequest tool for the Three.js remake. It is **not** a Titanic
+This is a sidequest tool for the Diamondback remake. It is **not** a Titanic
 extractor. Script decoding and the PUP container layout are ported from
 [M3tox/DFET](https://github.com/M3tox/DFET) (GPL-3.0). Keep this directory
 isolated from the remake game code.
@@ -75,9 +75,6 @@ dir sources\dust.dbgl\dosroot\0\dust\WIN31\DUST\BOOTFILE
 On macOS / Linux, `ls` those same paths. If either file is missing, the
 extract will fail with `No Dust game data found.` Put a DOSBox / CD copy
 of Dust in that layout (or pass the folder as an argument; see Flags).
-
-`sources/dust-extract/` is an old partial DFET dump used only as a test
-oracle. You do not need it to extract.
 
 ### 3. Install Pillow and run
 
@@ -161,9 +158,8 @@ macOS / Linux: `rm -rf out && python cli.py`.
 
 Safe to delete: `out/`. The remake does not load it.
 
-Do **not** delete `sources/dust.dbgl/` (the game),
-`sources/dust-extract/` (test goldens), or the Python files in this
-directory.
+Do **not** delete `sources/dust.dbgl/` (the game) or the Python files
+in this directory.
 
 ---
 
@@ -213,7 +209,7 @@ What each of those files *is*: [`docs/output-catalog.md`](docs/output-catalog.md
 
 ## Tests
 
-Need the Dust tree and `sources/dust-extract/` (DFET goldens):
+Need the Dust tree under `sources/dust.dbgl/`:
 
 ```
 python tests/test_cli.py
