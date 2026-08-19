@@ -1,0 +1,212 @@
+# Output catalog
+
+Where extracted Dust assets live, what each file **is**, and how to
+find the thing you want. Root is `tools/dfextract/out/` after
+`python cli.py`.
+
+Canonical layout:
+
+```
+out/<TYPE>/_<STEM>/…
+```
+
+`<TYPE>` is `BOOT`, `PUP`, `CST`, `SND`, `SET`, `FLT`, `PRP`, or `MOV`.
+`<STEM>` is the source filename without extension, uppercased
+(`JENIX.PUP` → `PUP/_JENIX`). That split exists so `TOWN.SET` and
+`TOWN.SND` never share a folder.
+
+Ignore leftover top-level `out/_JENIX`, `out/_BOLIVAR`, … from the
+first PUP-only runs. Those are stale. Use `out/PUP/_JENIX`.
+
+---
+
+## If you need X, look here
+
+| You want | Path |
+|---|---|
+| Character dialogue text + line IDs | `PUP/_<NAME>/AUDIO/texts.csv` |
+| Character spoken audio | `PUP/_<NAME>/AUDIO/<ident>.wav` |
+| Character conversation logic | `PUP/_<NAME>/*.txt` (`day1`, `Boot Script`, …) |
+| Character face / mouth sprites | `PUP/_<NAME>/FRAMES/<Part>/frame_<id>.png` |
+| In-world body / walk sprites | `CST/_EXTRA/…` extras; `CST/_GANG/…` named people |
+| Location map + hotspots | `SET/_<PLACE>/scenes.json` |
+| NPC / item stand points | `SET/_<PLACE>/waypoints.json` |
+| Walk / turn filmstrips | `SET/_<PLACE>/transitions.json` + `FRAMES/frame_<id>.png` |
+| Door / click logic for a tile | `SET/_<PLACE>/Scene A2.txt` (name from `scenes.json`) |
+| Town / night outdoor map | `SET/_TOWN`, `SET/_NITE` |
+| Puzzle UI + logic | `FLT/_<PUZZLE>/` scripts + `frame_*.png` |
+| Inventory / world props, **named** | `PRP/_INVEN/FRAMES/<Item>/<state>/` and `props.json` |
+| House / door / random town props | `PRP/_HOUSE/FRAMES/` |
+| Cutscene / inspectable stills | `MOV/_<NAME>/FRAMES/frame_<n>.png` |
+| Cutscene voice / SFX | `MOV/_<NAME>/AUDIO/clip_<n>.wav` |
+| Ambient / one-shot world audio | `SND/_<BANK>/<clip>.wav` |
+| Game boot / paths / globals | `BOOT/_BOOTFILE/Script 1.txt` |
+
+---
+
+## Counts on this tree (2026-08-18, after full dump)
+
+| Folder | Assets | Typical contents |
+|---|---|---|
+| `BOOT/` | 1 | Boot script |
+| `PUP/` | 39 | Scripts, `texts.csv`, speech WAVs, face PNGs |
+| `CST/` | 4 | `_EXTRA`, `_GANG`, `_TARGET`, `_MINE` |
+| `SND/` | 40 | Named WAVs + looped beds (`town.snd.wav`) |
+| `SET/` | 35 | JSON + scripts + walk stills |
+| `FLT/` | 20 | Puzzle scripts + HUD/board stills |
+| `PRP/` | 14 | `initprop` scripts, `props.json`, named sprites |
+| `MOV/` | 247 dests | Stills + optional `AUDIO/` (11 `ZUNUSED` skipped) |
+
+---
+
+## Per-type file meanings
+
+### `BOOT/_BOOTFILE/`
+
+| File | What it is |
+|---|---|
+| `Script 1.txt` | DreamFactory boot: search paths, `day` / `clock`, CD checks, startup |
+
+### `PUP/_<CHAR>/`
+
+| File | What it is |
+|---|---|
+| `Boot Script.txt`, `day1.txt`, `day2.txt`, … | Conversation / AI scripts. Name comes from the PUP script table |
+| `AUDIO/texts.csv` | Columns: `ID`, `container`, `Identifier`, `Text`. `Identifier` is `jenix.5`; `Text` is the spoken line; `container` is the WAV’s container index |
+| `AUDIO/<Identifier>.wav` | Speech for that line (8-bit or 16-bit mono PCM) |
+| `FRAMES/Background/frame_<id>.png` | Backdrop plate for the talking head |
+| `FRAMES/Body`, `Head`, `Eyes`, `Eyebrows`, `Nose`, `Jaw`, `Left`, `Right`, `Hands 1`, `Hands 2` | Face-part sprites. `<id>` is the source container index. Missing folders means that part has `count == 0` |
+
+Puppet folder names (39): `_BLOOD`, `_BOLIVAR`, `_BUICK`, `_COBB`, `_DEAD`, `_DELL1`, `_DELL2`, `_DOC`, `_FEAR`, `_FLIPPO`, `_GUS`, `_HELP1`, `_HELP2`, `_ISAO`, `_JAN`, `_JENIX`, `_JONES`, `_KID`, `_LAUREL`, `_LEROY`, `_MARIE`, `_MAYOR`, `_MEZ`, `_MWIFE`, `_NED`, `_OONA`, `_PETE`, `_QUIST`, `_ROBBER`, `_RUBY`, `_SHAMAN`, `_SIDE`, `_SONOMA`, `_SOPHIE`, `_TELLER`, `_TODD`, `_TROTTER`, `_WATSON`, `_ZEB`.
+
+`_JAN` `_MEZ` `_PETE` `_ZEB` are saloon dealers (`SALGAMES`). `_SHAMAN` is under `UNDER/`. `_KID` is `KID/KID.PUP`.
+
+### `CST/_<CAST>/`
+
+| File | What it is |
+|---|---|
+| `<Actor>/Script.txt` | In-world actor logic (`setupactor`, `mousedown`, schedules) |
+| `<Actor>/<anim>/frame_<id>.png` | Body sprites for that animation (`stand`, `walk`, `grunt`, …) |
+
+`_EXTRA` = animals / Jenix beggar / bounty / kidgang. `_GANG` = named townspeople. `_TARGET` = shooting-gallery marks. `_MINE` = mine extras.
+
+### `SND/_<BANK>/`
+
+| File | What it is |
+|---|---|
+| `<clip>.wav` | Named one-shot (`anvil.wav`) |
+| `<bank>.snd.wav` or similar | Looped bed stitched from the playlist (e.g. `town.snd.wav`) |
+
+No scripts. Folder stem matches the `.SND` file (`TOWN.SND` → `_TOWN`).
+
+### `SET/_<PLACE>/`
+
+| File | What it is |
+|---|---|
+| `scenes.json` | Grid tiles. Fields: `x`, `y`, `interact` (hotspot), `blocked`, `unknown_c`, `unknown_e`, `name` (`Scene A2`), `script_container` |
+| `waypoints.json` | Stand / walk-to points. Fields: `x`, `y` (255 units per tile), `name` (`drugs.watson1`) |
+| `transitions.json` | One walk/turn filmstrip. Fields: `x_from`, `y_from`, `dir_from`, `x_to`, `y_to`, `dir_to`, `dir_*_name` (`N/S/E/W`), `frame0` (first of 6 stills) |
+| `Boot Script.txt` | Set-level script (cursor defaults, etc.) if present |
+| `<Scene name>.txt` | Per-tile script **only if** that container actually holds a `code` script (blocked tiles are often empty) |
+| `FRAMES/frame_<id>.png` | 512×264 walk/turn still. IDs `frame0` … `frame0+5` per transition (5 motion + 1 hold) |
+
+Important sets: `_TOWN` and `_NITE` (same 129-cell outdoor grid, day/night), interiors `_APOTH`, `_BANK`, `_STORE`, `_SALLOWER`, `_JAIL`, … `_HUB` is the underground Yunni maze.
+
+### `FLT/_<PUZZLE>/`
+
+| File | What it is |
+|---|---|
+| `<fn>.txt` | Puzzle script. Filename is the first `code <fn>` in that container (`playcheckers.txt`) |
+| `frame_<n>.png` | Board / HUD / page still. `<n>` is the source container index |
+
+`_CHECKERS`, `_FIGHT`, `_SCORP`, `_SALGAMES`, `_HIST` (history book pages), `_DIARY`, `_DRUG`, `_HOTPLATE`, …
+
+### `PRP/_<PACK>/`
+
+| File | What it is |
+|---|---|
+| `props.json` | Manifest: `group`, `state`, `index`, `container`, `path` |
+| `FRAMES/<Group>/<state>/<ii>_c<container>.png` | Named sprite. `group` = item (`Bone`, `Cigar`). `state` = `small` / `large` / `panel` / `hilite` / `king` / … |
+| `FRAMES/_unnamed/frame_<n>.png` | Container the shop table did not name |
+| `initprop_<n>.txt`, `setcursor _arg__<n>.txt` | Prop scripts. `<n>` is the container index |
+
+Primary packs: `_INVEN` (carryable items), `_HOUSE` (doors, town dressing), `_CHECKERS` (pieces), `_SALGAMES`, `_SNAKE`, `_TUMBLE`.
+
+### `MOV/_<NAME>/`
+
+| File | What it is |
+|---|---|
+| `FRAMES/frame_<n>.png` | Cutscene or inspectable still. `<n>` is container index (not necessarily 0-based consecutive) |
+| `AUDIO/clip_<n>.wav` | Voice / SFX in that movie, same index space |
+| `script_<n>.txt` | Rare; only if a container is a `code` script |
+
+Inventory close-ups are `INVEN/*.MOV` → `_APPLE`, `_GUN`, `_BADGE`, … Story/cutscene reels live under `MOVIES/` (`_INTRO`, `_INTRO3`, `_FINALEND`, day-change `D2MD2A`, …).
+
+`ZUNUSED` movies are **not** here (not `LPPALPPA`).
+
+---
+
+## JSON shapes (copy/paste)
+
+`scenes.json` element:
+
+```json
+{
+  "x": 1, "y": 0,
+  "interact": 1, "unknown_c": 0,
+  "blocked": 0, "unknown_e": 0,
+  "name": "Scene A2",
+  "script_container": 35
+}
+```
+
+`waypoints.json` element:
+
+```json
+{ "x": 190, "y": 90, "name": "drugs.watson1" }
+```
+
+`transitions.json` element:
+
+```json
+{
+  "x_from": 0, "y_from": 1, "dir_from": 1,
+  "x_to": 0, "y_to": 1, "dir_to": 3,
+  "dir_from_name": "N", "dir_to_name": "E",
+  "frame0": 45
+}
+```
+
+Stills for that turn: `FRAMES/frame_45.png` … `frame_50.png`.
+
+`props.json` element:
+
+```json
+{
+  "group": "Bone",
+  "state": "small",
+  "index": 0,
+  "container": 3,
+  "path": "FRAMES/Bone/small/00_c3.png"
+}
+```
+
+`texts.csv` header:
+
+```
+ID,container,Identifier,Text
+```
+
+---
+
+## Scripts (all `*.txt`)
+
+Every extracted script starts with:
+
+```
+// Extracted with dfextract — Dust-only Python port of DFET script decoding
+```
+
+Then DreamFactory source (`code`, `if`, `puppetspeak`, …). See
+[scripts.md](scripts.md). Dialogue IDs inside scripts (`"jenix.5"`)
+join to `AUDIO/texts.csv` and `AUDIO/jenix.5.wav`.

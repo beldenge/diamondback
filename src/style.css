@@ -1,0 +1,66 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #1a120c;
+  color: #f3e6c8;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+#viewport {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: none;
+}
+
+#hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  padding: 16px 20px;
+}
+
+#hud-time {
+  font-size: 20px;
+  letter-spacing: 0.08em;
+  text-shadow: 0 1px 4px #000;
+}
+
+#hud-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: 22%;
+  transform: translateX(-50%);
+  font-size: 18px;
+  text-shadow: 0 1px 4px #000;
+  min-height: 1.2em;
+}
+
+#hud-hint {
+  position: absolute;
+  left: 20px;
+  bottom: 16px;
+  font-size: 13px;
+  opacity: 0.8;
+  text-shadow: 0 1px 4px #000;
+}
+
+#crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border: 1px solid rgba(243, 230, 200, 0.85);
+  border-radius: 50%;
+  pointer-events: none;
+}

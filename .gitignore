@@ -1,0 +1,19 @@
+node_modules
+dist
+.DS_Store
+*.local
+.vite
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Original game media and extracts — keep local, do not publish
+sources/dust.dbgl/
+sources/dust-extract/
+sources/*.pdf
+tools/dfextract/out/
+tools/dfextract/out-backup/

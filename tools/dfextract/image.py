@@ -1,0 +1,401 @@
+"""Dust transparent-sprite decoder.
+
+Ported from DFET DFfile::writeTransPNGimage. Used for PUP faces and CST
+actor frames. SET/MOV stills use a different codec and are not here.
+"""
+
+from __future__ import annotations
+
+import struct
+from dataclasses import dataclass
+from pathlib import Path
+
+from PIL import Image
+
+
+class ImageError(Exception):
+    """Sprite container could not be decoded."""
+
+
+@dataclass(frozen=True)
+class Palette:
+    colors: list[tuple[int, int, int]]  # RGB, 8-bit
+
+    @classmethod
+    def from_container(cls, data: bytes, offset: int, count: int = 256) -> "Palette":
+        needed = offset + count * 8
+        if needed > len(data):
+            raise ImageError(f"palette overruns container (need {needed}, have {len(data)})")
+        colors: list[tuple[int, int, int]] = []
+        for index in range(count):
+            _idx, red, green, blue = struct.unpack_from("<hhhh", data, offset + index * 8)
+            if red == -1 and green == -1 and blue == -1:
+                colors.append((0, 0, 0))
+            else:
+                colors.append(
+                    ((red >> 8) & 0xFF, (green >> 8) & 0xFF, (blue >> 8) & 0xFF)
+                )
+        return cls(colors)
+
+    def rgba(self, index: int) -> tuple[int, int, int, int]:
+        red, green, blue = self.colors[index]
+        return red, green, blue, 255
+
+
+@dataclass
+class Sprite:
+    width: int
+    height: int
+    pos_x: int
+    pos_y: int
+    rgba: bytes  # height * width * 4, top-to-bottom
+
+
+def decode_trans_sprite(container: bytes, palette: Palette) -> Sprite:
+    if len(container) < 8:
+        raise ImageError("sprite container smaller than header")
+    height, width, raw_y, raw_x = struct.unpack_from("<hhhh", container, 0)
+    if width <= 0 or height <= 0 or width > 4096 or height > 4096:
+        raise ImageError(f"implausible sprite size {width}x{height}")
+
+    # DFET hard-codes 512x384 screen space for these two fields.
+    pos_y = 384 // 2 - raw_y
+    pos_x = 512 // 2 - raw_x
+
+    pixels = bytearray(width * height * 4)
+    src = 8
+    dst = 0
+    row = 0
+    while row < height:
+        if src + 2 > len(container):
+            raise ImageError(f"row {row}: missing segment size")
+        segment_size = struct.unpack_from("<h", container, src)[0]
+        src += 2
+        if segment_size < 0 or src + segment_size > len(container):
+            raise ImageError(f"row {row}: segment overruns container")
+        end = src + segment_size
+        row_end = (row + 1) * width * 4
+        while src < end:
+            flag = container[src]
+            src += 1
+            copy = flag >> 2
+            if dst + copy * 4 > row_end:
+                # A few Dust sprites overrun the row by a pixel; clip.
+                copy = max(0, (row_end - dst) // 4)
+            if flag & 1:
+                if flag & 2:
+                    for _ in range(copy):
+                        if src >= end:
+                            raise ImageError(f"row {row}: mode-4 ran out of input")
+                        pixels[dst : dst + 4] = palette.rgba(container[src])
+                        src += 1
+                        dst += 4
+                else:
+                    pixels[dst : dst + copy * 4] = b"\x00" * (copy * 4)
+                    dst += copy * 4
+            elif flag & 2:
+                if src >= end:
+                    raise ImageError(f"row {row}: mode-repeat ran out of input")
+                color = palette.rgba(container[src])
+                src += 1
+                for _ in range(copy):
+                    pixels[dst : dst + 4] = color
+                    dst += 4
+            else:
+                prev = dst - width * 4
+                if prev < 0:
+                    raise ImageError(f"row {row}: copy-from-previous on first row")
+                pixels[dst : dst + copy * 4] = pixels[prev : prev + copy * 4]
+                dst += copy * 4
+        row += 1
+        # If a row ended short, leave the rest transparent and continue.
+        dst = row * width * 4
+
+    return Sprite(width=width, height=height, pos_x=pos_x, pos_y=pos_y, rgba=bytes(pixels))
+
+
+def write_png(path: Path, sprite: Sprite) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image = Image.frombytes("RGBA", (sprite.width, sprite.height), sprite.rgba)
+    image.save(path, format="PNG")
+
+
+def pup_palette(header: bytes) -> Palette:
+    return Palette.from_container(header, 58)
+
+
+def cst_palette(header: bytes) -> Palette:
+    return Palette.from_container(header, 36)
+
+
+def find_palette(data: bytes) -> Palette | None:
+    """Find a 256-entry ColorPalette by incrementing index 0,1,2."""
+    limit = len(data) - 24
+    for offset in range(0, min(limit, 4096), 2):
+        if (
+            struct.unpack_from("<h", data, offset)[0] == 0
+            and struct.unpack_from("<h", data, offset + 8)[0] == 1
+            and struct.unpack_from("<h", data, offset + 16)[0] == 2
+        ):
+            try:
+                return Palette.from_container(data, offset)
+            except ImageError:
+                continue
+    return None
+
+
+@dataclass
+class IndexedImage:
+    width: int
+    height: int
+    pixels: bytes  # 8-bit indices, top-to-bottom
+    z_pixels: bytes | None = None
+
+
+def decode_indexed_image(
+    container: bytes, prior: bytes | None = None
+) -> IndexedImage:
+    """Port of DFET getRawImageData (SET / MOV / some FLT stills).
+
+    DFET reuses one decode buffer and does not clear it. Skip spans
+    (mode 2 / row param 10) keep whatever was already there — usually
+    the previous frame in the same movie or walk cycle.
+    """
+    if len(container) < 6:
+        raise ImageError("indexed image smaller than header")
+    height, width = struct.unpack_from("<hh", container, 0)
+    if width <= 0 or height <= 0 or width > 2048 or height > 2048:
+        raise ImageError(f"implausible indexed size {width}x{height}")
+
+    total = height * width
+    if prior is not None and len(prior) == total:
+        out = bytearray(prior)
+    else:
+        out = bytearray(total)
+    src = 4
+    dst = 0
+    look = 0
+
+    def need(n: int) -> None:
+        if src + n > len(container):
+            raise ImageError("indexed image ran out of input")
+
+    for _row in range(height):
+        need(1)
+        param = container[src] >> 2
+        src += 1
+        filled = 0
+
+        if param == 1:
+            need(width)
+            out[dst : dst + width] = container[src : src + width]
+            src += width
+            dst += width
+            filled = width
+        if param <= 5:
+            look = width * (6 - param)
+        elif param <= 9:
+            look = width * (5 - param)
+        elif param == 10:
+            filled = width
+            dst += width
+        elif param <= 14:
+            look = width * (15 - param)
+            _copy_back(out, dst, look, width)
+            dst += width
+            filled = width
+        elif param <= 18:
+            look = width * (14 - param)
+            _copy_back(out, dst, look, width)
+            dst += width
+            filled = width
+        else:
+            raise ImageError(f"unknown row param {param}")
+
+        while filled < width:
+            need(1)
+            control = container[src]
+            src += 1
+            mode = control & 7
+            count = control >> 3
+            if count == 0:
+                need(1)
+                count = 32 + container[src]
+                src += 1
+            if count <= 0 or dst + count > total:
+                raise ImageError(f"bad span count {count} at dst {dst}")
+
+            if mode == 2:
+                pass
+            elif mode == 3:
+                _copy_back(out, dst, look, count)
+            elif mode == 4:
+                prev = out[dst - 1] if dst else 0
+                out[dst : dst + count] = bytes([prev]) * count
+            elif mode == 5:
+                need(count)
+                out[dst : dst + count] = container[src : src + count]
+                src += count
+            elif mode == 6:
+                need(1)
+                out[dst : dst + count] = bytes([container[src]]) * count
+                src += 1
+            elif mode == 7:
+                need(2)
+                back = struct.unpack_from("<H", container, src)[0]
+                src += 2
+                _copy_back(out, dst, back, count)
+            elif mode in (0, 1):
+                src = _decode_delta_span(
+                    container, src, out, dst, count, mode, look
+                )
+            else:
+                raise ImageError(f"unknown span mode {mode}")
+
+            filled += count
+            dst += count
+
+    z_pixels = None
+    if src < len(container) and src + height * 2 <= len(container):
+        try:
+            z_pixels = _decode_z(container, src, width, height)
+        except ImageError:
+            z_pixels = None
+
+    return IndexedImage(width=width, height=height, pixels=bytes(out), z_pixels=z_pixels)
+
+
+def _copy_back(out: bytearray, dst: int, offset: int, count: int) -> None:
+    if offset <= 0 or dst - offset < 0:
+        # Leave zeros (new buffer) when there is no previous row/image.
+        return
+    start = dst - offset
+    out[dst : dst + count] = out[start : start + count]
+
+
+def _decode_delta_span(
+    src_data: bytes,
+    src: int,
+    out: bytearray,
+    dst: int,
+    count: int,
+    mode: int,
+    look: int,
+) -> int:
+    """Port of DFET getRawImageData modes 000 / 001.
+
+    Flag bits live in a 4-byte little-endian word, matching DFET's
+    `uint32_t flags` byte poking (`flags+3` is the first input byte).
+    """
+    out_i = 0
+    single = 1
+    if mode == 0:
+        if src >= len(src_data):
+            raise ImageError("delta span missing literal")
+        out[dst] = src_data[src]
+        src += 1
+        out_i = 1
+    else:
+        single = look
+
+    if count <= out_i:
+        return src
+
+    fb = bytearray(4)
+    for i in range(4):
+        fb[3 - i] = src_data[src + i] if src + i < len(src_data) else 0
+    src += 2
+    bit_pos = 16
+
+    def u32() -> int:
+        return fb[0] | (fb[1] << 8) | (fb[2] << 16) | (fb[3] << 24)
+
+    def set_u32(value: int) -> None:
+        value &= 0xFFFFFFFF
+        fb[0] = value & 0xFF
+        fb[1] = (value >> 8) & 0xFF
+        fb[2] = (value >> 16) & 0xFF
+        fb[3] = (value >> 24) & 0xFF
+
+    while out_i < count:
+        flags = u32()
+        first = 0
+        bit = 0x80000000
+        for i in range(15, -1, -1):
+            if flags & bit:
+                first = i
+                break
+            bit >>= 1
+
+        prev_i = dst + out_i - single
+        prev = out[prev_i] if 0 <= prev_i < len(out) else 0
+
+        if first == 0xF:
+            out[dst + out_i] = prev
+            bit_pos -= 1
+            set_u32(flags << 1)
+        elif first < 0x8:
+            mixed = (fb[2] + prev) & 0xFF
+            fb[2] = mixed
+            out[dst + out_i] = mixed
+            bit_pos -= 16
+            set_u32(u32() << 16)
+        else:
+            difference = 15 - first
+            if flags & (1 << (first + 15)):
+                out[dst + out_i] = (prev + difference) & 0xFF
+            else:
+                out[dst + out_i] = (prev - difference) & 0xFF
+            bit_pos -= difference + 2
+            set_u32(flags << (difference + 2))
+
+        if bit_pos < 0:
+            shift = -bit_pos
+            set_u32(u32() >> shift)
+            src += 2
+            fb[1] = src_data[src] if src < len(src_data) else 0
+            fb[0] = src_data[src + 1] if src + 1 < len(src_data) else 0
+            set_u32(u32() << shift)
+            bit_pos += 16
+        out_i += 1
+
+    if bit_pos >= 8:
+        src -= 1
+    return src
+
+
+def write_indexed_png(path: Path, image: IndexedImage, palette: Palette) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rgba = bytearray(image.width * image.height * 4)
+    for i, index in enumerate(image.pixels):
+        red, green, blue, alpha = palette.rgba(index)
+        rgba[i * 4 : i * 4 + 4] = (red, green, blue, alpha)
+    Image.frombytes("RGBA", (image.width, image.height), bytes(rgba)).save(
+        path, format="PNG"
+    )
+
+
+def _decode_z(container: bytes, src: int, width: int, height: int) -> bytes:
+    total = width * height
+    zbuf = bytearray(total)
+    table = src
+    data_start = src + height * 2
+    dst = 0
+    for row in range(height):
+        offset = struct.unpack_from("<H", container, table + row * 2)[0]
+        ptr = data_start + offset
+        if ptr >= len(container):
+            raise ImageError("z-scanline offset out of range")
+        segs = container[ptr]
+        ptr += 1
+        for _ in range(segs):
+            if ptr + 2 > len(container):
+                raise ImageError("z-scanline truncated")
+            count = container[ptr]
+            value = container[ptr + 1]
+            ptr += 2
+            if dst + count > total:
+                raise ImageError("z-buffer overrun")
+            zbuf[dst : dst + count] = bytes([value]) * count
+            dst += count
+    return bytes(zbuf)
