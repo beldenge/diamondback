@@ -15,15 +15,15 @@
 - Standard HTML and CSS for game menus (later slices).
 - Three.js for all gameplay.
 - Save state will eventually live in `localStorage` with export/import. **Deferred** — not in slice 1.
-- Original extracted PNG frames and WAV dialogue/SFX may be loaded as-is in the browser client (no upscale). Town geometry is rebuilt (graybox now, later meshes), not projected from original SET/MOV backgrounds.
+- Original extracted PNG frames and WAV dialogue/SFX may be loaded as-is in the browser client (no upscale). Outdoor town is first rebuilt as original SET stills (tile + facing). A later toggle will free-roam the **same** SET graph (255 units/tile), not a second hand-authored map.
 
 ## 4. High-Level Architecture
 Hybrid: modern free-roam first-person 3D over the original’s tile/scene + scripted-interaction model.
 
 | System | Role | Slice 1 |
 |---|---|---|
-| **World** | Graybox Diamondback (streets + ~20 building shells). Walkable outdoors. SET grids/waypoints become the later source of truth for doors and spawn points. | Yes — recognizable layout as far as current sources allow |
-| **Player / input** | Pointer-lock look + WASD + click-to-interact (raycast). | Yes |
+| **World** | Authoritative SET graph (tiles, facings, transitions, doors, waypoints). Stills mode walks that graph and blits 512×264 frames. Free-roam later uses the same coordinates. | Outdoor TOWN/NITE stills (52 filmed tiles). Graybox at `?mode=free`. Interiors later |
+| **Player / input** | Stills: arrow / WASD / click on the 512×264 plate. Free-roam: pointer-lock look + WASD + raycast. | Yes |
 | **Time / quest** | Discrete clock like the original: `day`, `clock` (time-of-day slot), `phase`. Advances on **sleep or scripted events only**, not a continuous sun timer. Lighting follows the current slot. | Yes — clock + lighting; sleep/event hook; no full quest graph |
 | **Entities / NPCs** | Transform, schedule, memory flags, dialogue tree ref, sprite or mesh. | No |
 | **Dialogue** | Hand-authored JSON graphs (Speak / Choice / Condition / Action). Character memory persists. First ports: Jones + Help. | No |
@@ -44,7 +44,8 @@ To be written as TypeScript interfaces when the code lands. Expected first types
 Original boot defaults (from extracted `_BOOTFILE`): `day = 1`, `clock = 2`, `phase = 1`.
 
 ## 6. Prioritized Vertical Slices / Epics
-1. **Graybox town + free-roam + event-driven day/night** — playable empty Diamondback; lighting tied to `clock`; time advances only via sleep or scripted events.
+1. **Graybox town + free-roam + event-driven day/night** — shipped as `?mode=free`. Layout is still inferred; not SET-backed.
+1b. **Outdoor stills walker** — default `/`. TOWN + NITE from extract; 225-cell table, 52 filmed tiles; spawn O7 north. Doors / interiors later. Same graph is the free-roam toggle’s future source of truth. Playback rules: [`src/world/set/README.md`](src/world/set/README.md).
 2. **Puppet system + Jones + Help + memory flags** — hand-ported JSON dialogue; extracted face/body frames + WAV.
 3. **Inventory + early Day 1 progression** — bone/dog, lodging, cash path (blackjack later if needed).
 4. *(TBD)*
@@ -77,11 +78,11 @@ The remake still **hand-ports** dialogue and does **not** interpret
 DreamFactory `.txt` at runtime (§2). The extract is the reference for
 that port, plus PNG/WAV the browser may load as-is.
 
-**Layout:** SET grids/waypoints/door scripts are extracted under
-`out/SET/_TOWN/` (and interiors). Slice 1’s graybox was built from
-walkthrough + SET *names* + box art and has **not** been rewired to
-those JSON files yet. Use the extract when the graybox is wrong, not
-as a prerequisite to scaffolding.
+**Layout:** SET grids/waypoints/door scripts live under `out/SET/_TOWN/`
+and `_NITE/` (225 scenes, 15×15, 52 filmed tiles). Default stills mode
+reads `scenes.json` + `transitions.json` + `FRAMES/{frame0}_{offset}.png`.
+Graybox (`?mode=free`) still uses inferred AABBs. Early dumps only had
+rows G–O (129 scenes); the extractor now keeps the full A–O table.
 
 ## 8. Agent Working Agreements
 - Document decisions and pertinent details as we progress (this file, especially §10).
@@ -89,17 +90,19 @@ as a prerequisite to scaffolding.
 - Keep changes scoped to the current slice. Do not add save, menus, or dialogue until that slice.
 
 ## 9. Current Status & Next Actions
-Slice 1 is playable: Vite + TypeScript + Three.js + Vitest, graybox Diamondback, free-roam FPS, event-driven clock + lighting.
+Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
+Graybox is `?mode=free` only.
 
-- `npm test` — unit tests (time, layout, collision, interact)
-- `npm run dev` — http://localhost:5173
-- Sleep: enter the hotel (north of the saloon, south door) and click the bed. Clock is discrete; sleep always wakes next morning.
-- Debug query (not a menu): `?view=street` or `?view=hotel`, and `?clock=1|2|3`.
-- Layout in the running app is still inferred (walkthrough + SET names + box-art aerial). `TOWN.SET` is now extracted (`dfextract/out/SET/_TOWN/`) but the graybox does not read it yet.
+- `npm test` — unit tests (time, SET graph / HQ lookup, layout, collision)
+- `npm run dev` — http://localhost:5173 (needs `dfextract/out/SET/_TOWN` + `_NITE`)
+- Spawn: Scene O7 facing north. **N** swaps day/night stills; does not change `day`.
+- Sleep exists only in graybox: hotel bed north of the saloon. Clock is discrete; sleep always wakes next morning.
+- Debug query: `?clock=1|2|3`. Free-roam also has `?view=street` or `?view=hotel`.
+- How strips, HQ, G11, the loader, and skip-holes work: [`src/world/set/README.md`](src/world/set/README.md).
 - Extractor setup: [`dfextract/README.md`](dfextract/README.md). The remake does not run that tool.
-- npm package / repo name: `diamondback`. The local folder may still be `dust-threejs` until renamed on disk.
+- npm package / repo name: `diamondback`.
 
-**Next:** slice 2 — puppet system + Jones + Help, hand-ported JSON dialogue.
+**Next:** interiors / doors on the same SET graph, then Jones/Help. Do not inpaint remaining still holes.
 
 ## 10. Decision Log
 
@@ -123,3 +126,13 @@ Slice 1 is playable: Vite + TypeScript + Three.js + Vitest, graybox Diamondback,
 | 2026-08-18 | Do not publish original game binaries or extract output. Mac manual stays local. |
 | 2026-08-18 | `dfextract/` is the Dust extractor. DFET output is not kept or used as a test oracle. |
 | 2026-08-18 | Extractor lives at repo-root `dfextract/` (moved off `tools/`). |
+| 2026-08-18 | Outdoor world: original SET stills first; later free-roam toggle shares the same SET graph (255 units/tile). This pass is town day + night only; interiors later. |
+| 2026-08-18 | SET grid reader takes the longest well-formed table. TOWN/NITE/TARGET are 225 scenes (A–O), not the 129-cell G–O suffix. |
+| 2026-08-18 | Default play mode is SET stills (tile + facing). Graybox lives at `?mode=free`. |
+| 2026-08-18 | Walk strips: play 5 motion frames, then the *landing* pose HQ. Container `+5` is the *from* HQ on walks — playing it snaps you back. |
+| 2026-08-18 | Standing HQ = outgoing walk `+5`, else clockwise/right-turn `+5` (G11 dead-end). A turn that *ends* here is the other facing’s from-still. |
+| 2026-08-18 | Town spawn is O7 facing north (south gate). |
+| 2026-08-18 | Show landing HQ immediately (Dust delayed ~500 ms). Queue one input while busy; hold-to-repeat after a step. |
+| 2026-08-18 | Texture loader: max 3 inflight, current strip high-priority. Uncapped prefetch froze input after idle. |
+| 2026-08-18 | SET frames are `FRAMES/{frame0}_{offset}.png`. Container IDs overlap (O7→N7 walk and an N7 turn both use 1640). Decode each strip from a clean prior. |
+| 2026-08-19 | Remaining skip-holes (O7 north ox skull) stay as extracted. NITE is a different film, not a prior for TOWN. Do not invent filler. |

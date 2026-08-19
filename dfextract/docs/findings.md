@@ -38,7 +38,9 @@ stills.
 - CST actor table at `0x938` works on EXTRA, GANG, TARGET, MINE.
 - SND v1 name table and loop playlist decode (`anvil` at 22050 Hz).
 - SET grid at the **end** of container 0; APOTH 3×3 matches the blog
-  diagram (A2/B2/C2 walkable).
+  diagram (A2/B2/C2 walkable). TOWN/NITE/TARGET also have a valid
+  **suffix** table (129 scenes, rows G–O). The real table is 225
+  (15×15, A1–O15). We keep the longest well-formed candidate.
 - SET header `+30` = framelist container, `+34` = waypoint container,
   `+8` = framelist count (blog’s “offset 16” was off by 4 once you drop
   the block prefix).
@@ -71,6 +73,10 @@ WAV, ~30,000 PNG after SET/MOV, and all playable SET / FLT / PRP / MOV.
 1. **SET/MOV stills reuse the previous framebuffer** (DFET does not
    clear its decode buffer). Walk cycles and Yunni-box open/close need
    that. A faint right-edge artifact can still appear on some stills.
+   Town strips also **share container IDs** (O7→N7 walk starts at the
+   same id as an N7 turn’s last frame). Decoding all containers once
+   in framelist order made mid-walk frames look black/speckled. Each
+   strip is now decoded on its own and written as `<frame0>_<offset>.png`.
 2. **`MOVIES/ZUNUSED/`** (11 files) are not `LPPALPPA`. Skipped.
 3. **Z-buffers** for SET stills are parsed when they look valid but not
    written out.
@@ -79,6 +85,12 @@ WAV, ~30,000 PNG after SET/MOV, and all playable SET / FLT / PRP / MOV.
 5. Old un-namespaced folders (`out/_JENIX`, …) and old flat
    `FRAMES/frame_N.png` under PRP may remain from early runs. Canonical
    PRP art is `FRAMES/<Item>/<state>/`.
+6. Pre-fix `out/SET/_TOWN` dumps may only have rows G–O in
+   `scenes.json`. Re-run `--scripts --type set` on TOWN/NITE/TARGET.
+7. Some stills have **skip-coded holes** (mode 2 on a fresh prior).
+   O7 facing north, day: black patch in the ox-skull sign. `_NITE` films
+   the skull; that is a different strip, not a prior for the day still.
+   Do not inpaint. Re-dump after any decode change; do not invent pixels.
 
 ## License
 

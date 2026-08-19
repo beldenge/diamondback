@@ -31,7 +31,7 @@ first PUP-only runs. Those are stale. Use `out/PUP/_JENIX`.
 | In-world body / walk sprites | `CST/_EXTRA/…` extras; `CST/_GANG/…` named people |
 | Location map + hotspots | `SET/_<PLACE>/scenes.json` |
 | NPC / item stand points | `SET/_<PLACE>/waypoints.json` |
-| Walk / turn filmstrips | `SET/_<PLACE>/transitions.json` + `FRAMES/frame_<id>.png` |
+| Walk / turn filmstrips | `SET/_<PLACE>/transitions.json` + `FRAMES/<frame0>_<offset>.png` |
 | Door / click logic for a tile | `SET/_<PLACE>/Scene A2.txt` (name from `scenes.json`) |
 | Town / night outdoor map | `SET/_TOWN`, `SET/_NITE` |
 | Puzzle UI + logic | `FLT/_<PUZZLE>/` scripts + `frame_*.png` |
@@ -108,9 +108,12 @@ No scripts. Folder stem matches the `.SND` file (`TOWN.SND` → `_TOWN`).
 | `transitions.json` | One walk/turn filmstrip. Fields: `x_from`, `y_from`, `dir_from`, `x_to`, `y_to`, `dir_to`, `dir_*_name` (`N/S/E/W`), `frame0` (first of 6 stills) |
 | `Boot Script.txt` | Set-level script (cursor defaults, etc.) if present |
 | `<Scene name>.txt` | Per-tile script **only if** that container actually holds a `code` script (blocked tiles are often empty) |
-| `FRAMES/frame_<id>.png` | 512×264 walk/turn still. IDs `frame0` … `frame0+5` per transition (5 motion + 1 hold) |
+| `FRAMES/<frame0>_<offset>.png` | 512×264 walk/turn still. One file per strip slot (`0`…`5`). Container IDs can overlap two strips, so we do **not** share `frame_<id>.png`. On walks, slot `5` is the **from**-pose HQ; the remake plays `0`–`4` then looks up the dest HQ separately ([`src/world/set/README.md`](../../src/world/set/README.md)). |
 
-Important sets: `_TOWN` and `_NITE` (same 129-cell outdoor grid, day/night), interiors `_APOTH`, `_BANK`, `_STORE`, `_SALLOWER`, `_JAIL`, … `_HUB` is the underground Yunni maze.
+Important sets: `_TOWN` and `_NITE` (same 225-cell / 15×15 outdoor grid,
+day/night; 52 walkable tiles), interiors `_APOTH`, `_BANK`, `_STORE`,
+`_SALLOWER`, `_JAIL`, … `_HUB` is the underground Yunni maze. `_TARGET`
+is the town grid with only the range tiles walkable.
 
 ### `FLT/_<PUZZLE>/`
 
@@ -177,7 +180,7 @@ Inventory close-ups are `INVEN/*.MOV` → `_APPLE`, `_GUN`, `_BADGE`, … Story/
 }
 ```
 
-Stills for that turn: `FRAMES/frame_45.png` … `frame_50.png`.
+Stills for that turn: `FRAMES/45_0.png` … `45_5.png`.
 
 `props.json` element:
 

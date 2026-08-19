@@ -12,9 +12,16 @@ npm test
 npm run dev
 ```
 
-Open http://localhost:5173 — click to look, WASD to walk, hotel bed to sleep until morning.
+Open http://localhost:5173 — **original stills** (the real Diamondback views).
 
-Optional: `?view=street` or `?view=hotel`, and `?clock=1|2|3` (morning / afternoon / night).
+- **← →** or **A/D** — turn
+- **↑** or **W** — walk forward
+- **N** — day ↔ night stills (does not change the day number)
+- Click the left / right / top of the picture to turn or walk
+
+Graybox free-roam (the old 3D boxes): http://localhost:5173/?mode=free
+
+Optional: `?clock=1|2|3` (morning / afternoon / night). Free-roam also has `?view=street` or `?view=hotel`.
 
 ## Extract original assets
 
@@ -26,4 +33,6 @@ Original CD / DOSBox tree, extracted PNG/WAV, and `dfextract` output stay on dis
 
 ## Spec
 
-Decisions, slices, and the asset pipeline: [`SPEC.md`](SPEC.md).
+Decisions, slices, and the asset pipeline: [`SPEC.md`](SPEC.md). How the
+town stills actually play (strips, HQ, G11, dump holes):
+[`src/world/set/README.md`](src/world/set/README.md).

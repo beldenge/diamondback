@@ -108,34 +108,67 @@ def write_set_extract(
 
 
 def _read_grid(header: bytes) -> list[SetScene]:
-    scenes: list[SetScene] = []
-    # Grid is at the end: scene_count then count * 32-byte records.
+    """Scene table at the end of container 0.
+
+    Layout: ``i32 count`` then ``count`` 32-byte records. A *suffix* of a
+    real table can look like a smaller grid (TOWN/NITE/TARGET: 129 rows
+    G–O sitting inside the real 225-cell A–O map). Take the longest
+    well-formed candidate, not the first.
+    """
+    best: list[SetScene] | None = None
     for count in range(1, 513):
         start = len(header) - count * 32
         if start < 4:
             break
         if struct.unpack_from("<i", header, start - 4)[0] != count:
             continue
-        first_len = header[start + 12]
-        if not (1 <= first_len <= 15):
+        scenes = _parse_scene_records(header, start, count)
+        if scenes is None:
             continue
-        for index in range(count):
-            rec = header[start + index * 32 : start + (index + 1) * 32]
-            x, y, inter, unk_c, blocked, unk_e = struct.unpack_from("<hhhhhh", rec, 0)
-            scenes.append(
-                SetScene(
-                    x=x,
-                    y=y,
-                    interact=inter,
-                    unknown_c=unk_c,
-                    blocked=blocked,
-                    unknown_e=unk_e,
-                    name=pascal_string(rec, 12),
-                    script_container=struct.unpack_from("<i", rec, 28)[0],
-                )
+        if best is None or len(scenes) > len(best):
+            best = scenes
+    if best is None:
+        raise DFError("could not locate SET scene grid")
+    return best
+
+
+def _parse_scene_records(header: bytes, start: int, count: int) -> list[SetScene] | None:
+    if start < 0 or start + count * 32 > len(header):
+        return None
+    scenes: list[SetScene] = []
+    seen: set[tuple[int, int]] = set()
+    scene_like = 0
+    for index in range(count):
+        rec = header[start + index * 32 : start + (index + 1) * 32]
+        name_len = rec[12]
+        if not (0 <= name_len <= 15):
+            return None
+        x, y, inter, unk_c, blocked, unk_e = struct.unpack_from("<hhhhhh", rec, 0)
+        if not (0 <= x <= 63 and 0 <= y <= 63):
+            return None
+        if (x, y) in seen:
+            return None
+        seen.add((x, y))
+        name = pascal_string(rec, 12)
+        if "scene" in name.lower():
+            scene_like += 1
+        scenes.append(
+            SetScene(
+                x=x,
+                y=y,
+                interact=inter,
+                unknown_c=unk_c,
+                blocked=blocked,
+                unknown_e=unk_e,
+                name=name,
+                script_container=struct.unpack_from("<i", rec, 28)[0],
             )
-        return scenes
-    raise DFError("could not locate SET scene grid")
+        )
+    if not scenes:
+        return None
+    if scene_like * 2 < count:
+        return None
+    return scenes
 
 
 def _read_waypoints(df: DFFile, container_id: int) -> list[SetWaypoint]:
@@ -206,40 +239,48 @@ def _write_set_scripts(df: DFFile, scenes: list[SetScene], out_dir: Path) -> int
     return written
 
 
+def strip_frame_name(frame0: int, offset: int) -> str:
+    """One PNG per (strip, offset). Container IDs overlap across strips."""
+    return f"{frame0}_{offset}.png"
+
+
 def _write_set_frames(df: DFFile, transitions: list[SetTransition], out_dir: Path) -> int:
     palette = find_palette(df.containers[0].data)
     if palette is None:
         return 0
     frame_dir = out_dir / "FRAMES"
     written = 0
-    seen: set[int] = set()
-    prior: bytes | None = None
-    prior_size: tuple[int, int] | None = None
     for tr in transitions:
+        # Each filmstrip is a delta sequence. Do not reuse the previous
+        # strip's framebuffer: adjacent records can share a container
+        # (O7→N7 walk starts at the same id as an N7 turn's last frame).
+        prior: bytes | None = None
+        prior_size: tuple[int, int] | None = None
         for offset in range(6):
             frame_id = tr.frame0 + offset
-            if frame_id in seen or frame_id < 0 or frame_id >= len(df.containers):
+            if frame_id < 0 or frame_id >= len(df.containers):
+                prior = None
+                prior_size = None
                 continue
-            seen.add(frame_id)
             data = df.containers[frame_id].data
             if len(data) < 16:
+                prior = None
+                prior_size = None
                 continue
-            dest = frame_dir / f"frame_{frame_id}.png"
+            dest = frame_dir / strip_frame_name(tr.frame0, offset)
             try:
                 image = decode_indexed_image(data, prior)
             except ImageError:
                 prior = None
                 prior_size = None
                 continue
-            if prior_size != (image.width, image.height):
-                # Size change: retry from a clean buffer once.
-                if prior is not None:
-                    try:
-                        image = decode_indexed_image(data, None)
-                    except ImageError:
-                        prior = None
-                        prior_size = None
-                        continue
+            if prior_size is not None and prior_size != (image.width, image.height):
+                try:
+                    image = decode_indexed_image(data, None)
+                except ImageError:
+                    prior = None
+                    prior_size = None
+                    continue
             write_indexed_png(dest, image, palette)
             prior = image.pixels
             prior_size = (image.width, image.height)

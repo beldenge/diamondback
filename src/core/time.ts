@@ -15,6 +15,21 @@ export function isNight(clock: ClockSlot): boolean {
   return clock === 3;
 }
 
+/**
+ * Debug / preview flip between night and the last daytime slot.
+ * Does not advance `day` — that stays a sleep / scripted-event thing.
+ */
+export function toggleDayNight(
+  clock: ClockSlot,
+  lastDayClock: ClockSlot = 2,
+): { clock: ClockSlot; lastDayClock: ClockSlot } {
+  if (isNight(clock)) {
+    const daySlot: ClockSlot = isNight(lastDayClock) ? 2 : lastDayClock;
+    return { clock: daySlot, lastDayClock: daySlot };
+  }
+  return { clock: 3, lastDayClock: clock };
+}
+
 /** Sleep at the hotel: always wake on the next day's morning. */
 export function advanceSleep(day: number, clock: ClockSlot): { day: number; clock: ClockSlot } {
   if (day < 1) {

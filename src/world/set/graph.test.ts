@@ -1,0 +1,129 @@
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+import { buildSetGraph, holdFrame, hqFrame, resolveSpawn, sceneByName } from "./graph";
+import {
+  applyTransition,
+  stillClickInput,
+  stepPose,
+  transitionForInput,
+  turnFacing,
+} from "./walker";
+import { framesToPlay, type SceneRecord, type TransitionRecord } from "./types";
+
+const fixtureScenes: SceneRecord[] = [
+  { x: 0, y: 1, interact: 0, unknown_c: 0, blocked: 0, unknown_e: 0, name: "Scene B1", script_container: 0 },
+  { x: 1, y: 1, interact: 1, unknown_c: 0, blocked: 0, unknown_e: 0, name: "Scene B2", script_container: 0 },
+];
+
+const fixtureTrans: TransitionRecord[] = [
+  {
+    x_from: 0, y_from: 1, dir_from: 3, x_to: 1, y_to: 1, dir_to: 3,
+    dir_from_name: "E", dir_to_name: "E", frame0: 10,
+  },
+  {
+    x_from: 0, y_from: 1, dir_from: 3, x_to: 0, y_to: 1, dir_to: 2,
+    dir_from_name: "E", dir_to_name: "S", frame0: 20,
+  },
+  {
+    x_from: 0, y_from: 1, dir_from: 1, x_to: 0, y_to: 1, dir_to: 3,
+    dir_from_name: "N", dir_to_name: "E", frame0: 30,
+  },
+];
+
+describe("set graph", () => {
+  it("indexes camera tiles from the framelist, not blocked flags", () => {
+    const graph = buildSetGraph(fixtureScenes, fixtureTrans);
+    expect(graph.cameraTiles.has("0,1")).toBe(true);
+    expect(graph.cameraTiles.has("1,1")).toBe(true);
+    expect(sceneByName(graph, "scene b2")?.x).toBe(1);
+  });
+
+  it("prefers an in-place turn for the hold still", () => {
+    const graph = buildSetGraph(fixtureScenes, fixtureTrans);
+    expect(holdFrame(graph, { x: 0, y: 1, facing: "E" })).toEqual({ frame0: 30, offset: 5 });
+  });
+
+  it("uses the walk-from 6th frame as the HQ still of that pose", () => {
+    const graph = buildSetGraph(fixtureScenes, fixtureTrans);
+    expect(hqFrame(graph, { x: 0, y: 1, facing: "E" })).toEqual({ frame0: 10, offset: 5 });
+  });
+});
+
+describe("walker", () => {
+  const graph = buildSetGraph(fixtureScenes, fixtureTrans);
+
+  it("turns left/right the way Dust arrow keys do", () => {
+    expect(turnFacing("N", "left")).toBe("W");
+    expect(turnFacing("N", "right")).toBe("E");
+    expect(turnFacing("E", "right")).toBe("S");
+  });
+
+  it("steps east when facing east", () => {
+    expect(stepPose({ x: 0, y: 1, facing: "E" })).toEqual({ x: 1, y: 1, facing: "E" });
+  });
+
+  it("resolves a filmed walk and a filmed turn", () => {
+    const walk = transitionForInput(graph, { x: 0, y: 1, facing: "E" }, "forward");
+    expect(walk?.frame0).toBe(10);
+    expect(applyTransition(walk!)).toEqual({ x: 1, y: 1, facing: "E" });
+
+    const turn = transitionForInput(graph, { x: 0, y: 1, facing: "E" }, "right");
+    expect(turn?.dirTo).toBe("S");
+    expect(turn?.xTo).toBe(0);
+  });
+
+  it("returns nothing when that step was never filmed", () => {
+    expect(transitionForInput(graph, { x: 0, y: 1, facing: "W" }, "forward")).toBeUndefined();
+  });
+
+  it("plays five motion frames for both walks and turns", () => {
+    const walk = transitionForInput(graph, { x: 0, y: 1, facing: "E" }, "forward");
+    const turn = transitionForInput(graph, { x: 0, y: 1, facing: "E" }, "right");
+    expect(walk).toBeDefined();
+    expect(turn).toBeDefined();
+    expect(framesToPlay(walk!)).toBe(5);
+    expect(framesToPlay(turn!)).toBe(5);
+  });
+
+  it("maps still clicks to turn / walk", () => {
+    expect(stillClickInput(0.05, 0.5)).toBe("left");
+    expect(stillClickInput(0.95, 0.5)).toBe("right");
+    expect(stillClickInput(0.5, 0.2)).toBe("forward");
+    expect(stillClickInput(0.5, 0.8)).toBeNull();
+    expect(stillClickInput(-0.1, 0.2)).toBeNull();
+  });
+});
+
+describe("extracted TOWN graph", () => {
+  const scenesPath = resolve("dfextract/out/SET/_TOWN/scenes.json");
+  const transPath = resolve("dfextract/out/SET/_TOWN/transitions.json");
+
+  it("has 52 filmed tiles and a hold still at the K7 fallback spawn", () => {
+    if (!existsSync(scenesPath) || !existsSync(transPath)) {
+      return;
+    }
+    const scenes = JSON.parse(readFileSync(scenesPath, "utf8")) as SceneRecord[];
+    const records = JSON.parse(readFileSync(transPath, "utf8")) as TransitionRecord[];
+    const graph = buildSetGraph(scenes, records);
+    expect(scenes).toHaveLength(225);
+    expect(graph.cameraTiles.size).toBe(52);
+    const spawn = resolveSpawn(graph);
+    expect(spawn).toEqual({ x: 6, y: 14, facing: "N" });
+    expect(hqFrame(graph, spawn)).toEqual({ frame0: 1640, offset: 5 });
+  });
+
+  it("picks G11 dead-end HQs from the right-turn strip, not a turn that ends here", () => {
+    if (!existsSync(scenesPath) || !existsSync(transPath)) {
+      return;
+    }
+    const scenes = JSON.parse(readFileSync(scenesPath, "utf8")) as SceneRecord[];
+    const records = JSON.parse(readFileSync(transPath, "utf8")) as TransitionRecord[];
+    const graph = buildSetGraph(scenes, records);
+    const g11 = { x: 10, y: 6 };
+    expect(hqFrame(graph, { ...g11, facing: "E" })).toEqual({ frame0: 362, offset: 5 });
+    expect(hqFrame(graph, { ...g11, facing: "N" })).toEqual({ frame0: 356, offset: 5 });
+    expect(hqFrame(graph, { ...g11, facing: "S" })).toEqual({ frame0: 368, offset: 5 });
+    expect(hqFrame(graph, { ...g11, facing: "W" })).toEqual({ frame0: 379, offset: 5 });
+  });
+});

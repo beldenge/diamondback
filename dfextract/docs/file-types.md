@@ -130,7 +130,9 @@ palette                           @ ~80
 ### Scene grid (end of container 0)
 
 Last `count * 32` bytes, where `i32` immediately before that run equals
-`count`. Each 32-byte scene:
+`count`. A **suffix** of a real table can look like a smaller grid
+(TOWN/NITE/TARGET: 129 records for rows G–O). We take the **longest**
+well-formed candidate. Each 32-byte scene:
 
 ```
 i16 x, y
@@ -181,9 +183,12 @@ containers `frame0 … frame0+5`. Codec: indexed still
 ([images.md](images.md)). 512×264.
 
 We write `scenes.json`, `waypoints.json`, `transitions.json`, boot +
-per-scene scripts, and `FRAMES/frame_<id>.png`.
+per-scene scripts, and `FRAMES/<frame0>_<offset>.png` (decode each
+6-frame strip from a clean prior; do not share one PNG per container).
 
-TOWN.SET / NITE.SET: 129 scenes, 526 transitions, 2838 frames each.
+TOWN.SET / NITE.SET: 225 scenes (15×15, A1–O15), 52 walkable, 526
+transitions, 2838 frames each. TARGET.SET uses the same 225-cell table
+with a smaller walkable subset (shooting-range overlay).
 
 ## FLT — puzzle “flats”
 

@@ -118,6 +118,14 @@ when walking a SET transition or a MOV in container order. Without
 that, Yunni-box open/close stills fail and walk cycles lose temporal
 cohesion.
 
+SET strips that share a container id must **not** share that buffer or
+a single `frame_<id>.png` (O7→N7 walk and an N7 turn both touch 1640).
+Each strip starts from a clean prior; files are `{frame0}_{offset}.png`.
+
+Skip on a clean prior is a **black hole**, not missing art we can
+recover. `_NITE` is a second filming, not a prior for `_TOWN`. The
+O7-north ox-skull hole stays. Do not inpaint.
+
 ## How to identify a still vs a sprite vs audio
 
 | First bytes | Typical size | Codec |

@@ -106,13 +106,13 @@ legal checkers moves from `playcheckers.txt` alone.
 
 | Missing | Why it matters |
 |---|---|
-| How a 6-frame SET transition is **timed** / blended | Movement feel |
+| How a 6-frame SET transition is **timed** / blended | Outdoor walker is filled: 5 motion @ ~12 fps, then dest HQ immediately. Dust delayed HQ ~500 ms. Exact `DF.EXE` tick not proven. See [`src/world/set/README.md`](../../src/world/set/README.md). |
 | Z-buffers (parsed, not written) | Sprite occlusion against stills |
 | MOV click-row masks (mostly empty `0x28` fills) | Inspectable cursor polish only — see session notes |
 | Face `animLogic` (integer on each PUP line, not exported) | Mouth / viseme sync |
 | UI chrome (bevel art, inventory layout, cursors) | `setcursor ("touch")` does not include the bitmap |
-| Day/night: `_TOWN` vs `_NITE` pairing | Same grid, two still sets; transition movies `D2MD2A` etc. |
-| Camera / FOV / 512×264 vs 512×384 | Scripts use raw `pointx` numbers |
+| Day/night: `_TOWN` vs `_NITE` pairing | Same 225-cell / 52-camera graph; remake swaps still folders on **N**. Day-change movies (`D2MD2A`, …) not wired. |
+| Camera / FOV / 512×264 vs 512×384 | Scripts use raw `pointx` numbers. Outdoor stills are 512×264. |
 
 **Fill this with:** assets + play. Scripts tell you *that* a walk
 happens, not the frame rate.

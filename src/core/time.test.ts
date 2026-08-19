@@ -7,6 +7,7 @@ import {
   isClockSlot,
   isNight,
   LIGHTING_BY_CLOCK,
+  toggleDayNight,
 } from "./time";
 import { createInitialState, scriptedTimePass, sleep } from "./state";
 
@@ -29,6 +30,22 @@ describe("clock slots", () => {
     expect(CLOCK_LABELS[1]).toBe("Morning");
     expect(CLOCK_LABELS[2]).toBe("Afternoon");
     expect(CLOCK_LABELS[3]).toBe("Night");
+  });
+});
+
+describe("toggleDayNight", () => {
+  it("sends afternoon or morning to night and remembers the day slot", () => {
+    expect(toggleDayNight(2)).toEqual({ clock: 3, lastDayClock: 2 });
+    expect(toggleDayNight(1)).toEqual({ clock: 3, lastDayClock: 1 });
+  });
+
+  it("returns from night to the remembered morning or afternoon", () => {
+    expect(toggleDayNight(3, 1)).toEqual({ clock: 1, lastDayClock: 1 });
+    expect(toggleDayNight(3, 2)).toEqual({ clock: 2, lastDayClock: 2 });
+  });
+
+  it("falls back to afternoon if the remembered slot is night", () => {
+    expect(toggleDayNight(3, 3)).toEqual({ clock: 2, lastDayClock: 2 });
   });
 });
 
