@@ -1,7 +1,7 @@
 # dfextract documentation
 
 This folder documents the Dust-only DreamFactory extractor in
-`tools/dfextract/`. It is written so a person who has never seen this
+`dfextract/`. It is written so a person who has never seen this
 session can reproduce the extract, understand every offset we rely on,
 and know what is still wrong.
 

@@ -13,7 +13,7 @@ if str(HERE) not in sys.path:
 from container import read_df_file
 from prp import parse_prp_catalog
 
-REPO = HERE.parents[1]
+REPO = HERE.parent
 DUST = REPO / "sources" / "dust.dbgl" / "dosroot" / "0" / "dust" / "DUSTCD"
 INVEN = DUST / "DATA" / "INVEN.PRP"
 CHECKERS = DUST / "CHECKERS" / "CHECKERS.PRP"

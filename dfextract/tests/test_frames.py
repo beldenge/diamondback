@@ -18,7 +18,7 @@ from cst import write_cst_frames
 from image import decode_trans_sprite, pup_palette
 from pup import write_pup_frames
 
-REPO = HERE.parents[1]
+REPO = HERE.parent
 DUST = REPO / "sources" / "dust.dbgl" / "dosroot" / "0" / "dust"
 BOLIVAR = DUST / "DUSTCD" / "PUPPETS" / "BOLIVAR.PUP"
 EXTRA = DUST / "DUSTCD" / "DATA" / "EXTRA.CST"

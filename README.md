@@ -18,7 +18,7 @@ Optional: `?view=street` or `?view=hotel`, and `?clock=1|2|3` (morning / afterno
 
 ## Extract original assets
 
-You need a local Dust install under `sources/dust.dbgl/`. Then see [`tools/dfextract/README.md`](tools/dfextract/README.md). Output goes to `tools/dfextract/out/` and is **not** committed.
+You need a local Dust install under `sources/dust.dbgl/`. Then see [`dfextract/README.md`](dfextract/README.md). Output goes to `dfextract/out/` and is **not** committed.
 
 ## Not in git
 

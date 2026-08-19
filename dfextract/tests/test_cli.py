@@ -52,7 +52,7 @@ class TestCliDefaults(unittest.TestCase):
 
     def test_collect_respects_type_filter(self) -> None:
         puppets = (
-            HERE.parents[1]
+            HERE.parent
             / "sources"
             / "dust.dbgl"
             / "dosroot"

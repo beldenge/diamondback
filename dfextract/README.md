@@ -81,7 +81,7 @@ of Dust in that layout (or pass the folder as an argument; see Flags).
 From the **repo root**:
 
 ```
-cd tools\dfextract
+cd dfextract
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
@@ -99,7 +99,7 @@ directly:
 macOS / Linux (from the repo root):
 
 ```
-cd tools/dfextract
+cd dfextract
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
@@ -111,7 +111,7 @@ your user site-packages also works; the only runtime dependency is
 Pillow.
 
 No flags means **everything**: all types, scripts + audio + frames, from
-the Dust tree above. Output is `tools/dfextract/out/` (created if needed).
+the Dust tree above. Output is `dfextract/out/` (created if needed).
 
 ### 4. What a successful run looks like
 
@@ -119,7 +119,7 @@ The first line is on the order of:
 
 ```
 Extracting scripts, audio, frames from 411 file(s) [boot, cst, flt, mov, prp, pup, set, snd]
-Output: …\tools\dfextract\out
+Output: …\dfextract\out
 ```
 
 Then one `OK` line per file. Eleven `MOVIES/ZUNUSED/` files are skipped
@@ -147,7 +147,7 @@ is the supported way to get a clean dump.
 Existing **PNGs are not overwritten**, so a half-finished `out/` will
 resume and keep old frames. For a true rebuild, delete first.
 
-From `tools/dfextract/` (PowerShell):
+From `dfextract/` (PowerShell):
 
 ```
 Remove-Item -Recurse -Force .\out -ErrorAction SilentlyContinue

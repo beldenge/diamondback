@@ -9,7 +9,7 @@ This page is the inventory, flags, tests, and expected scale.
 
 - Windows, macOS, or Linux
 - Python 3.11+ (3.14 was used here) — install steps in the README
-- Pillow (`pip install -r tools/dfextract/requirements.txt`)
+- Pillow (`pip install -r dfextract/requirements.txt`)
 - The Dust CD / DOSBox install already in this repo:
 
 ```
@@ -41,7 +41,7 @@ inside container 0 is **1** (Titanic is 4).
 
 ## Run it
 
-From `tools/dfextract/`:
+From `dfextract/`:
 
 ```
 pip install -r requirements.txt
@@ -49,7 +49,7 @@ python cli.py
 ```
 
 No flags means **everything**: all types, scripts + audio + frames, from
-the Dust tree above. Output defaults to `tools/dfextract/out/`.
+the Dust tree above. Output defaults to `dfextract/out/`.
 
 Flags only **narrow** the run:
 

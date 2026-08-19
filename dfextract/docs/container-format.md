@@ -85,7 +85,7 @@ We do the opposite: Dust-only.
 ## How to walk a file by hand
 
 ```
-python -c "import sys; sys.path.insert(0, r'tools/dfextract');
+python -c "import sys; sys.path.insert(0, r'dfextract');
 from pathlib import Path
 from container import read_df_file
 df = read_df_file(Path(r'sources/dust.dbgl/dosroot/0/dust/DUSTCD/PUPPETS/JENIX.PUP'))

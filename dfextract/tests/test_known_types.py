@@ -15,7 +15,7 @@ from container import read_df_file
 from cst import extract_cst
 from snd import extract_snd
 
-REPO = HERE.parents[1]
+REPO = HERE.parent
 DUST = REPO / "sources" / "dust.dbgl" / "dosroot" / "0" / "dust"
 BOOTFILE = DUST / "WIN31" / "DUST" / "BOOTFILE"
 EXTRA_CST = DUST / "DUSTCD" / "DATA" / "EXTRA.CST"

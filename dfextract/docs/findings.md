@@ -10,7 +10,7 @@ Its Dust SET and MOV paths **hard-fail** unless container-0 version is
 4. It has no FLT or PRP handler.
 
 This tool **replaces DFET for Dust**. It is CLI-only, GPL-3 where it
-ports DFET codecs, and lives in `tools/dfextract/` so it does not
+ports DFET codecs, and lives in `dfextract/` so it does not
 infect the remake tree. We do not keep or test against DFET output.
 
 ## Sources we used
@@ -63,7 +63,7 @@ stills.
 | Script encoder | Yes | No (not needed for the remake) |
 | GUI | Yes | CLI only |
 
-`tools/dfextract/out` (2026-08-18): 39 puppets, ~640 script txt, ~4,300
+`dfextract/out` (2026-08-18): 39 puppets, ~640 script txt, ~4,300
 WAV, ~30,000 PNG after SET/MOV, and all playable SET / FLT / PRP / MOV.
 
 ## Limits (do not pretend these are done)
@@ -83,7 +83,7 @@ WAV, ~30,000 PNG after SET/MOV, and all playable SET / FLT / PRP / MOV.
 ## License
 
 DFET is GPL-3. The script decoder, ADPCM tables, and both image codecs
-are derivative of that library. Keep `tools/dfextract/` isolated.
+are derivative of that library. Keep `dfextract/` isolated.
 Extracted game assets are Cyberflix data, not GPL.
 
 ## Suggested next work (not extraction)

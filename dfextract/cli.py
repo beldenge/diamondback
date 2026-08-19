@@ -341,7 +341,7 @@ def _extract_snd(path: Path, dest: Path, kinds: tuple[str, ...]) -> dict[str, in
 
 
 def _default_dust_roots() -> list[Path]:
-    repo = HERE.parents[1]
+    repo = HERE.parent
     dust = repo / "sources" / "dust.dbgl" / "dosroot" / "0" / "dust"
     candidates = [
         dust / "DUSTCD",

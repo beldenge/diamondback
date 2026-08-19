@@ -15,7 +15,7 @@ from image import decode_indexed_image, find_palette
 from mov import is_audio_container
 from set import extract_set_metadata, looks_like_script
 
-REPO = HERE.parents[1]
+REPO = HERE.parent
 DUST = REPO / "sources" / "dust.dbgl" / "dosroot" / "0" / "dust" / "DUSTCD"
 APOTH = DUST / "DATA" / "APOTH.SET"
 CHECKERS_FLT = DUST / "CHECKERS" / "CHECKERS.FLT"

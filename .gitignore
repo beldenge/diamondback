@@ -17,5 +17,4 @@ venv/
 # Original game media and extracts — keep local, do not publish
 sources/dust.dbgl/
 sources/*.pdf
-tools/dfextract/out/
-tools/dfextract/out-backup/
+dfextract/out/
