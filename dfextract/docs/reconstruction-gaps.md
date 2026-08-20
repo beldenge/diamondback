@@ -106,7 +106,8 @@ legal checkers moves from `playcheckers.txt` alone.
 
 | Missing | Why it matters |
 |---|---|
-| How a 6-frame SET transition is **timed** / blended | Outdoor walker is filled: 5 motion @ ~12 fps, then dest HQ immediately. Dust delayed HQ ~500 ms. Exact `DF.EXE` tick not proven. See [`src/world/set/README.md`](../../src/world/set/README.md). |
+| How a 6-frame SET transition is **timed** / blended | Outdoor walker: 5 motion @ ~24 fps, then dest HQ immediately. Dust delayed HQ ~500 ms. Exact `DF.EXE` tick not proven. See [`src/world/set/README.md`](../../src/world/set/README.md). |
+| How stills are **stored at runtime** | Dump is RGBA PNG (~115 MB town). Dust’s SET is ~60 MB of 8-bit deltas into one 135 KB buffer. Do not assume 1.7 GB (all frames as RGBA textures). HTTP-per-PNG + 80-texture LRU is what the walker does now. |
 | Z-buffers (parsed, not written) | Sprite occlusion against stills |
 | MOV click-row masks (mostly empty `0x28` fills) | Inspectable cursor polish only — see session notes |
 | Face `animLogic` (integer on each PUP line, not exported) | Mouth / viseme sync |

@@ -73,8 +73,9 @@ A file is a Dust container if bytes `32:40` are `LPPALPPA`. Files that
 fail that check (the 11 items in `MOVIES/ZUNUSED/`) are skipped, not
 treated as hard errors.
 
-Frames that already exist as PNG are not rewritten, so you can resume a
-killed run.
+MOV/PRP frames that already exist as PNG are not rewritten (resume a
+killed run). **SET** frames are always overwritten — re-run
+`--type set --frames` after a decode or palette change.
 
 ## Output layout
 
@@ -94,7 +95,7 @@ out/SET/_APOTH/waypoints.json
 out/SET/_APOTH/transitions.json
 out/SET/_APOTH/Boot Script.txt
 out/SET/_APOTH/Scene A2.txt
-out/SET/_APOTH/FRAMES/frame_50.png
+out/SET/_APOTH/FRAMES/45_0.png
 out/FLT/_CHECKERS/playcheckers.txt
 out/FLT/_CHECKERS/frame_3.png
 out/PRP/_INVEN/props.json
@@ -120,6 +121,9 @@ These assume the Dust CD tree is present. Checks include:
 - EXTRA.CST has Jenix `code resetactor ()` and writes `stand/frame_195.png`
 - TOWN.SND decodes `anvil` at 22050 Hz
 - APOTH.SET grid is the 3×3 from the mrxstudios blog
+- TOWN/NITE/TARGET grids are 225 cells (A–O), not the 129-cell G–O suffix
+- SET stills are `{frame0}_{offset}.png` (O7→N7 walk and an N7 turn both use 1640)
+- Palette 255 is white on stills (O7 skull); L7 west→north wall is not sky
 - NITEFOUN.MOV and APOTH container 45 decode to 512×264 stills
 
 ## Expected scale of a full run
@@ -134,6 +138,6 @@ A complete `python cli.py` (scripts + audio + frames) produces roughly:
 | PNG | ~30,000+ once SET/MOV stills are included |
 | SET JSON | 105 (`scenes` / `waypoints` / `transitions` × 35) |
 
-TOWN.SET and NITE.SET alone write 2,838 walk frames each. INTRO3.MOV
-wrote 1,465 frames. Budget disk and time accordingly (the SET/MOV pass
-was ~15 minutes here).
+TOWN.SET and NITE.SET write **3,155** stills each (`{frame0}_{offset}.png`).
+INTRO3.MOV wrote 1,465 frames. Budget disk and time accordingly (the
+SET/MOV pass was ~15 minutes here).

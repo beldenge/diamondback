@@ -95,6 +95,47 @@ describe("walker", () => {
   });
 });
 
+describe("interior scene transpose", () => {
+  it("transposes a 3-cell shop so C2 sits on the filmed tile", () => {
+    const scenes: SceneRecord[] = [
+      { x: 1, y: 0, interact: 1, unknown_c: 0, blocked: 0, unknown_e: 0, name: "Scene A2", script_container: 0 },
+      { x: 1, y: 1, interact: 1, unknown_c: 0, blocked: 0, unknown_e: 0, name: "Scene B2", script_container: 0 },
+      { x: 1, y: 2, interact: 1, unknown_c: 0, blocked: 0, unknown_e: 0, name: "Scene C2", script_container: 0 },
+    ];
+    const records: TransitionRecord[] = [
+      {
+        x_from: 0, y_from: 1, dir_from: 3, x_to: 1, y_to: 1, dir_to: 3,
+        dir_from_name: "E", dir_to_name: "E", frame0: 1,
+      },
+      {
+        x_from: 1, y_from: 1, dir_from: 3, x_to: 2, y_to: 1, dir_to: 3,
+        dir_from_name: "E", dir_to_name: "E", frame0: 2,
+      },
+    ];
+    const graph = buildSetGraph(scenes, records);
+    expect(sceneByName(graph, "scene c2")).toEqual(expect.objectContaining({ x: 2, y: 1 }));
+    expect(graph.cameraTiles.has("2,1")).toBe(true);
+  });
+});
+
+describe("extracted interior graphs", () => {
+  it("spawns APOTH C2 on the filmed graph", () => {
+    const scenesPath = resolve("dfextract/out/SET/_APOTH/scenes.json");
+    const transPath = resolve("dfextract/out/SET/_APOTH/transitions.json");
+    if (!existsSync(scenesPath) || !existsSync(transPath)) {
+      return;
+    }
+    const scenes = JSON.parse(readFileSync(scenesPath, "utf8")) as SceneRecord[];
+    const records = JSON.parse(readFileSync(transPath, "utf8")) as TransitionRecord[];
+    const graph = buildSetGraph(scenes, records);
+    const c2 = sceneByName(graph, "scene c2");
+    expect(c2).toBeDefined();
+    expect(graph.cameraTiles.has(`${c2!.x},${c2!.y}`)).toBe(true);
+    expect(c2).toEqual(expect.objectContaining({ x: 2, y: 1 }));
+    expect(hqFrame(graph, { x: c2!.x, y: c2!.y, facing: "W" })).toBeDefined();
+  });
+});
+
 describe("extracted TOWN graph", () => {
   const scenesPath = resolve("dfextract/out/SET/_TOWN/scenes.json");
   const transPath = resolve("dfextract/out/SET/_TOWN/transitions.json");

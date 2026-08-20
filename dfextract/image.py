@@ -41,6 +41,20 @@ class Palette:
         red, green, blue = self.colors[index]
         return red, green, blue, 255
 
+    def still_rgba(self, index: int) -> tuple[int, int, int, int]:
+        """RGB for SET/MOV/FLT stills.
+
+        DFET's BMP writer hard-codes VGA ends: index 0 black, index 255
+        white. Dust stores 255 as (0,0,0) and 0 as unused (-1,-1,-1);
+        using the stored 255 turns the O7 ox skull into a black hole.
+        Transparent sprites keep ``rgba`` (no VGA override).
+        """
+        if index == 0:
+            return 0, 0, 0, 255
+        if index == 255:
+            return 255, 255, 255, 255
+        return self.rgba(index)
+
 
 @dataclass
 class Sprite:
@@ -266,11 +280,20 @@ def decode_indexed_image(
 
 
 def _copy_back(out: bytearray, dst: int, offset: int, count: int) -> None:
-    if offset <= 0 or dst - offset < 0:
-        # Leave zeros (new buffer) when there is no previous row/image.
-        return
+    """Copy ``count`` pixels from ``dst - offset``.
+
+    ``offset`` is a (possibly negative) look-back. DFET does
+    ``memcpy(dst, dst - lookUpOffset, count)``. When ``lookUpOffset`` is
+    negative this reads *ahead* into pixels not yet overwritten — the
+    previous framebuffer's later rows. Treating negative look as "do
+    nothing" left those spans as stale/wrong indices (sky speckles on
+    the L7 sheriff wall).
+    """
     start = dst - offset
-    out[dst : dst + count] = out[start : start + count]
+    end = start + count
+    if count <= 0 or start < 0 or end > len(out) or dst + count > len(out):
+        return
+    out[dst : dst + count] = bytes(out[start:end])
 
 
 def _decode_delta_span(
@@ -368,7 +391,7 @@ def write_indexed_png(path: Path, image: IndexedImage, palette: Palette) -> None
     path.parent.mkdir(parents=True, exist_ok=True)
     rgba = bytearray(image.width * image.height * 4)
     for i, index in enumerate(image.pixels):
-        red, green, blue, alpha = palette.rgba(index)
+        red, green, blue, alpha = palette.still_rgba(index)
         rgba[i * 4 : i * 4 + 4] = (red, green, blue, alpha)
     Image.frombytes("RGBA", (image.width, image.height), bytes(rgba)).save(
         path, format="PNG"

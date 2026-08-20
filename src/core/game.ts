@@ -9,26 +9,46 @@ import { PlayerController } from "../player/controls";
 import { pickInteractable } from "../player/interact";
 import {
   frameUrl,
+  framesFolder,
   hqFrame,
+  loadSetGraph,
   loadTownGraph,
   poseLabel,
   resolveSpawn,
+  sceneByName,
+  WORLD_TOWN,
 } from "../world/set/graph";
 import type { SetGraph } from "../world/set/types";
 import { StillsView } from "../world/set/stillsView";
 import {
   applyTransition,
   stillClickInput,
+  stillClickPixel,
   transitionForInput,
   type WalkInput,
 } from "../world/set/walker";
 import { createStillAnim, tickStillAnim, type StillAnim } from "../world/set/playback";
 import {
   STILL_FRAME_SEC,
+  STILL_HEIGHT,
+  STILL_WIDTH,
   framesToPlay,
   type SetTransition,
   type WalkerPose,
 } from "../world/set/types";
+import {
+  closeSfx,
+  doorAt,
+  doorMatchesPose,
+  doorOnPose,
+  goWorld,
+  hitCenter,
+  overlaySprite,
+  sceneNameOf,
+  type DoorDef,
+  type DoorLockCtx,
+} from "../world/set/doors";
+import { playSfx } from "../world/set/sfx";
 import { collisionAabbs, TOWN_LAYOUT } from "../world/layout";
 import { applyLighting, createTownLights, type TownLights } from "../world/lighting";
 import { buildTown, setTownNightWindows } from "../world/town";
@@ -58,11 +78,14 @@ export class Game {
 
   private stills: {
     view: StillsView;
+    world: string;
+    graphs: Map<string, SetGraph>;
     graph: SetGraph;
     pose: WalkerPose;
+    townPose: WalkerPose;
+    openDoor: DoorDef | null;
     anim: StillAnim | null;
     pending: SetTransition | null;
-    queuedInput: WalkInput | null;
     hqGen: number;
     busy: boolean;
   } | null = null;
@@ -98,6 +121,7 @@ export class Game {
     this.syncHud();
 
     canvas.addEventListener("click", (event) => this.onClick(event));
+    canvas.addEventListener("mousemove", (event) => this.onMouseMove(event));
     window.addEventListener("keydown", (event) => this.onKeyDown(event));
     window.addEventListener("keyup", (event) => this.heldKeys.delete(event.code));
     window.addEventListener("blur", () => this.heldKeys.clear());
@@ -154,17 +178,21 @@ export class Game {
       view.layout(window.innerWidth, window.innerHeight);
       this.stills = {
         view,
+        world: WORLD_TOWN,
+        graphs: new Map([[WORLD_TOWN, graph]]),
         graph,
         pose,
+        townPose: pose,
+        openDoor: null,
         anim: null,
         pending: null,
-        queuedInput: null,
         hqGen: 0,
         busy: false,
       };
       await this.showHold();
       this.preloadNeighbors();
-      this.hintEl.textContent = "←/→ or A/D turn · ↑ or W walk · N day/night · ?mode=free for graybox";
+      this.hintEl.textContent =
+        "←/→ turn · ↑ walk · click a door to open, then walk in · N day/night · ?mode=free graybox";
       this.syncHud();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -203,33 +231,7 @@ export class Game {
     }
     const anim = session.anim;
     if (anim) {
-      const nextUrl = anim.urls[anim.index + 1];
-      const waitingOnNext =
-        anim.ready &&
-        nextUrl !== undefined &&
-        anim.elapsed + dt >= STILL_FRAME_SEC &&
-        !session.view.has(nextUrl);
-      if (waitingOnNext) {
-        session.view.preload(anim.urls.slice(anim.index + 1));
-      } else {
-        const step = tickStillAnim(anim, dt, STILL_FRAME_SEC);
-        if (step.frameChanged) {
-          session.view.showCached(anim.urls[anim.index]);
-        }
-        if (step.done) {
-          const tr = session.pending;
-          session.anim = null;
-          session.pending = null;
-          session.busy = false;
-          if (tr) {
-            session.pose = applyTransition(tr);
-          }
-          this.syncHud();
-          this.revealHq();
-          this.preloadNeighbors();
-          this.flushStillsInput();
-        }
-      }
+      this.driveAnim(anim, dt);
     }
     this.renderer.render(session.view.scene, session.view.camera);
   }
@@ -246,22 +248,65 @@ export class Game {
       }
       return;
     }
+    const door = this.doorUnder(event);
+    if (door) {
+      this.clickDoor(door);
+      return;
+    }
     const input = this.clickToInput(event);
     if (input) {
       this.tryMove(input);
     }
   }
 
-  private clickToInput(event: MouseEvent): WalkInput | null {
+  private onMouseMove(event: MouseEvent): void {
+    if (this.mode !== "stills" || !this.stills) {
+      return;
+    }
+    this.canvas.style.cursor = this.doorUnder(event) ? "pointer" : "default";
+  }
+
+  private stillNorm(event: MouseEvent): { nx: number; ny: number } | null {
     const session = this.stills;
     if (!session) {
       return null;
     }
     const bounds = this.canvas.getBoundingClientRect();
     const rect = session.view.stillRect(bounds.width, bounds.height);
-    const nx = (event.clientX - bounds.left - rect.x) / rect.w;
-    const ny = (event.clientY - bounds.top - rect.y) / rect.h;
-    return stillClickInput(nx, ny);
+    if (rect.w <= 0 || rect.h <= 0) {
+      return null;
+    }
+    return {
+      nx: (event.clientX - bounds.left - rect.x) / rect.w,
+      ny: (event.clientY - bounds.top - rect.y) / rect.h,
+    };
+  }
+
+  private doorUnder(event: MouseEvent): DoorDef | undefined {
+    const session = this.stills;
+    const norm = this.stillNorm(event);
+    if (!session || !norm) {
+      return undefined;
+    }
+    const pixel = stillClickPixel(norm.nx, norm.ny, STILL_WIDTH, STILL_HEIGHT);
+    if (!pixel) {
+      return undefined;
+    }
+    return doorAt(
+      session.world,
+      sceneNameOf(session.graph, session.pose.x, session.pose.y),
+      session.pose.facing,
+      pixel.x,
+      pixel.y,
+    );
+  }
+
+  private clickToInput(event: MouseEvent): WalkInput | null {
+    const norm = this.stillNorm(event);
+    if (!norm) {
+      return null;
+    }
+    return stillClickInput(norm.nx, norm.ny);
   }
 
   private onKeyDown(event: KeyboardEvent): void {
@@ -299,27 +344,44 @@ export class Game {
       return;
     }
     if (session.busy) {
-      session.queuedInput = input;
       return;
     }
     session.hqGen += 1;
+    if (input === "forward" && this.openDoorAhead()) {
+      void this.enterOpenDoor();
+      return;
+    }
     const tr = transitionForInput(session.graph, session.pose, input);
     if (!tr) {
       return;
     }
-    void this.playTransition(tr);
+    session.view.hideOverlay();
+    this.playTransition(tr);
   }
 
-  private flushStillsInput(): void {
+  private finishStillMove(): void {
     const session = this.stills;
-    if (!session || session.busy) {
+    if (!session) {
       return;
     }
-    const queued = session.queuedInput;
-    session.queuedInput = null;
-    const input = queued ?? heldWalkInput(this.heldKeys);
-    if (input) {
-      this.tryMove(input);
+    const tr = session.pending;
+    session.anim = null;
+    session.pending = null;
+    session.busy = false;
+    if (tr) {
+      const prev = session.pose;
+      session.pose = applyTransition(tr);
+      if (prev.x !== session.pose.x || prev.y !== session.pose.y) {
+        session.openDoor = null;
+      }
+    }
+    this.syncHud();
+    this.revealHq();
+    this.syncDoorOverlay();
+    this.preloadNeighbors();
+    const held = heldWalkInput(this.heldKeys);
+    if (held) {
+      this.tryMove(held);
     }
   }
 
@@ -332,45 +394,83 @@ export class Game {
     if (frame === undefined) {
       return;
     }
-    const url = frameUrl(isNight(this.state.clock), frame.frame0, frame.offset);
+    const url = frameUrl(this.stillsFolder(), frame.frame0, frame.offset);
     if (session.view.showCached(url)) {
       return;
     }
     void this.showHold();
   }
 
-  private async playTransition(tr: SetTransition): Promise<void> {
+  private playTransition(tr: SetTransition): void {
     const session = this.stills;
     if (!session) {
       return;
     }
     session.busy = true;
     session.pending = tr;
-    const night = isNight(this.state.clock);
-    const urls = transitionUrls(tr, night);
+    const urls = transitionUrls(tr, this.stillsFolder());
+    const dest = applyTransition(tr);
+    const destHq = hqFrame(session.graph, dest);
+    if (destHq) {
+      session.view.preload([frameUrl(this.stillsFolder(), destHq.frame0, destHq.offset)]);
+    }
+    session.view.preload(urls);
     const anim = createStillAnim(urls);
     session.anim = anim;
-    void session.view.ensure(urls);
-    if (!session.view.showCached(urls[0])) {
-      try {
-        await session.view.ensure([urls[0]]);
-      } catch {
-        if (session.anim === anim) {
-          session.anim = null;
-          session.pending = null;
-          session.busy = false;
-          this.flushStillsInput();
+    if (session.view.showCached(urls[0])) {
+      anim.ready = true;
+    } else {
+      void session.view.show(urls[0]).then(() => {
+        if (this.stills?.anim === anim) {
+          anim.ready = true;
+          anim.elapsed = 0;
         }
-        return;
-      }
-      if (session.anim !== anim) {
-        return;
-      }
-      session.view.showCached(urls[0]);
+      });
     }
     this.clock.getDelta();
-    anim.ready = true;
-    this.preloadAround(applyTransition(tr));
+  }
+
+  /** Advance one filmed frame per interval. If a PNG is not ready, wait — never skip. */
+  private driveAnim(anim: StillAnim, dt: number): void {
+    const session = this.stills;
+    if (!session) {
+      return;
+    }
+    const url = anim.urls[anim.index];
+    if (!session.view.cached(url)) {
+      void session.view.show(url).then(() => {
+        if (this.stills?.anim === anim) {
+          anim.ready = true;
+          anim.elapsed = 0;
+        }
+      });
+      return;
+    }
+    if (!anim.ready) {
+      session.view.showCached(url);
+      anim.ready = true;
+      anim.elapsed = 0;
+      return;
+    }
+    const step = tickStillAnim(anim, dt, STILL_FRAME_SEC);
+    if (step.frameChanged) {
+      const next = anim.urls[anim.index];
+      if (session.view.showCached(next)) {
+        anim.ready = true;
+      } else {
+        anim.ready = false;
+        anim.elapsed = 0;
+        void session.view.show(next).then(() => {
+          if (this.stills?.anim === anim) {
+            anim.ready = true;
+            anim.elapsed = 0;
+          }
+        });
+      }
+    }
+    if (step.done) {
+      this.finishStillMove();
+    }
   }
 
   private async showHold(): Promise<void> {
@@ -385,11 +485,12 @@ export class Game {
       this.promptEl.textContent = "No still for this tile";
       return;
     }
-    await session.view.show(frameUrl(isNight(this.state.clock), frame.frame0, frame.offset));
+    await session.view.show(frameUrl(this.stillsFolder(), frame.frame0, frame.offset));
     if (this.stills !== session || session.hqGen !== gen) {
       return;
     }
     this.syncHud();
+    this.syncDoorOverlay();
   }
 
   private preloadNeighbors(): void {
@@ -405,7 +506,7 @@ export class Game {
     if (!session) {
       return;
     }
-    const night = isNight(this.state.clock);
+    const folder = this.stillsFolder();
     const urls: string[] = [];
     const seen = new Set<string>();
     const queue: { pose: WalkerPose; depth: number }[] = [{ pose: origin, depth: 0 }];
@@ -421,7 +522,7 @@ export class Game {
       seen.add(key);
       const hq = hqFrame(session.graph, item.pose);
       if (hq !== undefined) {
-        urls.push(frameUrl(night, hq.frame0, hq.offset));
+        urls.push(frameUrl(folder, hq.frame0, hq.offset));
       }
       if (item.depth >= 1) {
         continue;
@@ -431,7 +532,7 @@ export class Game {
         if (!tr) {
           continue;
         }
-        urls.push(...transitionUrls(tr, night));
+        urls.push(...transitionUrls(tr, folder));
         queue.push({ pose: applyTransition(tr), depth: item.depth + 1 });
       }
     }
@@ -447,9 +548,9 @@ export class Game {
     if (this.stills) {
       this.stills.anim = null;
       this.stills.pending = null;
-      this.stills.queuedInput = null;
       this.stills.hqGen += 1;
       this.stills.busy = false;
+      this.syncDoorOverlay();
       void this.showHold();
       this.preloadNeighbors();
     }
@@ -469,8 +570,162 @@ export class Game {
   private syncHud(): void {
     this.timeEl.textContent = formatTime(this.state.day, this.state.clock);
     if (this.stills) {
-      this.promptEl.textContent = poseLabel(this.stills.graph, this.stills.pose);
+      const label = poseLabel(this.stills.graph, this.stills.pose, this.stills.world);
+      const door = this.doorOnThisPose();
+      this.promptEl.textContent = door
+        ? this.stills.openDoor?.id === door.id
+          ? `${label} · walk in`
+          : `${label} · click to open`
+        : label;
     }
+  }
+
+  private lockCtx(): DoorLockCtx {
+    return {
+      day: this.state.day,
+      clock: this.state.clock,
+      phase: this.state.phase,
+      fightOn: false,
+    };
+  }
+
+  private stillsFolder(): string {
+    const session = this.stills;
+    if (!session) {
+      return "_TOWN";
+    }
+    return framesFolder(session.world, isNight(this.state.clock));
+  }
+
+  private doorOnThisPose(): DoorDef | undefined {
+    const session = this.stills;
+    if (!session) {
+      return undefined;
+    }
+    return doorOnPose(
+      session.world,
+      sceneNameOf(session.graph, session.pose.x, session.pose.y),
+      session.pose.facing,
+    );
+  }
+
+  private openDoorAhead(): DoorDef | null {
+    const session = this.stills;
+    if (!session) {
+      return null;
+    }
+    const scene = sceneNameOf(session.graph, session.pose.x, session.pose.y);
+    if (!doorMatchesPose(session.openDoor, session.world, scene, session.pose.facing)) {
+      return null;
+    }
+    return session.openDoor;
+  }
+
+  private clickDoor(door: DoorDef): void {
+    const session = this.stills;
+    if (!session || session.busy) {
+      return;
+    }
+    if (door.locked(this.lockCtx())) {
+      playSfx(door.knockSound);
+      return;
+    }
+    if (session.openDoor?.id === door.id) {
+      session.openDoor = null;
+      playSfx(closeSfx(door));
+      session.view.hideOverlay();
+      return;
+    }
+    session.openDoor = door;
+    playSfx(door.openSound);
+    this.syncDoorOverlay();
+  }
+
+  private syncDoorOverlay(): void {
+    const session = this.stills;
+    if (!session) {
+      return;
+    }
+    const scene = sceneNameOf(session.graph, session.pose.x, session.pose.y);
+    const door = session.openDoor;
+    if (!door || !doorMatchesPose(door, session.world, scene, session.pose.facing)) {
+      session.view.hideOverlay();
+      return;
+    }
+    const url = overlaySprite(door, isNight(this.state.clock));
+    if (!url) {
+      session.view.hideOverlay();
+      return;
+    }
+    const center = hitCenter(door.hitbox);
+    void session.view.showOverlay(url, center.x, center.y);
+  }
+
+  private async enterOpenDoor(): Promise<void> {
+    const session = this.stills;
+    const door = this.openDoorAhead();
+    if (!session || !door) {
+      return;
+    }
+    session.busy = true;
+    session.view.hideOverlay();
+    try {
+      if (door.go.kind === "town") {
+        const graph = await this.graphFor(WORLD_TOWN);
+        if (this.stills !== session) {
+          return;
+        }
+        session.world = WORLD_TOWN;
+        session.graph = graph;
+        session.pose = { ...session.townPose };
+      } else {
+        const world = goWorld(door.go, isNight(this.state.clock));
+        if (!world) {
+          return;
+        }
+        const graph = await this.graphFor(world);
+        const dest = sceneByName(graph, door.go.scene);
+        if (!dest || !graph.cameraTiles.has(`${dest.x},${dest.y}`)) {
+          throw new Error(`Interior spawn missing (${world} ${door.go.scene})`);
+        }
+        if (this.stills !== session) {
+          return;
+        }
+        if (session.world === WORLD_TOWN) {
+          session.townPose = session.pose;
+        }
+        playSfx(closeSfx(door));
+        session.world = world;
+        session.graph = graph;
+        session.pose = { x: dest.x, y: dest.y, facing: door.go.facing };
+      }
+      session.openDoor = null;
+      session.hqGen += 1;
+      await this.showHold();
+      this.preloadNeighbors();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.hintEl.textContent = message;
+    } finally {
+      if (this.stills === session) {
+        session.busy = false;
+      }
+    }
+  }
+
+  private async graphFor(world: string): Promise<SetGraph> {
+    const session = this.stills;
+    if (!session) {
+      throw new Error("stills session missing");
+    }
+    const hit = session.graphs.get(world);
+    if (hit) {
+      return hit;
+    }
+    const folder = world === WORLD_TOWN ? "_TOWN" : world;
+    const graph = await loadSetGraph(folder);
+    session.graphs.set(world, graph);
+    return graph;
   }
 
   private onResize(): void {
@@ -513,11 +768,11 @@ function keyToInput(code: string): WalkInput | null {
   return null;
 }
 
-function transitionUrls(tr: SetTransition, night: boolean): string[] {
+function transitionUrls(tr: SetTransition, folder: string): string[] {
   const urls: string[] = [];
   const count = framesToPlay(tr);
   for (let i = 0; i < count; i += 1) {
-    urls.push(frameUrl(night, tr.frame0, i));
+    urls.push(frameUrl(folder, tr.frame0, i));
   }
   return urls;
 }

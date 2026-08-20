@@ -28,8 +28,7 @@ plays a 6-container filmstrip, then you stand on another pose.
 
 The 225-cell `scenes.json` table is **not** the walkable graph. Many
 cells are blocked or never filmed. `cameraTiles` is the set of nodes
-that appear as a framelist `from` or `to`. Doors / interiors / NPCs are
-not wired yet.
+that appear as a framelist `from` or `to`.
 
 ---
 
@@ -85,28 +84,35 @@ O7 north spawn HQ is `1640_5.png`.
 
 ---
 
-## Timing, input, and the freeze
+## Timing and input
 
 | Knob | What we use |
 |---|---|
-| Motion rate | `STILL_FRAME_SEC = 1/12` (~12 fps). Close to Dust; not proven from `DF.EXE`. |
-| Hitch policy | Advance **one** frame per interval. Catch-up would skip the walk. |
+| Motion rate | `STILL_FRAME_SEC = 1/24` (~24 fps). Five motion frames ≈ 210 ms. |
+| Hitch policy | Advance **one** frame per interval. Never skip. If a PNG is not ready, hold until it is. |
 | HQ delay | None (original ~500 ms). |
-| Input while busy | Queue **one** command. Ignore key-repeat; first keydown starts the step. |
-| After a step | Flush the queue, else hold-to-repeat from currently held keys. |
+| Input while busy | Ignored. Hold-to-repeat after the step if the key is still down. |
 | Dead / unfilmed move | No-op (no transition in the graph). |
 
-If every neighbor strip prefetched at once, the current walk’s next PNG
-sat behind dozens of HTTP requests and the walker **froze for seconds
-after you were already idle**, then dumped the queued steps. `StillsView`
-caps **3 inflight** loads and prefers `high` (current strip / HQ) over
-`low` (prefetch). Promote a URL if it was queued low and is now needed.
+On keydown the first motion frame paints immediately if it is already
+decoded. While you stand, we prefetch depth-1 neighbors (left / right /
+forward strips + their dest HQs). The rest of the current strip loads
+in the background. If a PNG is missing when the clock wants it, **wait**
+— do not skip. Textures are `ImageBitmap`s; the GPU cache evicts after
+80 stills (~42 MB RGBA). That is not the film: `TOWN.SET` is ~60 MB of
+8-bit deltas; the PNG dump is ~115 MB; keeping every town still as RGBA
+would be ~1.7 GB.
 
-Vite serves extract files at `/extract/…` → `dfextract/out/…`.
+Vite serves extract files at `/extract/…` → `dfextract/out/…` with
+`Cache-Control: no-store` so a re-dump shows up on reload (no
+`?v=` cache-buster).
 
 ---
 
 ## Decode / dump (why frames looked corrupted)
+
+Codec, palette, and sizes: [`dfextract/docs/images.md`](../../../dfextract/docs/images.md).
+Short version of what we hit while walking the town:
 
 Indexed stills are a **delta framebuffer**. Skip spans leave the prior
 pixels. Two extract mistakes produced black / speckled walk frames:
@@ -122,16 +128,24 @@ Fix: decode each strip alone; write `FRAMES/{frame0}_{offset}.png`
 (never `frame_{id}.png` for SET). Re-dump **both** `_TOWN` and `_NITE`
 after that change — it is not an O7-only patch.
 
+**Negative `look`.** Mode 3 copies `dst - look`. `look` can be negative
+(read *ahead* into not-yet-overwritten prior-frame rows). Skipping those
+writes painted sky-blue speckles on the L7 sheriff wall during the
+west→north turn (strip 2866). Copy-ahead is global, not L7-only.
+
+**Palette 255 / cream 2.** DFET’s BMP writer forces index 0 black and
+255 white. Dust stores 255 as `(0,0,0)`. Using the stored value made
+the ox skull a black hole (O7 north HQ `1640_5`, also O8 / N7 south).
+The bone body is index **2** `(217,193,156)`, not dirt. Night uses real
+grays and does not use 255. `_NITE` is a second filming, not a prior
+for `_TOWN`.
+
 ### Remaining holes (do not invent pixels)
 
-Some day stills still have black skip-holes. Example: **O7 facing N**,
-the ox-skull sign. Night (`_NITE`) films the skull correctly. That is a
-**different movie**, not a prior framebuffer for the day still. Feeding
-NITE as `prior=` does not resurrect day pixels. Leave the hole. Do not
-inpaint or invent filler.
-
-A faint right-edge garbage stripe on some stills is a known codec
-limit (`dfextract/docs/images.md`). Same rule: do not post-process.
+Skip-on-fresh-prior stays black. Day-sky index **116** `(102,127,193)`
+in glass/posters, and index **0** dither in some saloon windows, are in
+the film. Right-edge garbage stripe is a known codec limit. Do not
+inpaint or remap those to invented tans/whites.
 
 ---
 
@@ -141,9 +155,74 @@ limit (`dfextract/docs/images.md`). Same rule: do not post-process.
 - **↑** or **W** — walk one filmed block
 - **N** — swap TOWN ↔ NITE stills. Does **not** advance `day`.
 - Click: left 22% turn left, right 22% turn right, top 48% walk.
-  Bottom-center is unused (future door / interact).
+  A door hitbox wins over walk/turn.
+- **Click a door** — if the lock function says openable, overlay the
+  house-prop sprite and play `dooropen*`. Click again to close.
+  Locked doors play `knock*` and stay shut (chin / jail on day 1,
+  most shops at night, mayor except day-3 night).
+- **Walk forward** while that door is open — load the interior SET
+  (or `gototown` back to the street tile you left).
 
-`?clock=1|2|3` still sets the discrete slot. Night (`3`) loads `_NITE`.
+`?clock=1|2|3` still sets the discrete slot. Night (`3`) loads `_NITE`
+on the street; court uses `_NITECOUR`.
+
+---
+
+## Doors and interiors
+
+Dust does **not** walk you through a 3D doorway. The street still is a
+closed door. Click (`pointin*` in 512×264, origin top-left) runs
+`setupprop ("apoth")` etc.: one house-prop overlay + owner flag.
+`closescene` (leaving the tile) calls `initprop` and hides it.
+Forward (`uparrow`) while `propowner ("door")` matches calls
+`gotointerior ("apoth.set")` or `gototown ("west")`.
+
+We hand-port that table in `doors.ts`. We do not interpret DreamFactory
+scripts at runtime.
+
+Shop **facades** are the east/west views on the north–south road (column 7),
+not the G-row “looking down Main Street” stills. Sandbox: every door is
+unlocked. Click a door to open it (click again to close). Walk forward
+while it is open to go in (plays the matching `doorclose*`). Three tiles
+have opposite facades: **L7** jail / curiosities, **E7** hotel / doctor,
+**H7** saloon / stage. Stepping out lands on the door you used, not the
+other face.
+
+| Street pose | What you see | Interior |
+|---|---|---|
+| **I7 E** | Watson’s Apothecary | `_APOTH` |
+| **J7 E** | Bolivar’s Dry Goods | `_STORE` |
+| **H7 W** | Hard Drive Saloon | `_SALLOWER` |
+| **H7 E** | Stagecoach | `_STAGE` |
+| **E7 E** | Cactus Bed Hotel | `_HOTLOWER` |
+| **E7 W** | Dr. Rodham | `_DOCTOR1` |
+| **F7 W** | Bank | `_BANK` |
+| **L7 W** | Sheriff | `_JAIL` |
+| **L7 E** | Curiosities | `_CHIN` |
+| **D7 N** | Mission / court doors | `_COURT` |
+| **D9 W** | Barn / livery | `_LIVERY` |
+| **D4 W** | Cemetery (undertaker) | `_UNDERTAK` |
+| D8 W | Paper (script tile) | `_PAPER` |
+| J4 E | Saloon back door | `_SALLOWER` B4 |
+| J9 E | Mayor (script tile; may be off the filmed graph) | `_MAYHALL` |
+
+From the south gate: walk **north** up the road to the cross (G7). Shops
+are **south** of that (H7, I7, J7 — turn east/west). Hotel / doctor / bank
+are **north** of G7 (E7, F7). Jail / curiosities further south (L7).
+
+Interior scene tables are often **transposed** vs the framelist. `buildSetGraph`
+swaps those names onto filmed cells (225-cell TOWN/NITE/TARGET stay put).
+
+Interior stills use the same 5-motion + dest-HQ walker on that SET’s
+graph. Interiors were re-dumped as `{frame0}_{offset}.png` like town.
+Some interior `setupprop` states (`pharm`, `salout`, …) have no PRP
+PNG; the door still **opens** (state + sound), we just skip the overlay.
+
+Not in this pass: NPCs, sign movies, hotel stairs / room doors,
+mayor gate movie, inventory keys.
+
+`N` inside a building still flips the discrete clock; interior frames
+do not swap (except you entered court at night).
 
 ---
 
@@ -154,16 +233,18 @@ limit (`dfextract/docs/images.md`). Same rule: do not post-process.
 | `types.ts` | Dirs, spawn, frame counts, `framesToPlay` |
 | `graph.ts` | Load SET JSON, `hqFrame` / `holdFrame` / spawn |
 | `walker.ts` | Input → filmed transition |
-| `playback.ts` | One-frame-per-tick strip clock |
-| `stillsView.ts` | Ortho blit + priority texture queue |
+| `playback.ts` | One-frame-per-tick strip clock (no catch-up) |
+| `stillsView.ts` | Ortho blit + texture cache (no priority queue) |
 | `graph.test.ts` | Spawn, G11 HQs, 52 camera tiles |
+| `doors.ts` | Hand-ported hitboxes, locks, SET hops |
+| `sfx.ts` | `UNILIB` knock / door WAVs |
 
 ---
 
-## Still open (outdoor)
+## Still open (outdoor / interiors)
 
-- Interiors, doors, click scripts
+- Nested interior doors (hotel stairs, doctor2, saloon rooms, mayor rooms)
 - NPCs / CST overlays / Z-buffers
 - Free-roam toggle on **this** SET graph (255 units/tile), not graybox
 - Exact original frame timing from `DF.EXE`
-- Right-edge codec stripe
+- Right-edge codec stripe; Yunni-box MOV decode

@@ -39,7 +39,7 @@ function serveExtract(): Connect.NextHandleFunction {
         return;
       }
       res.setHeader("Content-Type", MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream");
-      res.setHeader("Cache-Control", "public, max-age=3600");
+      res.setHeader("Cache-Control", "no-store");
       fs.createReadStream(file).pipe(res);
     });
   };

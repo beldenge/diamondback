@@ -18,6 +18,7 @@ Open http://localhost:5173 — **original stills** (the real Diamondback views).
 - **↑** or **W** — walk forward
 - **N** — day ↔ night stills (does not change the day number)
 - Click the left / right / top of the picture to turn or walk
+- **Click a door**, then walk forward to go inside (if it is openable)
 
 Graybox free-roam (the old 3D boxes): http://localhost:5173/?mode=free
 
@@ -34,5 +35,6 @@ Original CD / DOSBox tree, extracted PNG/WAV, and `dfextract` output stay on dis
 ## Spec
 
 Decisions, slices, and the asset pipeline: [`SPEC.md`](SPEC.md). How the
-town stills actually play (strips, HQ, G11, dump holes):
-[`src/world/set/README.md`](src/world/set/README.md).
+town stills play (strips, HQ, ~24 fps flipbook, doors):
+[`src/world/set/README.md`](src/world/set/README.md). Extract still
+codec and palette: [`dfextract/docs/images.md`](dfextract/docs/images.md).

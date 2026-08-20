@@ -81,8 +81,8 @@ export const TOWN_SPAWN_FALLBACK: WalkerPose = { x: 6, y: 14, facing: "N" };
 
 export const STILL_WIDTH = 512;
 export const STILL_HEIGHT = 264;
-/** 6 filmed frames per step/turn; ~12 fps feels close to Dust. */
-export const STILL_FRAME_SEC = 1 / 12;
+/** 6 filmed frames per step/turn. ~24 fps; 5 motion frames ≈ 210 ms. */
+export const STILL_FRAME_SEC = 1 / 24;
 /** Containers in a framelist record: 5 motion + 1 HQ still. */
 export const FRAMES_PER_TRANSITION = 6;
 

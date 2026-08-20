@@ -53,3 +53,16 @@ export function stillClickInput(nx: number, ny: number): WalkInput | null {
   }
   return null;
 }
+
+/** Dust `pointx` / `pointy` space: 512×264, origin top-left. */
+export function stillClickPixel(
+  nx: number,
+  ny: number,
+  width: number,
+  height: number,
+): { x: number; y: number } | null {
+  if (nx < 0 || nx > 1 || ny < 0 || ny > 1) {
+    return null;
+  }
+  return { x: nx * width, y: ny * height };
+}

@@ -1,10 +1,10 @@
-/** Timed playback of a 6-frame walk/turn. One displayed frame per interval. */
+/** Flipbook: one displayed frame per interval. Never skips ahead. */
 
 export interface StillAnim {
   urls: string[];
   index: number;
   elapsed: number;
-  /** False until the first frame is on screen. Later frames may still be loading. */
+  /** False until the current index is on screen. Clock does not run until then. */
   ready: boolean;
 }
 

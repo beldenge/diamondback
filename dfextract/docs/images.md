@@ -15,6 +15,12 @@ i16 R, G, B     # 8.8 fixed point; we take the high byte
 
 `R == G == B == -1` (`0xFFFF`) means “unused”; we emit black.
 
+SET/MOV/FLT **stills** follow DFET’s BMP VGA ends: index **0 is always
+black**, index **255 is always white**. Dust stores 255 as `(0,0,0)` in
+the ColorPalette; using that value made the O7 ox skull a black hole
+while `_NITE` (which paints the skull with real tan/gray indices) looked
+fine. Transparent sprites (PUP/CST) do **not** apply that override.
+
 Where it lives:
 
 | File | Offset in container 0 |
@@ -93,7 +99,7 @@ Spans: `mode = byte & 7`, `count = byte >> 3`. If `count == 0`,
 | mode | Effect |
 |---|---|
 | 2 | Skip (advance without write; zeros in a fresh buffer) |
-| 3 | Copy `count` from `dst - look` |
+| 3 | Copy `count` from `dst - look` (`look` may be **negative**: read *ahead* into not-yet-overwritten prior-frame rows). Skipping those writes speckled sky onto the L7 sheriff wall. |
 | 4 | Repeat last pixel |
 | 5 | Literal `count` bytes |
 | 6 | Repeat next literal `count` times |
@@ -123,8 +129,41 @@ a single `frame_<id>.png` (O7→N7 walk and an N7 turn both touch 1640).
 Each strip starts from a clean prior; files are `{frame0}_{offset}.png`.
 
 Skip on a clean prior is a **black hole**, not missing art we can
-recover. `_NITE` is a second filming, not a prior for `_TOWN`. The
-O7-north ox-skull hole stays. Do not inpaint.
+recover. `_NITE` is a second filming **and a second palette** (TOWN and
+NITE share only unused 0 and stored-black 255). Feeding NITE as `prior=`
+does not resurrect day pixels. Do not inpaint skip holes.
+
+Day sky in `_TOWN` is index **116** `(102, 127, 193)`. That color in
+window panes / pale posters is in the film. Index **0** (unused → black)
+dithers some saloon glass.
+
+**Ox skull (O7 north, also O8 / N7 south).** Not a skip hole. Highlights
+are index **255** (stored `(0,0,0)`; stills emit white). The bone body is
+index **2** cream `(217, 193, 156)`, not dirt. Night paints the skull
+with real grays and does not use 255.
+
+Tests: `test_still_palette_forces_vga_ends` (O7 `1640_5`),
+`test_l7_turn_wall_is_not_sky` (containers 2866–2871). Re-dump SET
+frames after any decode or palette change (`python cli.py --type set --frames`
+overwrites SET PNGs).
+
+## How big the stills are
+
+Dust kept **one** 512×264 **8-bit** framebuffer (~135 KB) and a ~60 MB
+delta SET (`TOWN.SET`). We expand each strip frame to a full picture and
+write **RGBA** PNG (not paletted).
+
+| Form | Town outdoor (`_TOWN`, 3155 frames) |
+|---|---|
+| `TOWN.SET` on the CD (delta, indexed) | ~60 MB |
+| Our PNG dump (complete frames, RGBA) | ~115 MB |
+| Raw 8-bit indices, every frame resident | ~426 MB |
+| Decoded RGBA / WebGL, every frame resident | ~1.7 GB |
+
+1.7 GB is “all stills as 32-bit textures,” not the film. `_NITE` is
+another ~55 MB SET / ~95 MB PNG. The remake currently fetches PNGs over
+HTTP and keeps ~80 GPU textures. Do not treat RGBA-resident-all as a
+requirement.
 
 ## How to identify a still vs a sprite vs audio
 

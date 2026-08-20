@@ -52,6 +52,18 @@ stills.
   containers mixed in with stills.
 - FLT/PRP are the same container + script token + the two image codecs.
   No new magic.
+- SET strips that share a container id must decode separately
+  (`{frame0}_{offset}.png`). Row `look` may be **negative**; DFET copies
+  ahead into the previous framebuffer (L7 sheriff wall was sky speckles
+  when we no-op’d that).
+- Indexed stills force VGA ends like DFET’s BMP writer: index 0 black,
+  **255 white**. Dust stores 255 as `(0,0,0)`; that was the black ox
+  skull. The bone body is palette index 2 cream. PUP/CST sprites do not
+  use that override.
+- Still **size**: `TOWN.SET` ~60 MB of 8-bit deltas; PNG dump ~115 MB
+  (full frames, RGBA); raw 8-bit all frames ~426 MB; all-resident RGBA
+  ~1.7 GB. Dust held one 512×264 index buffer (~135 KB). `_NITE` is a
+  second SET (~55 MB) and palette, not a prior for `_TOWN`.
 
 ## Comparison with DFET (Dust)
 
@@ -73,10 +85,6 @@ WAV, ~30,000 PNG after SET/MOV, and all playable SET / FLT / PRP / MOV.
 1. **SET/MOV stills reuse the previous framebuffer** (DFET does not
    clear its decode buffer). Walk cycles and Yunni-box open/close need
    that. A faint right-edge artifact can still appear on some stills.
-   Town strips also **share container IDs** (O7→N7 walk starts at the
-   same id as an N7 turn’s last frame). Decoding all containers once
-   in framelist order made mid-walk frames look black/speckled. Each
-   strip is now decoded on its own and written as `<frame0>_<offset>.png`.
 2. **`MOVIES/ZUNUSED/`** (11 files) are not `LPPALPPA`. Skipped.
 3. **Z-buffers** for SET stills are parsed when they look valid but not
    written out.
@@ -87,10 +95,13 @@ WAV, ~30,000 PNG after SET/MOV, and all playable SET / FLT / PRP / MOV.
    PRP art is `FRAMES/<Item>/<state>/`.
 6. Pre-fix `out/SET/_TOWN` dumps may only have rows G–O in
    `scenes.json`. Re-run `--scripts --type set` on TOWN/NITE/TARGET.
-7. Some stills have **skip-coded holes** (mode 2 on a fresh prior).
-   O7 facing north, day: black patch in the ox-skull sign. `_NITE` films
-   the skull; that is a different strip, not a prior for the day still.
-   Do not inpaint. Re-dump after any decode change; do not invent pixels.
+7. Some stills still have **skip-coded holes** (mode 2 on a fresh
+   prior). That is missing source, not a palette bug. Do not inpaint.
+   Re-dump after any decode change.
+8. Day-only blue on glass/posters is often **sky index 116**
+   `(102,127,193)` written into those pixels. Night is a second filming.
+   Index 0 (unused → black) dithers some saloon window panes. Do not
+   remap those to invented tans/whites.
 
 ## License
 

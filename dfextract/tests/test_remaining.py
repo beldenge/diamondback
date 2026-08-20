@@ -88,6 +88,60 @@ class TestRemaining(unittest.TestCase):
         self.assertEqual(strip_frame_name(1640, 0), "1640_0.png")
         self.assertEqual(strip_frame_name(1635, 5), "1635_5.png")
 
+    def test_still_palette_forces_vga_ends(self) -> None:
+        """DFET BMP: index 0 black, 255 white. Stored 255 is (0,0,0);
+        without the override the O7 ox skull dumps as a black hole."""
+        if not TOWN.exists():
+            self.skipTest("TOWN.SET not present")
+        df = read_df_file(TOWN)
+        pal = find_palette(df.containers[0].data)
+        self.assertIsNotNone(pal)
+        self.assertEqual(pal.still_rgba(0)[:3], (0, 0, 0))
+        self.assertEqual(pal.still_rgba(255)[:3], (255, 255, 255))
+        self.assertEqual(pal.rgba(255)[:3], (0, 0, 0))
+        image = decode_indexed_image(df.containers[1640 + 5].data)
+        n255 = sum(1 for p in image.pixels if p == 255)
+        self.assertGreater(n255, 200)
+        # Skull lives in the lower-right; those 255s must paint white.
+        skull = 0
+        for y in range(190, 264):
+            for x in range(380, 512):
+                if image.pixels[y * 512 + x] == 255:
+                    skull += 1
+        self.assertGreater(skull, 100)
+
+    def test_l7_turn_wall_is_not_sky(self) -> None:
+        """L7 west→north motion used to paint sky-blue speckles on the
+        sheriff wall. Negative ``look`` must copy *ahead* into the prior
+        framebuffer (DFET ``dst - lookUpOffset``), not skip the write."""
+        if not TOWN.exists():
+            self.skipTest("TOWN.SET not present")
+        df = read_df_file(TOWN)
+        pal = find_palette(df.containers[0].data)
+        self.assertIsNotNone(pal)
+        sky = {
+            i
+            for i in range(256)
+            if pal.rgba(i)[:3] == (102, 127, 193)
+        }
+        self.assertTrue(sky)
+        prior = None
+        wall = []
+        for offset in range(6):
+            image = decode_indexed_image(df.containers[2866 + offset].data, prior)
+            n = 0
+            for y in range(55, 230):
+                for x in range(0, 175):
+                    if image.pixels[y * 512 + x] in sky:
+                        n += 1
+            wall.append(n)
+            prior = image.pixels
+        # Frame 0 / 5 show real sky beside the building. Motion 1–4 must not.
+        self.assertLess(wall[1], 50)
+        self.assertLess(wall[2], 50)
+        self.assertLess(wall[3], 50)
+        self.assertLess(wall[4], 50)
+
     def test_apoth_writes_per_strip_frames(self) -> None:
         if not APOTH.exists():
             self.skipTest("APOTH.SET not present")

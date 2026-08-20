@@ -29,11 +29,6 @@ export function parseDir(value: number | string): Dir | null {
 }
 
 export function buildSetGraph(scenes: SceneRecord[], records: TransitionRecord[]): SetGraph {
-  const sceneMap = new Map<string, SceneRecord>();
-  for (const scene of scenes) {
-    sceneMap.set(tileKey(scene.x, scene.y), scene);
-  }
-
   const transitions: SetTransition[] = [];
   const byFrom = new Map<string, SetTransition[]>();
   const cameraTiles = new Set<string>();
@@ -65,7 +60,44 @@ export function buildSetGraph(scenes: SceneRecord[], records: TransitionRecord[]
     cameraTiles.add(tileKey(tr.xTo, tr.yTo));
   }
 
+  const aligned = transposeInteriorScenes(scenes, cameraTiles);
+  const sceneMap = new Map<string, SceneRecord>();
+  for (const scene of aligned) {
+    sceneMap.set(tileKey(scene.x, scene.y), scene);
+  }
+
   return { scenes: sceneMap, cameraTiles, transitions, byFrom };
+}
+
+/**
+ * Town / NITE / TARGET (225-cell) framelists use the same axes as the scene
+ * table. Smaller interior SETs often store the framelist transposed. Detect
+ * that by counting how many unblocked scenes land on filmed tiles.
+ */
+export function transposeInteriorScenes(
+  scenes: SceneRecord[],
+  cameraTiles: Set<string>,
+): SceneRecord[] {
+  if (scenes.length >= 200) {
+    return scenes;
+  }
+  let native = 0;
+  let swapped = 0;
+  for (const scene of scenes) {
+    if (scene.blocked) {
+      continue;
+    }
+    if (cameraTiles.has(tileKey(scene.x, scene.y))) {
+      native += 1;
+    }
+    if (cameraTiles.has(tileKey(scene.y, scene.x))) {
+      swapped += 1;
+    }
+  }
+  if (swapped <= native) {
+    return scenes;
+  }
+  return scenes.map((scene) => ({ ...scene, x: scene.y, y: scene.x }));
 }
 
 export function sceneByName(graph: SetGraph, name: string): SceneRecord | undefined {
@@ -155,19 +187,34 @@ export function resolveSpawn(graph: SetGraph): WalkerPose {
   return { ...TOWN_SPAWN_FALLBACK };
 }
 
-export const EXTRACT_SET_JSON = {
-  townScenes: "/extract/SET/_TOWN/scenes.json",
-  townTransitions: "/extract/SET/_TOWN/transitions.json",
-} as const;
+export const WORLD_TOWN = "town";
 
-export async function loadTownGraph(fetchImpl: typeof fetch = fetch): Promise<SetGraph> {
+export function framesFolder(world: string, night: boolean): string {
+  if (world === WORLD_TOWN) {
+    return night ? "_NITE" : "_TOWN";
+  }
+  return world;
+}
+
+export function extractSetUrls(folder: string): { scenes: string; transitions: string } {
+  return {
+    scenes: `/extract/SET/${folder}/scenes.json`,
+    transitions: `/extract/SET/${folder}/transitions.json`,
+  };
+}
+
+export async function loadSetGraph(
+  folder: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<SetGraph> {
+  const urls = extractSetUrls(folder);
   const [scenesRes, transRes] = await Promise.all([
-    fetchImpl(EXTRACT_SET_JSON.townScenes),
-    fetchImpl(EXTRACT_SET_JSON.townTransitions),
+    fetchImpl(urls.scenes),
+    fetchImpl(urls.transitions),
   ]);
   if (!scenesRes.ok || !transRes.ok) {
     throw new Error(
-      `SET extract missing (${scenesRes.status}/${transRes.status}). Run dfextract on TOWN.SET.`,
+      `SET extract missing for ${folder} (${scenesRes.status}/${transRes.status}). Re-dump that SET.`,
     );
   }
   const scenes = (await scenesRes.json()) as SceneRecord[];
@@ -175,13 +222,20 @@ export async function loadTownGraph(fetchImpl: typeof fetch = fetch): Promise<Se
   return buildSetGraph(scenes, transitions);
 }
 
-export function frameUrl(night: boolean, frame0: number, offset: number): string {
-  const folder = night ? "_NITE" : "_TOWN";
+export async function loadTownGraph(fetchImpl: typeof fetch = fetch): Promise<SetGraph> {
+  return loadSetGraph("_TOWN", fetchImpl);
+}
+
+export function frameUrl(folder: string, frame0: number, offset: number): string {
   return `/extract/SET/${folder}/FRAMES/${frame0}_${offset}.png`;
 }
 
-export function poseLabel(graph: SetGraph, pose: WalkerPose): string {
+export function poseLabel(graph: SetGraph, pose: WalkerPose, world: string = WORLD_TOWN): string {
   const scene = graph.scenes.get(tileKey(pose.x, pose.y));
   const name = scene?.name ?? `Tile ${pose.x},${pose.y}`;
-  return `${name} · ${pose.facing}`;
+  if (world === WORLD_TOWN) {
+    return `${name} · ${pose.facing}`;
+  }
+  const place = world.startsWith("_") ? world.slice(1) : world;
+  return `${place} · ${name} · ${pose.facing}`;
 }
