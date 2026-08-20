@@ -418,9 +418,18 @@ def write_indexed_png(path: Path, image: IndexedImage, palette: Palette) -> None
     the palette on load the same way.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
+    _still_pil(image, palette).save(path, format="PNG")
+
+
+def still_rgb24(image: IndexedImage, palette: Palette) -> bytes:
+    """Packed RGB24 for ffmpeg ``-pix_fmt rgb24``, VGA still ends."""
+    return _still_pil(image, palette).convert("RGB").tobytes()
+
+
+def _still_pil(image: IndexedImage, palette: Palette) -> Image.Image:
     png = Image.frombytes("P", (image.width, image.height), image.pixels)
     png.putpalette(palette.still_plte)
-    png.save(path, format="PNG")
+    return png
 
 
 def _decode_z(container: bytes, src: int, width: int, height: int) -> bytes:

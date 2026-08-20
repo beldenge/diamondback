@@ -107,6 +107,7 @@ legal checkers moves from `playcheckers.txt` alone.
 | Missing | Why it matters |
 |---|---|
 | How a 6-frame SET transition is **timed** / blended | Outdoor walker: 5 motion @ ~24 fps, then dest HQ immediately. Dust delayed HQ ~500 ms. Exact `DF.EXE` tick not proven. See [`src/world/set/README.md`](../../src/world/set/README.md). |
+| MOV reel frame rate | INTRO+INTRO2+INTRO3 = 2467 stills ≈ 2:58 wall clock → `--video` uses **14 fps**. Clips start at stills-before / 14 s and overlap (container stream is the cue sheet). Muxed into `movie.mp4`. Boot `framerate (3)` units unknown. |
 | How stills are **stored at runtime** | Dump is paletted PNG (old RGBA dump was ~115 MB town). Dust’s SET is ~60 MB of 8-bit deltas into one 135 KB buffer. Do not assume 1.7 GB (all frames as RGBA textures). HTTP-per-PNG + 80-texture LRU is what the walker does now. |
 | Z-buffers (not decoded on extract, not written) | Sprite occlusion against stills |
 | MOV click-row masks (mostly empty `0x28` fills) | Inspectable cursor polish only — see session notes |

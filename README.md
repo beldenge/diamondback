@@ -20,9 +20,7 @@ Open http://localhost:5173 — **original stills** (the real Diamondback views).
 - Click the left / right / top of the picture to turn or walk
 - **Click a door**, then walk forward to go inside (if it is openable)
 
-Graybox free-roam (the old 3D boxes): http://localhost:5173/?mode=free
-
-Optional: `?clock=1|2|3` (morning / afternoon / night). Free-roam also has `?view=street` or `?view=hotel`.
+Optional: `?clock=1|2|3` (morning / afternoon / night).
 
 ## Extract original assets
 

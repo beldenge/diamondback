@@ -5,8 +5,7 @@ How the remake plays Dust’s filmed town. Extract layout lives in
 **playback** book we filled in while getting Diamondback’s streets to
 match the original stills.
 
-Default URL (`/`) is this walker. Graybox free-roam is `?mode=free` and
-still uses the old inferred AABBs — it does **not** read the SET graph.
+Default URL (`/`) is this walker. There is no free-roam mode yet.
 
 ---
 
@@ -245,6 +244,6 @@ do not swap (except you entered court at night).
 
 - Nested interior doors (hotel stairs, doctor2, saloon rooms, mayor rooms)
 - NPCs / CST overlays / Z-buffers
-- Free-roam toggle on **this** SET graph (255 units/tile), not graybox
+- Free-roam later, on **this** SET graph (255 units/tile), not a second inferred map
 - Exact original frame timing from `DF.EXE`
 - Right-edge codec stripe; Yunni-box MOV decode

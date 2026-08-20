@@ -260,7 +260,15 @@ Then each later container is classified:
 - first token `code` → `script_<i>.txt` (rare)
 - otherwise try indexed still → `FRAMES/frame_<i>.png`
 
-INTRO.MOV: 620 frames, 27 audio clips. INTRO3.MOV: 1465 frames.
+INTRO.MOV: 638 frames, 27 audio clips. INTRO2: 354 frames. INTRO3: 1475
+frames. Those three stills back-to-back are ~2:58 → **14 fps** for
+`--video` (`movie.mp4`). Clips are mixed onto that timeline (overlap when
+they share a still-count). Sidecar WAVs still go under `AUDIO/` with `--audio`.
+
+`--video` encodes **reels** only: `playmovie` / `doamovie` stems, `INFO/`
+attract movies, plus `INTRO3` / `FINALEND`. It does **not** encode
+`INVEN/` inspectables, `spotmovie` overlays, or SET/PUP frames.
+
 Inventory inspectables (`APPLE.MOV`, `GUN.MOV`, …) are 1–3 stills.
 
 `MOVIES/ZUNUSED/*.MOV` are **not** `LPPALPPA` files. They start

@@ -140,7 +140,8 @@ Primary packs: `_INVEN` (carryable items), `_HOUSE` (doors, town dressing), `_CH
 | File | What it is |
 |---|---|
 | `FRAMES/frame_<n>.png` | Cutscene or inspectable still. `<n>` is container index (not necessarily 0-based consecutive) |
-| `AUDIO/clip_<n>.wav` | Voice / SFX in that movie, same index space |
+| `movie.mp4` | Full-screen reel only (`--video`). H.264, 14 fps, AAC. Clips start when their container is reached (overlapping if no still between them). Intros, day-change, death, endings, `INFO/` previews. Not inspectables or `spotmovie` overlays. |
+| `AUDIO/clip_<n>.wav` | Voice / SFX in that movie, same index space. Sidecars from `--audio`; `--video` also mixes them into `movie.mp4`. |
 | `script_<n>.txt` | Rare; only if a container is a `code` script |
 
 Inventory close-ups are `INVEN/*.MOV` → `_APPLE`, `_GUN`, `_BADGE`, … Story/cutscene reels live under `MOVIES/` (`_INTRO`, `_INTRO3`, `_FINALEND`, day-change `D2MD2A`, …).

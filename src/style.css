@@ -52,15 +52,3 @@ body,
   opacity: 0.8;
   text-shadow: 0 1px 4px #000;
 }
-
-#crosshair {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 10px;
-  height: 10px;
-  margin: -5px 0 0 -5px;
-  border: 1px solid rgba(243, 230, 200, 0.85);
-  border-radius: 50%;
-  pointer-events: none;
-}

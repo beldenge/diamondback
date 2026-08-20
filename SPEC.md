@@ -22,9 +22,9 @@ Hybrid: modern free-roam first-person 3D over the original’s tile/scene + scri
 
 | System | Role | Slice 1 |
 |---|---|---|
-| **World** | Authoritative SET graph (tiles, facings, transitions, doors, waypoints). Stills mode walks that graph and blits 512×264 frames. Free-roam later uses the same coordinates. | Outdoor TOWN/NITE stills + street-level interiors (click door, walk in). Graybox at `?mode=free`. |
-| **Player / input** | Stills: arrow / WASD / click on the 512×264 plate. Free-roam: pointer-lock look + WASD + raycast. | Yes |
-| **Time / quest** | Discrete clock like the original: `day`, `clock` (time-of-day slot), `phase`. Advances on **sleep or scripted events only**, not a continuous sun timer. Lighting follows the current slot. | Yes — clock + lighting; sleep/event hook; no full quest graph |
+| **World** | Authoritative SET graph (tiles, facings, transitions, doors, waypoints). Stills mode walks that graph and blits 512×264 frames. Free-roam later uses the same coordinates. | Outdoor TOWN/NITE stills + street-level interiors (click door, walk in). |
+| **Player / input** | Stills: arrow / WASD / click on the 512×264 plate. | Yes |
+| **Time / quest** | Discrete clock like the original: `day`, `clock` (time-of-day slot), `phase`. Advances on **sleep or scripted events only**, not a continuous sun timer. Street stills follow the slot (`_TOWN` / `_NITE`). | Yes — clock + day/night stills; sleep/event hook (no stills sleep UI yet); no full quest graph |
 | **Entities / NPCs** | Transform, schedule, memory flags, dialogue tree ref, sprite or mesh. | No |
 | **Dialogue** | Hand-authored JSON graphs (Speak / Choice / Condition / Action). Character memory persists. First ports: Jones + Help. | No |
 | **Inventory** | Pick up, examine, use on world/NPC. Cash is first-class. | No |
@@ -44,8 +44,7 @@ To be written as TypeScript interfaces when the code lands. Expected first types
 Original boot defaults (from extracted `_BOOTFILE`): `day = 1`, `clock = 2`, `phase = 1`.
 
 ## 6. Prioritized Vertical Slices / Epics
-1. **Graybox town + free-roam + event-driven day/night** — shipped as `?mode=free`. Layout is still inferred; not SET-backed.
-1b. **Outdoor stills walker** — default `/`. TOWN + NITE from extract; 225-cell table, 52 filmed tiles; spawn O7 north. Street doors: click to open (if the lock says so), walk forward into the interior SET. Same graph is the free-roam toggle’s future source of truth. Playback rules: [`src/world/set/README.md`](src/world/set/README.md).
+1. **Outdoor stills walker** — `/`. TOWN + NITE from extract; 225-cell table, 52 filmed tiles; spawn O7 north. Street doors: click to open (if the lock says so), walk forward into the interior SET. Same graph is a later free-roam mode’s source of truth. Playback rules: [`src/world/set/README.md`](src/world/set/README.md). The inferred graybox (`?mode=free`) was removed.
 2. **Puppet system + Jones + Help + memory flags** — hand-ported JSON dialogue; extracted face/body frames + WAV.
 3. **Inventory + early Day 1 progression** — bone/dog, lodging, cash path (blackjack later if needed).
 4. *(TBD)*
@@ -81,8 +80,8 @@ that port, plus PNG/WAV the browser may load as-is.
 **Layout:** SET grids/waypoints/door scripts live under `out/SET/_TOWN/`
 and `_NITE/` (225 scenes, 15×15, 52 filmed tiles). Default stills mode
 reads `scenes.json` + `transitions.json` + `FRAMES/{frame0}_{offset}.png`.
-Graybox (`?mode=free`) still uses inferred AABBs. Early dumps only had
-rows G–O (129 scenes); the extractor now keeps the full A–O table.
+Early dumps only had rows G–O (129 scenes); the extractor now keeps the
+full A–O table.
 
 ## 8. Agent Working Agreements
 - Document decisions and pertinent details as we progress (this file, especially §10).
@@ -91,13 +90,12 @@ rows G–O (129 scenes); the extractor now keeps the full A–O table.
 
 ## 9. Current Status & Next Actions
 Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
-Graybox is `?mode=free` only.
 
-- `npm test` — unit tests (time, SET graph / HQ lookup, layout, collision)
+- `npm test` — unit tests (time, SET graph / HQ lookup, doors)
 - `npm run dev` — http://localhost:5173 (needs `dfextract/out/SET/_TOWN` + `_NITE`)
 - Spawn: Scene O7 facing north. **N** swaps day/night stills; does not change `day`.
-- Sleep exists only in graybox: hotel bed north of the saloon. Clock is discrete; sleep always wakes next morning.
-- Debug query: `?clock=1|2|3`. Free-roam also has `?view=street` or `?view=hotel`.
+- Sleep has no stills UI yet (hotel bed later). Clock is discrete; `sleep()` still wakes next morning.
+- Debug query: `?clock=1|2|3`.
 - How strips, HQ, G11, flipbook (~24 fps, no skip, no input queue), loader, and doors work: [`src/world/set/README.md`](src/world/set/README.md).
 - Still codec / palette / sizes: [`dfextract/docs/images.md`](dfextract/docs/images.md) (`255` white, cream index 2 skull, negative look, `_TOWN` vs `_NITE`).
 - Sandbox: every door is unlocked. Facades live on the north–south road (I7 apoth, H7 saloon/stage, E7 hotel/doctor, …). Click opens (click again closes); walk forward enters.
@@ -144,3 +142,6 @@ Graybox is `?mode=free` only.
 | 2026-08-19 | Indexed stills force palette 255 to white (DFET/VGA). Stored 255 is (0,0,0); that was the black ox skull. Bone body is index 2 cream. Day-only blue on glass/posters is sky index 116 / unused 0. |
 | 2026-08-19 | Stills input: ignore taps while busy (no queue); hold-to-repeat after the step. Extract `/extract` is `no-store`. |
 | 2026-08-19 | Flipbook at ~24 fps (was ~12). One frame per interval, never skip; wait if a PNG is not ready. First motion frame paints on the keypress. |
+| 2026-08-19 | Removed graybox `?mode=free` (inferred AABBs, pointer-lock, hotel-bed sleep). Play is stills only. Later free-roam will share this SET graph, not a second map. |
+| 2026-08-19 | MOV reels (`playmovie` / intros / INFO) can extract to `movie.mp4` at 14 fps (`--video`, needs ffmpeg). SET walks and inspectables stay PNG. Audio not muxed. |
+| 2026-08-19 | MOV `--video` mixes overlapping `clip_<n>` WAVs onto the still timeline (start at stills-before / 14 s) into `movie.mp4`. |

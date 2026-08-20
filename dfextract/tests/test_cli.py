@@ -52,6 +52,8 @@ class TestCliDefaults(unittest.TestCase):
         self.assertEqual(selected_kinds(args), ("scripts",))
         args = parse_args(["--audio", "--frames"])
         self.assertEqual(selected_kinds(args), ("audio", "frames"))
+        args = parse_args(["--video"])
+        self.assertEqual(selected_kinds(args), ("video",))
 
     def test_type_flag_restricts_types(self) -> None:
         args = parse_args(["--type", "pup,set,SET,bootfile"])

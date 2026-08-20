@@ -24,7 +24,7 @@ from boot import extract_boot, write_boot_scripts
 from container import DFError, MAGIC, read_df_file
 from cst import extract_cst, write_cst_frames, write_cst_scripts
 from flt import write_flt_extract
-from mov import write_mov_extract
+from mov import find_ffmpeg, write_mov_extract
 from prp import write_prp_extract
 from pup import extract_pup, write_pup_extract
 from set import write_set_extract
@@ -35,6 +35,8 @@ DEFAULT_OUT = HERE / "out"
 # Dust file kinds we care about. Titanic-only suffixes are not listed.
 DUST_TYPES = ("boot", "cst", "flt", "mov", "prp", "pup", "set", "snd")
 CONTENT_KINDS = ("scripts", "audio", "frames")
+OPTIONAL_KINDS = ("video",)
+ALL_KINDS = CONTENT_KINDS + OPTIONAL_KINDS
 
 SUFFIX_TO_TYPE = {
     ".pup": "pup",
@@ -64,6 +66,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     args.output.mkdir(parents=True, exist_ok=True)
+    if "video" in kinds:
+        if find_ffmpeg() is None:
+            print(
+                "--video requires ffmpeg (on PATH, or pip install imageio-ffmpeg).",
+                file=sys.stderr,
+            )
+            return 2
     workers = _worker_count(len(files), kinds, args.jobs)
     print(
         f"Extracting {', '.join(kinds)} from {len(files)} file(s) "
@@ -172,6 +181,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Extract images / frames. Restricts the run to the kinds you list.",
     )
     parser.add_argument(
+        "--video",
+        action="store_true",
+        help="Encode full-screen MOV reels to movie.mp4 (needs ffmpeg). "
+        "Opt-in; not part of the default dump. Combined with other "
+        "kind flags, restricts the run like --frames.",
+    )
+    parser.add_argument(
         "--type",
         dest="types",
         metavar="LIST",
@@ -189,7 +205,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def selected_kinds(args: argparse.Namespace) -> tuple[str, ...]:
-    chosen = tuple(kind for kind in CONTENT_KINDS if getattr(args, kind))
+    chosen = tuple(kind for kind in ALL_KINDS if getattr(args, kind))
     return chosen or CONTENT_KINDS
 
 
@@ -266,6 +282,12 @@ def output_dir_for(root: Path, file_type: str, path: Path) -> Path:
 def extract_file(
     path: Path, file_type: str | None, dest: Path, kinds: tuple[str, ...]
 ) -> dict[str, int]:
+    if (
+        "video" in kinds
+        and not any(kind in kinds for kind in CONTENT_KINDS)
+        and file_type != "mov"
+    ):
+        raise NotImplementedError(f"{file_type} video not implemented yet")
     if file_type == "pup":
         return _extract_pup(path, dest, kinds)
     if file_type == "boot":
@@ -302,6 +324,7 @@ def extract_file(
             write_scripts="scripts" in kinds,
             write_frames="frames" in kinds,
             write_audio="audio" in kinds,
+            write_video="video" in kinds,
         )
     raise NotImplementedError(
         f"{file_type} ({', '.join(kinds)}) not implemented yet"
@@ -370,7 +393,7 @@ def _worker_count(n_files: int, kinds: tuple[str, ...], jobs: int) -> int:
         return 1
     if jobs > 0:
         return min(jobs, n_files)
-    if "frames" not in kinds and "audio" not in kinds:
+    if "frames" not in kinds and "audio" not in kinds and "video" not in kinds:
         return 1
     cpus = os.cpu_count() or 1
     return max(1, min(8, cpus, n_files))

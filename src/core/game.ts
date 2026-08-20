@@ -1,12 +1,4 @@
-import {
-  Clock,
-  Color,
-  PerspectiveCamera,
-  Scene,
-  WebGLRenderer,
-} from "three";
-import { PlayerController } from "../player/controls";
-import { pickInteractable } from "../player/interact";
+import { Clock, Color, WebGLRenderer } from "three";
 import {
   frameUrl,
   framesFolder,
@@ -49,16 +41,10 @@ import {
   type DoorLockCtx,
 } from "../world/set/doors";
 import { playSfx } from "../world/set/sfx";
-import { collisionAabbs, TOWN_LAYOUT } from "../world/layout";
-import { applyLighting, createTownLights, type TownLights } from "../world/lighting";
-import { buildTown, setTownNightWindows } from "../world/town";
-import { createInitialState, sleep, type GlobalState } from "./state";
+import { createInitialState, type GlobalState } from "./state";
 import { formatTime, isClockSlot, isNight, toggleDayNight, type ClockSlot } from "./time";
 
-type PlayMode = "stills" | "free";
-
 export class Game {
-  private readonly mode: PlayMode;
   private readonly renderer: WebGLRenderer;
   private readonly clock = new Clock();
   private state: GlobalState = createInitialState();
@@ -67,14 +53,6 @@ export class Game {
   private readonly promptEl: HTMLElement;
   private readonly hintEl: HTMLElement;
   private readonly canvas: HTMLCanvasElement;
-  private readonly crosshair: HTMLElement | null;
-
-  private free: {
-    scene: Scene;
-    camera: PerspectiveCamera;
-    player: PlayerController;
-    lights: TownLights;
-  } | null = null;
 
   private stills: {
     view: StillsView;
@@ -94,11 +72,10 @@ export class Game {
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     const params = new URLSearchParams(window.location.search);
-    this.mode = params.get("mode") === "free" ? "free" : "stills";
     this.applyDebugClock(params);
 
-    this.renderer = new WebGLRenderer({ canvas, antialias: this.mode === "free" });
-    this.renderer.setPixelRatio(this.mode === "free" ? Math.min(window.devicePixelRatio, 2) : 1);
+    this.renderer = new WebGLRenderer({ canvas, antialias: false });
+    this.renderer.setPixelRatio(1);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setClearColor(new Color(0x1a120c));
 
@@ -111,13 +88,8 @@ export class Game {
     this.timeEl = timeEl;
     this.promptEl = promptEl;
     this.hintEl = hintEl;
-    this.crosshair = document.getElementById("crosshair");
 
-    if (this.mode === "free") {
-      this.setupFree(params);
-    } else {
-      this.setupStills();
-    }
+    this.setupStills();
     this.syncHud();
 
     canvas.addEventListener("click", (event) => this.onClick(event));
@@ -132,39 +104,8 @@ export class Game {
     this.renderer.setAnimationLoop(() => this.tick());
   }
 
-  private setupFree(params: URLSearchParams): void {
-    const camera = new PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 250);
-    camera.position.set(TOWN_LAYOUT.spawn.x, TOWN_LAYOUT.spawn.y, TOWN_LAYOUT.spawn.z);
-    camera.rotation.order = "YXZ";
-    camera.rotation.y = TOWN_LAYOUT.spawn.yaw + Math.PI;
-    const view = params.get("view");
-    if (view === "hotel") {
-      camera.position.set(-4, 1.65, 20.2);
-    } else if (view === "street") {
-      camera.position.set(0, 1.65, -6);
-    }
-
-    const scene = new Scene();
-    const town = buildTown();
-    scene.add(town);
-    const lights = createTownLights(scene, this.state.clock);
-    setTownNightWindows(town, this.state.clock);
-    const player = new PlayerController(camera, this.canvas, collisionAabbs(), TOWN_LAYOUT.playBounds);
-    scene.add(player.controls.object);
-    this.free = { scene, camera, player, lights };
-    this.canvas.style.cursor = "none";
-    if (this.crosshair) {
-      this.crosshair.style.display = "";
-    }
-    this.hintEl.textContent =
-      "Click to look around · WASD move · N day/night · Click bed in the hotel to sleep · ?mode=stills for Dust views";
-  }
-
   private setupStills(): void {
     this.canvas.style.cursor = "default";
-    if (this.crosshair) {
-      this.crosshair.style.display = "none";
-    }
     this.hintEl.textContent = "Loading Diamondback stills…";
     this.promptEl.textContent = "";
     void this.startStills();
@@ -192,7 +133,7 @@ export class Game {
       await this.showHold();
       this.preloadNeighbors();
       this.hintEl.textContent =
-        "←/→ turn · ↑ walk · click a door to open, then walk in · N day/night · ?mode=free graybox";
+        "←/→ turn · ↑ walk · click a door to open, then walk in · N day/night";
       this.syncHud();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -203,25 +144,7 @@ export class Game {
 
   private tick(): void {
     const dt = Math.min(this.clock.getDelta(), 0.05);
-    if (this.mode === "free" && this.free) {
-      this.tickFree(dt);
-      return;
-    }
     this.tickStills(dt);
-  }
-
-  private tickFree(dt: number): void {
-    const free = this.free;
-    if (!free) {
-      return;
-    }
-    free.player.update(dt);
-    const target = free.player.locked
-      ? pickInteractable(free.camera, TOWN_LAYOUT.interactables)
-      : null;
-    this.promptEl.textContent = target ? target.label : "";
-    this.hintEl.style.opacity = free.player.locked ? "0.45" : "0.9";
-    this.renderer.render(free.scene, free.camera);
   }
 
   private tickStills(dt: number): void {
@@ -237,17 +160,6 @@ export class Game {
   }
 
   private onClick(event: MouseEvent): void {
-    if (this.mode === "free" && this.free) {
-      if (!this.free.player.locked) {
-        this.free.player.lock();
-        return;
-      }
-      const target = pickInteractable(this.free.camera, TOWN_LAYOUT.interactables);
-      if (target?.kind === "sleep") {
-        this.applyClockState(sleep(this.state));
-      }
-      return;
-    }
     const door = this.doorUnder(event);
     if (door) {
       this.clickDoor(door);
@@ -260,7 +172,7 @@ export class Game {
   }
 
   private onMouseMove(event: MouseEvent): void {
-    if (this.mode !== "stills" || !this.stills) {
+    if (!this.stills) {
       return;
     }
     this.canvas.style.cursor = this.doorUnder(event) ? "pointer" : "default";
@@ -322,9 +234,6 @@ export class Game {
       const next = toggleDayNight(this.state.clock, this.lastDayClock);
       this.lastDayClock = next.lastDayClock;
       this.applyClockState({ ...this.state, clock: next.clock });
-      return;
-    }
-    if (this.mode !== "stills") {
       return;
     }
     const input = keyToInput(event.code);
@@ -541,10 +450,6 @@ export class Game {
 
   private applyClockState(state: GlobalState): void {
     this.state = state;
-    if (this.free) {
-      applyLighting(this.free.scene, this.free.lights, this.state.clock);
-      setTownNightWindows(this.free.scene, this.state.clock);
-    }
     if (this.stills) {
       this.stills.anim = null;
       this.stills.pending = null;
@@ -732,10 +637,6 @@ export class Game {
     const w = window.innerWidth;
     const h = window.innerHeight;
     this.renderer.setSize(w, h);
-    if (this.free) {
-      this.free.camera.aspect = w / h;
-      this.free.camera.updateProjectionMatrix();
-    }
     if (this.stills) {
       this.stills.view.layout(w, h);
     }

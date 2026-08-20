@@ -56,6 +56,7 @@ Flags only **narrow** the run:
 ```
 python cli.py --scripts
 python cli.py --audio --frames
+python cli.py --type mov --video
 python cli.py --type pup,set
 python cli.py --scripts --type pup path\to\JENIX.PUP
 python cli.py path\to\DUSTCD -o D:\tmp\dust-out
@@ -64,7 +65,7 @@ python cli.py path\to\DUSTCD -o D:\tmp\dust-out
 | Argument | Effect |
 |---|---|
 | *(none)* | All types, all kinds, default Dust roots |
-| `--scripts` / `--audio` / `--frames` | Only those kinds (any one of them turns the others off) |
+| `--scripts` / `--audio` / `--frames` / `--video` | Only those kinds (any one of them turns the others off). `--video` is opt-in and needs `ffmpeg`. |
 | `--type pup,set,flt,prp,mov,cst,snd,boot` | Only those suffixes |
 | paths | Only these files or directories |
 | `-o DIR` | Output root |

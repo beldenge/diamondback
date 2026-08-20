@@ -175,6 +175,7 @@ CLI only. Flags only **narrow** a default-everything run.
 python cli.py
 python cli.py --scripts
 python cli.py --audio --frames
+python cli.py --type mov --video
 python cli.py --type pup,set
 python cli.py --scripts --type pup path\to\JENIX.PUP
 python cli.py path\to\DUSTCD -o D:\tmp\dust-out
@@ -183,7 +184,7 @@ python cli.py path\to\DUSTCD -o D:\tmp\dust-out
 | Argument | Effect |
 |---|---|
 | *(none)* | All types, all content kinds, from `sources/dust.dbgl` |
-| `--scripts` / `--audio` / `--frames` | Only those kinds (any one of them turns the others off) |
+| `--scripts` / `--audio` / `--frames` / `--video` | Only those kinds (any one of them turns the others off). `--video` is opt-in (not in the default dump) and needs `ffmpeg` on PATH or `pip install imageio-ffmpeg`. It encodes full-screen MOV reels to `movie.mp4`, not SET walks or inspectables. |
 | `--type pup,set,flt,prp,mov,cst,snd,boot` | Only those file types |
 | paths | Only these files or directories |
 | `-o DIR` | Output directory (default: `out/` next to `cli.py`) |
@@ -206,6 +207,7 @@ out/SET/_APOTH/Scene A2.txt
 out/SET/_APOTH/FRAMES/frame_50.png
 out/FLT/_CHECKERS/playcheckers.txt
 out/MOV/_HOTLPIC1/FRAMES/frame_1.png
+out/MOV/_INTRO/movie.mp4
 ```
 
 What each of those files *is*: [`docs/output-catalog.md`](docs/output-catalog.md).
@@ -223,6 +225,7 @@ python tests/test_known_types.py
 python tests/test_frames.py
 python tests/test_remaining.py
 python tests/test_prp_names.py
+python tests/test_mov_video.py
 ```
 
 More detail: [`docs/reproducing.md`](docs/reproducing.md).
@@ -241,6 +244,7 @@ More detail: [`docs/reproducing.md`](docs/reproducing.md).
 - [x] `.FLT` puzzle scripts and stills
 - [x] `.PRP` prop scripts and **named** sprites (`Bone/small`, …)
 - [x] `.MOV` Dust v1 stills / cutscene frames / audio
+- [x] `--video` encodes full-screen MOV reels (`playmovie` / INFO / intros) to `movie.mp4` at 14 fps
 - [x] Full SET/FLT/PRP/MOV dump
 - [x] Previous-frame still decode (Yunni box open/close)
 - [ ] Occasional SET/MOV right-edge artifact; `ZUNUSED` is not DF

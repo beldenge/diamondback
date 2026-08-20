@@ -6,7 +6,6 @@ import {
   formatTime,
   isClockSlot,
   isNight,
-  LIGHTING_BY_CLOCK,
   toggleDayNight,
 } from "./time";
 import { createInitialState, scriptedTimePass, sleep } from "./state";
@@ -95,13 +94,5 @@ describe("global state", () => {
   it("formats the HUD string", () => {
     expect(formatTime(1, 2)).toBe("Day 1 · Afternoon");
     expect(formatTime(2, 1)).toBe("Day 2 · Morning");
-  });
-});
-
-describe("lighting presets", () => {
-  it("has a preset for every clock slot", () => {
-    expect(LIGHTING_BY_CLOCK[1].sunIntensity).toBeGreaterThan(LIGHTING_BY_CLOCK[3].sunIntensity);
-    expect(LIGHTING_BY_CLOCK[2].sunIntensity).toBeGreaterThan(LIGHTING_BY_CLOCK[1].sunIntensity);
-    expect(LIGHTING_BY_CLOCK[3].fogFar).toBeLessThan(LIGHTING_BY_CLOCK[1].fogFar);
   });
 });
