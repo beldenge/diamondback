@@ -107,7 +107,7 @@ legal checkers moves from `playcheckers.txt` alone.
 | Missing | Why it matters |
 |---|---|
 | How a 6-frame SET transition is **timed** / blended | Outdoor walker: 5 motion @ ~24 fps, then dest HQ immediately. Dust delayed HQ ~500 ms. Exact `DF.EXE` tick not proven. See [`src/world/set/README.md`](../../src/world/set/README.md). |
-| MOV reel frame rate | INTRO+INTRO2+INTRO3 = 2467 stills ≈ 2:58 wall clock → `--video` uses **14 fps**. Clips start at stills-before / 14 s and overlap (container stream is the cue sheet). Muxed into `movie.mp4`. Boot `framerate (3)` units unknown. |
+| MOV reel playback (rate + audio cues) | Unsolved. `--video` is a first guess (see §4a). Do not treat `movie.mp4` as original timing. |
 | How stills are **stored at runtime** | Dump is paletted PNG (old RGBA dump was ~115 MB town). Dust’s SET is ~60 MB of 8-bit deltas into one 135 KB buffer. Do not assume 1.7 GB (all frames as RGBA textures). HTTP-per-PNG + 80-texture LRU is what the walker does now. |
 | Z-buffers (not decoded on extract, not written) | Sprite occlusion against stills |
 | MOV click-row masks (mostly empty `0x28` fills) | Inspectable cursor polish only — see session notes |
@@ -118,6 +118,52 @@ legal checkers moves from `playcheckers.txt` alone.
 
 **Fill this with:** assets + play. Scripts tell you *that* a walk
 happens, not the frame rate.
+
+### 4a. MOV reels (`--video` is experimental)
+
+There are **no DreamFactory scripts inside** INTRO / INTRO2 / INTRO3
+(zero `script_*.txt` under `out/MOV/`). Boot is fire-and-forget:
+`playmovie ("intro.mov")` then `playmovie ("intro2.mov")`. INTRO3 is
+**not named** in extracted scripts; it still looks like the third
+opening reel (user: all three back-to-back ≈ 2:58).
+
+What the file actually is:
+
+- Same `LPPALPPA` container stream as SET stills. Audio is ordinary
+  v40/v41, mixed in the **same index space**. First still of INTRO is
+  container **9** (clips 1–8 sit before any picture).
+- Later clip groups are preceded by a non-frame, non-audio container
+  (INTRO has 9; INTRO3 has 5). Same `00 00 01 00` prefix as audio,
+  264×512 words at +34, **do not** decode as stills or as `code`
+  scripts. Likely click-row / mixer metadata. DFET’s Titanic
+  `AudioBlockInfos` offsets do **not** apply (`+0x64` is `-1` here).
+- Decode is delta-from-previous into one framebuffer, then a **full**
+  512×264 PNG. Those PNGs are composited pictures, not residuals
+  (checked: cigar close-up, lizard, last town still).
+- If that “other” container fails, the extract currently **clears**
+  `prior`. That punches ~300 extra zeros into 29 INTRO stills;
+  INTRO3 is unchanged. Keep prior across unknowns when you fix it.
+- Header 80-byte records at INTRO `+2252`: field +14 = 1…135, +18 =
+  container 9…143 (the first still run only). Not a duration table
+  for the whole reel.
+
+`--video` today (wrong, but recorded so we do not re-guess the same
+way): constant **14 fps** = 2467 stills / ~178 s; start each clip at
+`stills_before / 14` s; overlap when no still sits between clips.
+That piles INTRO’s first eight beds (16 s + 12 s + 10 s + SFX) at
+0:00. Sequential WAV sum of the three intros is ~3:31, so they were
+never strictly serial. Encoded durations: INTRO 45.6 s, INTRO2 25.3 s,
+INTRO3 105.4 s (2:56). Playback: overall length is close; local pacing
+is not (saloon run at the end of INTRO3 is too slow). Average 14 fps
+is not a proven per-frame rate.
+
+`WIN31/DUST/MOVPLAY.EXE` strings: `playtheme`, `voicesound`,
+`singlesound`, `dualsound`, `multiplesound`, `soundloop`, `delay`,
+`actionframe`, `framerate`, `machinespeed`. Boot `framerate (3)`
+units unknown. Capture the original player if you need ground truth.
+
+**Fill this with:** parse the pre-clip “other” containers and/or
+MOVPLAY; do not invent a second cue sheet.
 
 ### 5. Types, `me`, and values
 

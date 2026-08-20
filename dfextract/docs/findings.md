@@ -49,7 +49,11 @@ stills.
 - Transparent sprite codec decodes PUP faces and CST bodies (Bolivar
   background 512×264; EXTRA Jenix `stand`).
 - MOV v1 is the same container file; audio clips are ordinary v40/v41
-  containers mixed in with stills.
+  containers mixed in with stills. INTRO stills start at container 9
+  (eight clips first). No `script_*.txt` in the opening reels; boot
+  only `playmovie`s intro then intro2. `--video` MP4s exist but
+  **timing is unsolved** (see [reconstruction-gaps.md](reconstruction-gaps.md)
+  §4a). Decoded MOV PNGs are full composited stills, not residuals.
 - FLT/PRP are the same container + script token + the two image codecs.
   No new magic.
 - SET strips that share a container id must decode separately

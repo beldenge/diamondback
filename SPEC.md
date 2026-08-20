@@ -145,3 +145,4 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 | 2026-08-19 | Removed graybox `?mode=free` (inferred AABBs, pointer-lock, hotel-bed sleep). Play is stills only. Later free-roam will share this SET graph, not a second map. |
 | 2026-08-19 | MOV reels (`playmovie` / intros / INFO) can extract to `movie.mp4` at 14 fps (`--video`, needs ffmpeg). SET walks and inspectables stay PNG. Audio not muxed. |
 | 2026-08-19 | MOV `--video` mixes overlapping `clip_<n>` WAVs onto the still timeline (start at stills-before / 14 s) into `movie.mp4`. |
+| 2026-08-19 | That mux is experimental and wrong on playback (opening beds stacked at 0:00; local fps uneven). Findings: [`dfextract/docs/reconstruction-gaps.md`](dfextract/docs/reconstruction-gaps.md) §4a. |

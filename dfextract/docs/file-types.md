@@ -261,9 +261,11 @@ Then each later container is classified:
 - otherwise try indexed still → `FRAMES/frame_<i>.png`
 
 INTRO.MOV: 638 frames, 27 audio clips. INTRO2: 354 frames. INTRO3: 1475
-frames. Those three stills back-to-back are ~2:58 → **14 fps** for
-`--video` (`movie.mp4`). Clips are mixed onto that timeline (overlap when
-they share a still-count). Sidecar WAVs still go under `AUDIO/` with `--audio`.
+frames. User wall-clock for all three back-to-back ≈ 2:58 → **14 fps
+average** used by `--video`. That mux (clip starts at stills-before / 14 s,
+overlap when clustered) is a **first guess and sounds wrong**; see
+[reconstruction-gaps.md](reconstruction-gaps.md) §4a. Sidecar WAVs still
+go under `AUDIO/` with `--audio`.
 
 `--video` encodes **reels** only: `playmovie` / `doamovie` stems, `INFO/`
 attract movies, plus `INTRO3` / `FINALEND`. It does **not** encode
