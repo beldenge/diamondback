@@ -15,6 +15,7 @@ and know what is still wrong.
 | [scripts.md](scripts.md) | 8-byte script tokens and the opcode table |
 | [audio.md](audio.md) | Dust v1 ADPCM (`v40` / `v41`) |
 | [images.md](images.md) | Palette, sprites, SET/MOV stills (sizes, 255/L7/skull) |
+| [performance.md](performance.md) | Why the dump was slow, what we changed, leftover speed ideas |
 | [file-types.md](file-types.md) | PUP, CST, SND, BOOT, SET, FLT, PRP, MOV |
 | [findings.md](findings.md) | Sources, what we proved, limits, vs DFET |
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import struct
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 
 from PIL import Image
@@ -54,6 +55,21 @@ class Palette:
         if index == 255:
             return 255, 255, 255, 255
         return self.rgba(index)
+
+    @cached_property
+    def still_plte(self) -> bytes:
+        """768-byte RGB palette for paletted still PNGs, with VGA ends."""
+        table = bytearray(len(self.colors) * 3)
+        for index, (red, green, blue) in enumerate(self.colors):
+            if index == 0:
+                red, green, blue = 0, 0, 0
+            elif index == 255:
+                red, green, blue = 255, 255, 255
+            base = index * 3
+            table[base] = red
+            table[base + 1] = green
+            table[base + 2] = blue
+        return bytes(table)
 
 
 @dataclass
@@ -167,13 +183,19 @@ class IndexedImage:
 
 
 def decode_indexed_image(
-    container: bytes, prior: bytes | None = None
+    container: bytes,
+    prior: bytes | None = None,
+    *,
+    decode_z: bool = False,
 ) -> IndexedImage:
     """Port of DFET getRawImageData (SET / MOV / some FLT stills).
 
     DFET reuses one decode buffer and does not clear it. Skip spans
     (mode 2 / row param 10) keep whatever was already there — usually
     the previous frame in the same movie or walk cycle.
+
+    Z-scanlines are parsed only when ``decode_z`` is true; we do not
+    write Z PNGs on the extract path.
     """
     if len(container) < 6:
         raise ImageError("indexed image smaller than header")
@@ -270,7 +292,7 @@ def decode_indexed_image(
             dst += count
 
     z_pixels = None
-    if src < len(container) and src + height * 2 <= len(container):
+    if decode_z and src < len(container) and src + height * 2 <= len(container):
         try:
             z_pixels = _decode_z(container, src, width, height)
         except ImageError:
@@ -293,7 +315,8 @@ def _copy_back(out: bytearray, dst: int, offset: int, count: int) -> None:
     end = start + count
     if count <= 0 or start < 0 or end > len(out) or dst + count > len(out):
         return
-    out[dst : dst + count] = bytes(out[start:end])
+    # Slice read copies first, so overlapping src/dst is safe (DFET memcpy).
+    out[dst : dst + count] = out[start:end]
 
 
 def _decode_delta_span(
@@ -388,14 +411,16 @@ def _decode_delta_span(
 
 
 def write_indexed_png(path: Path, image: IndexedImage, palette: Palette) -> None:
+    """Write a paletted PNG whose PLTE matches ``still_rgba``.
+
+    Stills are already 8-bit indices. Expanding to RGBA in Python and
+    compressing 4× the samples dominated full-dump time; viewers expand
+    the palette on load the same way.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    rgba = bytearray(image.width * image.height * 4)
-    for i, index in enumerate(image.pixels):
-        red, green, blue, alpha = palette.still_rgba(index)
-        rgba[i * 4 : i * 4 + 4] = (red, green, blue, alpha)
-    Image.frombytes("RGBA", (image.width, image.height), bytes(rgba)).save(
-        path, format="PNG"
-    )
+    png = Image.frombytes("P", (image.width, image.height), image.pixels)
+    png.putpalette(palette.still_plte)
+    png.save(path, format="PNG")
 
 
 def _decode_z(container: bytes, src: int, width: int, height: int) -> bytes:

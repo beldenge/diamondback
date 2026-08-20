@@ -13,6 +13,8 @@ if str(HERE) not in sys.path:
 from cli import (
     CONTENT_KINDS,
     DUST_TYPES,
+    _format_elapsed,
+    _worker_count,
     classify_path,
     collect_dust_files,
     parse_args,
@@ -26,6 +28,24 @@ class TestCliDefaults(unittest.TestCase):
         args = parse_args([])
         self.assertEqual(selected_kinds(args), CONTENT_KINDS)
         self.assertEqual(selected_types(args), DUST_TYPES)
+        self.assertEqual(args.jobs, 0)
+
+    def test_format_elapsed(self) -> None:
+        self.assertEqual(_format_elapsed(0), "<0.01s")
+        self.assertEqual(_format_elapsed(0.04), "0.04s")
+        self.assertEqual(_format_elapsed(9.99), "9.99s")
+        self.assertEqual(_format_elapsed(10.8), "10.8s")
+        self.assertEqual(_format_elapsed(59.4), "59.4s")
+        self.assertEqual(_format_elapsed(72), "1m 12s")
+        self.assertEqual(_format_elapsed(3661), "1h 1m")
+
+    def test_jobs_flag(self) -> None:
+        self.assertEqual(parse_args(["--jobs", "1"]).jobs, 1)
+        self.assertEqual(parse_args(["-j", "8"]).jobs, 8)
+        self.assertEqual(_worker_count(411, ("scripts",), 0), 1)
+        self.assertEqual(_worker_count(1, ("frames",), 0), 1)
+        self.assertEqual(_worker_count(411, ("frames",), 1), 1)
+        self.assertGreater(_worker_count(411, ("frames",), 0), 1)
 
     def test_any_kind_flag_restricts_kinds(self) -> None:
         args = parse_args(["--scripts"])

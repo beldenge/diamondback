@@ -49,7 +49,7 @@ python cli.py
 ```
 
 No flags means **everything**: all types, scripts + audio + frames, from
-the Dust tree above. Output defaults to `dfextract/out/`.
+the Dust tree above. Output defaults to `../out/`.
 
 Flags only **narrow** the run:
 
@@ -68,14 +68,15 @@ python cli.py path\to\DUSTCD -o D:\tmp\dust-out
 | `--type pup,set,flt,prp,mov,cst,snd,boot` | Only those suffixes |
 | paths | Only these files or directories |
 | `-o DIR` | Output root |
+| `-j N` / `--jobs N` | Parallel file workers. `0` = auto. `1` = serial. |
 
 A file is a Dust container if bytes `32:40` are `LPPALPPA`. Files that
 fail that check (the 11 items in `MOVIES/ZUNUSED/`) are skipped, not
 treated as hard errors.
 
-MOV/PRP frames that already exist as PNG are not rewritten (resume a
-killed run). **SET** frames are always overwritten — re-run
-`--type set --frames` after a decode or palette change.
+Media is always overwritten (PNG and WAV). Re-run after a decode or
+palette change; delete `out/` only if you want a clean tree. `python cli.py
+-j 1` forces one file at a time.
 
 ## Output layout
 
@@ -139,5 +140,7 @@ A complete `python cli.py` (scripts + audio + frames) produces roughly:
 | SET JSON | 105 (`scenes` / `waypoints` / `transitions` × 35) |
 
 TOWN.SET and NITE.SET write **3,155** stills each (`{frame0}_{offset}.png`).
-INTRO3.MOV wrote 1,465 frames. Budget disk and time accordingly (the
-SET/MOV pass was ~15 minutes here).
+INTRO3.MOV wrote 1,465 frames. Budget disk accordingly; a full dump is
+usually a couple of minutes on a multi-core machine. Why, and what we
+timed: [performance.md](performance.md). Each `OK` line prints that
+file’s extract time; `Done.` is wall-clock.

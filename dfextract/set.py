@@ -6,12 +6,14 @@ Layout from mrxstudios (2022) plus header pointers found in APOTH.SET.
 from __future__ import annotations
 
 import json
+import os
 import struct
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from container import DFError, DFFile
-from image import ImageError, decode_indexed_image, find_palette, write_indexed_png
+from image import ImageError, Palette, decode_indexed_image, find_palette, write_indexed_png
 from pup import EXTRACTOR_BANNER
 from script import binary_script_to_text, pascal_string
 
@@ -244,45 +246,83 @@ def strip_frame_name(frame0: int, offset: int) -> str:
     return f"{frame0}_{offset}.png"
 
 
+def _strip_blobs(df: DFFile, tr: SetTransition) -> tuple[bytes | None, ...]:
+    blobs: list[bytes | None] = []
+    for offset in range(6):
+        frame_id = tr.frame0 + offset
+        if frame_id < 0 or frame_id >= len(df.containers):
+            blobs.append(None)
+            continue
+        data = df.containers[frame_id].data
+        blobs.append(data if len(data) >= 16 else None)
+    return tuple(blobs)
+
+
+def _write_one_strip(
+    frame0: int,
+    blobs: tuple[bytes | None, ...],
+    frame_dir: Path,
+    palette: Palette,
+) -> int:
+    # Each filmstrip is a delta sequence. Do not reuse another strip's
+    # framebuffer: adjacent records can share a container (O7→N7 walk
+    # starts at the same id as an N7 turn's last frame).
+    prior: bytes | None = None
+    prior_size: tuple[int, int] | None = None
+    written = 0
+    for offset, data in enumerate(blobs):
+        if data is None:
+            prior = None
+            prior_size = None
+            continue
+        dest = frame_dir / strip_frame_name(frame0, offset)
+        try:
+            image = decode_indexed_image(data, prior)
+        except ImageError:
+            prior = None
+            prior_size = None
+            continue
+        if prior_size is not None and prior_size != (image.width, image.height):
+            try:
+                image = decode_indexed_image(data, None)
+            except ImageError:
+                prior = None
+                prior_size = None
+                continue
+        write_indexed_png(dest, image, palette)
+        prior = image.pixels
+        prior_size = (image.width, image.height)
+        written += 1
+    return written
+
+
+def _write_one_strip_job(
+    item: tuple[int, tuple[bytes | None, ...], str, list[tuple[int, int, int]]],
+) -> int:
+    frame0, blobs, dest_s, colors = item
+    return _write_one_strip(frame0, blobs, Path(dest_s), Palette(colors=list(colors)))
+
+
 def _write_set_frames(df: DFFile, transitions: list[SetTransition], out_dir: Path) -> int:
     palette = find_palette(df.containers[0].data)
     if palette is None:
         return 0
     frame_dir = out_dir / "FRAMES"
+    frame_dir.mkdir(parents=True, exist_ok=True)
+    strips = [(tr.frame0, _strip_blobs(df, tr)) for tr in transitions]
+    workers = 1
+    if len(strips) >= 64:
+        workers = min(4, os.cpu_count() or 1, len(strips))
+    if workers <= 1:
+        return sum(
+            _write_one_strip(frame0, blobs, frame_dir, palette) for frame0, blobs in strips
+        )
+    dest_s = str(frame_dir)
+    colors = list(palette.colors)
+    payloads = [(frame0, blobs, dest_s, colors) for frame0, blobs in strips]
     written = 0
-    for tr in transitions:
-        # Each filmstrip is a delta sequence. Do not reuse the previous
-        # strip's framebuffer: adjacent records can share a container
-        # (O7→N7 walk starts at the same id as an N7 turn's last frame).
-        prior: bytes | None = None
-        prior_size: tuple[int, int] | None = None
-        for offset in range(6):
-            frame_id = tr.frame0 + offset
-            if frame_id < 0 or frame_id >= len(df.containers):
-                prior = None
-                prior_size = None
-                continue
-            data = df.containers[frame_id].data
-            if len(data) < 16:
-                prior = None
-                prior_size = None
-                continue
-            dest = frame_dir / strip_frame_name(tr.frame0, offset)
-            try:
-                image = decode_indexed_image(data, prior)
-            except ImageError:
-                prior = None
-                prior_size = None
-                continue
-            if prior_size is not None and prior_size != (image.width, image.height):
-                try:
-                    image = decode_indexed_image(data, None)
-                except ImageError:
-                    prior = None
-                    prior_size = None
-                    continue
-            write_indexed_png(dest, image, palette)
-            prior = image.pixels
-            prior_size = (image.width, image.height)
-            written += 1
+    chunk = max(1, len(payloads) // (workers * 4))
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        for count in pool.map(_write_one_strip_job, payloads, chunksize=chunk):
+            written += count
     return written

@@ -103,7 +103,7 @@ in the background. If a PNG is missing when the clock wants it, **wait**
 8-bit deltas; the PNG dump is ~115 MB; keeping every town still as RGBA
 would be ~1.7 GB.
 
-Vite serves extract files at `/extract/…` → `dfextract/out/…` with
+Vite serves extract files at `/extract/…` → `../../../dfextract/out/…` with
 `Cache-Control: no-store` so a re-dump shows up on reload (no
 `?v=` cache-buster).
 

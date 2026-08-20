@@ -130,8 +130,6 @@ def _write_one_frame(df: DFFile, container_id: int, dest: Path, palette) -> bool
     data = df.containers[container_id].data
     if len(data) < 16:
         return False
-    if dest.exists():
-        return True
     height, width = struct.unpack_from("<hh", data, 0)
     try:
         if 1 <= height <= 256 and 1 <= width <= 256 and len(data) < 20_000:

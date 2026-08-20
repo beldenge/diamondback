@@ -60,10 +60,11 @@ stills.
   **255 white**. Dust stores 255 as `(0,0,0)`; that was the black ox
   skull. The bone body is palette index 2 cream. PUP/CST sprites do not
   use that override.
-- Still **size**: `TOWN.SET` ~60 MB of 8-bit deltas; PNG dump ~115 MB
-  (full frames, RGBA); raw 8-bit all frames ~426 MB; all-resident RGBA
-  ~1.7 GB. Dust held one 512×264 index buffer (~135 KB). `_NITE` is a
-  second SET (~55 MB) and palette, not a prior for `_TOWN`.
+- Still **size**: `TOWN.SET` ~60 MB of 8-bit deltas; dump is paletted
+  PNG (about half the old ~115 MB RGBA dump). Raw 8-bit all frames
+  ~426 MB; all-resident RGBA ~1.7 GB. Dust held one 512×264 index
+  buffer (~135 KB). `_NITE` is a second SET (~55 MB) and palette, not
+  a prior for `_TOWN`. Extract speed: [performance.md](performance.md).
 
 ## Comparison with DFET (Dust)
 
@@ -77,7 +78,7 @@ stills.
 | Script encoder | Yes | No (not needed for the remake) |
 | GUI | Yes | CLI only |
 
-`dfextract/out` (2026-08-18): 39 puppets, ~640 script txt, ~4,300
+`../out` (2026-08-18): 39 puppets, ~640 script txt, ~4,300
 WAV, ~30,000 PNG after SET/MOV, and all playable SET / FLT / PRP / MOV.
 
 ## Limits (do not pretend these are done)
@@ -86,8 +87,8 @@ WAV, ~30,000 PNG after SET/MOV, and all playable SET / FLT / PRP / MOV.
    clear its decode buffer). Walk cycles and Yunni-box open/close need
    that. A faint right-edge artifact can still appear on some stills.
 2. **`MOVIES/ZUNUSED/`** (11 files) are not `LPPALPPA`. Skipped.
-3. **Z-buffers** for SET stills are parsed when they look valid but not
-   written out.
+3. **Z-buffers** for SET stills exist after the color image. The extract
+   path does not decode them (`decode_z=False`) and does not write Z PNGs.
 4. **Opcode table** is Titanic 4.0. Fine so far; re-audit from `DF.EXE`
    if you see `cmd_NNNN` in a script.
 5. Old un-namespaced folders (`out/_JENIX`, …) and old flat
@@ -117,3 +118,5 @@ Extracted game assets are Cyberflix data, not GPL.
   remake dialogue graph.
 - Write Z-buffer previews.
 - Ignore or separately catalog `ZUNUSED`.
+- Extract speed leftovers (Cython decoder, worker caps):
+  [performance.md](performance.md).

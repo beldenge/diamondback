@@ -111,7 +111,7 @@ your user site-packages also works; the only runtime dependency is
 Pillow.
 
 No flags means **everything**: all types, scripts + audio + frames, from
-the Dust tree above. Output is `dfextract/out/` (created if needed).
+the Dust tree above. Output is `out/` (created if needed).
 
 ### 4. What a successful run looks like
 
@@ -122,12 +122,16 @@ Extracting scripts, audio, frames from 411 file(s) [boot, cst, flt, mov, prp, pu
 Output: …\dfextract\out
 ```
 
-Then one `OK` line per file. Eleven `MOVIES/ZUNUSED/` files are skipped
-(they are not DreamFactory). Exit code `0` is success.
+Then one `OK` line per file, with that file’s extract time. The final
+`Done.` line is wall-clock for the whole run (parallel workers overlap).
+Eleven `MOVIES/ZUNUSED/` files are skipped (they are not DreamFactory).
+Exit code `0` is success.
 
-Budget about **15 minutes** and **several GB** for a full run
-(~640 scripts, ~4,300 WAVs, ~30,000 PNGs). `TOWN.SET` / `NITE.SET` and
-`INTRO3.MOV` dominate.
+Budget about **a couple of minutes** on a multi-core machine and
+**several GB** for a full run (~640 scripts, ~4,300 WAVs, ~30,000 PNGs).
+`TOWN.SET` / `NITE.SET` still dominate. Use `--jobs 1` to extract one
+file at a time. What we changed and leftover speed ideas:
+[`docs/performance.md`](docs/performance.md).
 
 Smoke test (boot script only, seconds):
 
@@ -144,8 +148,8 @@ Then open `out/BOOT/_BOOTFILE/Script 1.txt`.
 Yes. `out/` is generated. Deleting it and running `python cli.py` again
 is the supported way to get a clean dump.
 
-Existing **PNGs are not overwritten**, so a half-finished `out/` will
-resume and keep old frames. For a true rebuild, delete first.
+Frames and audio **always overwrite**. Delete `out/` first if you want a
+clean tree; a re-run after a decode fix is enough to refresh media.
 
 From `dfextract/` (PowerShell):
 
@@ -183,6 +187,7 @@ python cli.py path\to\DUSTCD -o D:\tmp\dust-out
 | `--type pup,set,flt,prp,mov,cst,snd,boot` | Only those file types |
 | paths | Only these files or directories |
 | `-o DIR` | Output directory (default: `out/` next to `cli.py`) |
+| `-j N` / `--jobs N` | Parallel file workers. `0` (default) = auto. `1` = serial. |
 
 Unimplemented type/kind pairs are skipped and listed at the end.
 

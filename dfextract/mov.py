@@ -68,6 +68,7 @@ def _write_frames(df: DFFile, out_dir: Path) -> int:
         return 0
     written = 0
     frame_dir = out_dir / "FRAMES"
+    frame_dir.mkdir(parents=True, exist_ok=True)
     prior: bytes | None = None
     for index, container in enumerate(df.containers[1:], start=1):
         if is_audio_container(container.data) or len(container.data) < 64:
@@ -94,9 +95,6 @@ def _write_audio(df: DFFile, out_dir: Path) -> int:
         if not is_audio_container(container.data):
             continue
         dest = audio_dir / f"clip_{index}.wav"
-        if dest.exists():
-            written += 1
-            continue
         try:
             pcm, hertz, width = decode_audio_container(container.data)
         except AudioError:

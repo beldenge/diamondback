@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+
+from PIL import Image
 
 HERE = Path(__file__).resolve().parents[1]
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 from container import read_df_file
-from image import decode_indexed_image, find_palette
+from image import decode_indexed_image, find_palette, write_indexed_png
 from mov import is_audio_container
 from script import binary_script_to_text
 from set import extract_set_metadata, looks_like_script, strip_frame_name, write_set_extract
@@ -110,6 +113,46 @@ class TestRemaining(unittest.TestCase):
                     skull += 1
         self.assertGreater(skull, 100)
 
+    def test_still_plte_matches_still_rgba(self) -> None:
+        if not TOWN.exists():
+            self.skipTest("TOWN.SET not present")
+        pal = find_palette(read_df_file(TOWN).containers[0].data)
+        self.assertIsNotNone(pal)
+        assert pal is not None
+        plte = pal.still_plte
+        self.assertEqual(len(plte), 768)
+        for index in range(256):
+            red, green, blue, alpha = pal.still_rgba(index)
+            base = index * 3
+            self.assertEqual((plte[base], plte[base + 1], plte[base + 2]), (red, green, blue))
+            self.assertEqual(alpha, 255)
+
+    def test_indexed_png_roundtrip_matches_still_rgba(self) -> None:
+        """Paletted PNG must expand to the same RGB as still_rgba, including
+        VGA index 255 = white on the O7 skull frame."""
+        if not TOWN.exists():
+            self.skipTest("TOWN.SET not present")
+        df = read_df_file(TOWN)
+        pal = find_palette(df.containers[0].data)
+        self.assertIsNotNone(pal)
+        assert pal is not None
+        image = decode_indexed_image(df.containers[1640 + 5].data)
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "skull.png"
+            write_indexed_png(dest, image, pal)
+            with Image.open(dest) as png:
+                self.assertEqual(png.mode, "P")
+                rgba = png.convert("RGBA").tobytes()
+        expected = bytearray()
+        white = 0
+        for index in image.pixels:
+            color = pal.still_rgba(index)
+            expected.extend(color)
+            if color == (255, 255, 255, 255):
+                white += 1
+        self.assertEqual(rgba, bytes(expected))
+        self.assertGreater(white, 200)
+
     def test_l7_turn_wall_is_not_sky(self) -> None:
         """L7 west→north motion used to paint sky-blue speckles on the
         sheriff wall. Negative ``look`` must copy *ahead* into the prior
@@ -145,7 +188,6 @@ class TestRemaining(unittest.TestCase):
     def test_apoth_writes_per_strip_frames(self) -> None:
         if not APOTH.exists():
             self.skipTest("APOTH.SET not present")
-        import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
             dest = Path(tmp)

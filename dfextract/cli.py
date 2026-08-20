@@ -8,9 +8,12 @@ or particular paths.
 from __future__ import annotations
 
 import argparse
+import os
 import struct
 import sys
+import time
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -61,11 +64,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     args.output.mkdir(parents=True, exist_ok=True)
+    workers = _worker_count(len(files), kinds, args.jobs)
     print(
         f"Extracting {', '.join(kinds)} from {len(files)} file(s) "
         f"[{', '.join(types)}]"
     )
     print(f"Output: {args.output}")
+    if workers > 1:
+        print(f"Workers: {workers}")
     print()
 
     failures: list[tuple[Path, str]] = []
@@ -73,33 +79,42 @@ def main(argv: list[str] | None = None) -> int:
     skip_counts: dict[str, int] = defaultdict(int)
     tallies: dict[str, int] = defaultdict(int)
 
+    jobs: list[tuple[Path, str, Path, tuple[str, ...]]] = []
     for path in files:
         file_type = classify_path(path) or "unknown"
-        dest = output_dir_for(args.output, file_type, path)
-        raw_head = path.read_bytes()[:40] if path.exists() else b""
-        if len(raw_head) < 40 or raw_head[32:40] != MAGIC:
-            skipped.append((path, "not a DreamFactory container"))
-            skip_counts["not-df"] += 1
-            continue
-        try:
-            result = extract_file(path, file_type, dest, kinds)
-        except (DFError, OSError, struct.error, NotImplementedError) as exc:
-            if isinstance(exc, NotImplementedError):
-                skipped.append((path, str(exc)))
-                skip_counts[file_type] += 1
-            else:
-                failures.append((path, str(exc)))
-                print(f"FAIL  {path.name:16}  {exc}", flush=True)
-            continue
+        jobs.append((path, file_type, output_dir_for(args.output, file_type, path), kinds))
+    started = time.perf_counter()
+    if workers <= 1:
+        outcomes = (_process_one(*job) for job in jobs)
+    else:
+        outcomes = _process_many(jobs, workers)
 
+    for status, path, dest, message, result, elapsed in outcomes:
+        if status == "skip":
+            skipped.append((path, message))
+            file_type = classify_path(path) or "unknown"
+            skip_counts["not-df" if message == "not a DreamFactory container" else file_type] += 1
+            continue
+        clock = _format_elapsed(elapsed)
+        if status == "fail":
+            failures.append((path, message))
+            print(f"FAIL  {path.name:16}  {clock:>8}  {message}", flush=True)
+            continue
         for key, count in result.items():
             tallies[key] += count
-        summary = "  ".join(f"{count} {key}" for key, count in result.items() if key != "pending")
-        print(f"OK    {path.name:16}  {summary}  -> {dest.relative_to(args.output)}", flush=True)
+        summary = "  ".join(
+            f"{count} {key}" for key, count in result.items() if key != "pending"
+        )
+        print(
+            f"OK    {path.name:16}  {clock:>8}  {summary}  "
+            f"-> {dest.relative_to(args.output)}",
+            flush=True,
+        )
 
+    wall = _format_elapsed(time.perf_counter() - started)
     print()
     done = len(files) - len(failures) - len(skipped)
-    print(f"Done. {done}/{len(files)} extracted", end="")
+    print(f"Done. {done}/{len(files)} extracted in {wall}", end="")
     if skipped:
         print(f", {len(skipped)} not implemented yet", end="")
     if failures:
@@ -161,6 +176,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest="types",
         metavar="LIST",
         help="Comma-separated file types to include: " + ", ".join(DUST_TYPES),
+    )
+    parser.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Parallel file workers. 0 = auto (default). 1 = one file at a time.",
     )
     return parser.parse_args(argv)
 
@@ -340,6 +363,94 @@ def _extract_snd(path: Path, dest: Path, kinds: tuple[str, ...]) -> dict[str, in
     return result
 
 
+def _worker_count(n_files: int, kinds: tuple[str, ...], jobs: int) -> int:
+    if jobs < 0:
+        raise SystemExit("--jobs must be >= 0")
+    if n_files <= 1:
+        return 1
+    if jobs > 0:
+        return min(jobs, n_files)
+    if "frames" not in kinds and "audio" not in kinds:
+        return 1
+    cpus = os.cpu_count() or 1
+    return max(1, min(8, cpus, n_files))
+
+
+def _format_elapsed(seconds: float) -> str:
+    """Compact duration for OK/FAIL lines and the Done summary."""
+    if seconds < 0:
+        seconds = 0.0
+    if seconds < 0.01:
+        return "<0.01s"
+    if seconds < 10:
+        return f"{seconds:.2f}s"
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    total = int(round(seconds))
+    minutes, secs = divmod(total, 60)
+    if minutes < 60:
+        return f"{minutes}m {secs:02d}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes}m"
+
+
+def _read_head(path: Path, n: int = 40) -> bytes:
+    try:
+        with path.open("rb") as handle:
+            return handle.read(n)
+    except OSError:
+        return b""
+
+
+def _process_one(
+    path: Path, file_type: str, dest: Path, kinds: tuple[str, ...]
+) -> tuple[str, Path, Path, str, dict[str, int], float]:
+    t0 = time.perf_counter()
+    raw_head = _read_head(path)
+    if len(raw_head) < 40 or raw_head[32:40] != MAGIC:
+        return "skip", path, dest, "not a DreamFactory container", {}, 0.0
+    try:
+        result = extract_file(path, file_type, dest, kinds)
+    except NotImplementedError as exc:
+        return "skip", path, dest, str(exc), {}, time.perf_counter() - t0
+    except (DFError, OSError, struct.error) as exc:
+        return "fail", path, dest, str(exc), {}, time.perf_counter() - t0
+    return "ok", path, dest, "", result, time.perf_counter() - t0
+
+
+def _extract_job(
+    item: tuple[str, str, str, tuple[str, ...]],
+) -> tuple[str, str, str, str, dict[str, int], float]:
+    path_s, file_type, dest_s, kinds = item
+    status, path, dest, message, result, elapsed = _process_one(
+        Path(path_s), file_type, Path(dest_s), kinds
+    )
+    return status, str(path), str(dest), message, result, elapsed
+
+
+def _process_many(
+    jobs: list[tuple[Path, str, Path, tuple[str, ...]]],
+    workers: int,
+):
+    payloads = [
+        (str(path), file_type, str(dest), kinds)
+        for path, file_type, dest, kinds in jobs
+    ]
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        future_map = {
+            pool.submit(_extract_job, payload): (path, dest)
+            for payload, (path, _file_type, dest, _kinds) in zip(payloads, jobs)
+        }
+        for future in as_completed(future_map):
+            path, dest = future_map[future]
+            try:
+                status, path_s, dest_s, message, result, elapsed = future.result()
+            except Exception as exc:
+                yield "fail", path, dest, str(exc), {}, 0.0
+                continue
+            yield status, Path(path_s), Path(dest_s), message, result, elapsed
+
+
 def _default_dust_roots() -> list[Path]:
     repo = HERE.parent
     dust = repo / "sources" / "dust.dbgl" / "dosroot" / "0" / "dust"
@@ -351,4 +462,7 @@ def _default_dust_roots() -> list[Path]:
 
 
 if __name__ == "__main__":
+    from multiprocessing import freeze_support
+
+    freeze_support()
     raise SystemExit(main())

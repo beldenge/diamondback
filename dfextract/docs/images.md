@@ -2,7 +2,11 @@
 
 Two codecs. Palette is shared.
 
-Implementation: `image.py`. PNG write uses Pillow.
+Implementation: `image.py`. PNG write uses Pillow. SET/MOV/FLT stills
+are written as **8-bit paletted PNGs** (`IHDR` color type 3). The `PLTE`
+chunk is the still palette with DFET VGA ends (index 0 black, 255 white),
+so a viewer expands to the same RGB as `still_rgba`. PUP/CST sprites stay
+RGBA because they have real per-pixel alpha.
 
 ## Palette
 
@@ -114,8 +118,9 @@ most MOVs; it still fails some Yunni-box frames (`BOXOPEN.MOV`,
 some stills.
 
 Optional Z-buffer after the color image: `height` × `u16` scanline
-offsets, then runs of `(count, depth)`. We decode it when the remaining
-bytes look valid; we do not yet write Z PNGs.
+offsets, then runs of `(count, depth)`. `decode_indexed_image` only
+parses that when `decode_z=True`. The extract path does not; we do
+not write Z PNGs.
 
 **Previous frame.** DFET keeps one decode buffer and never clears it.
 Skip spans (mode 2 and row param 10) therefore leave the last still’s
@@ -150,20 +155,22 @@ overwrites SET PNGs).
 ## How big the stills are
 
 Dust kept **one** 512×264 **8-bit** framebuffer (~135 KB) and a ~60 MB
-delta SET (`TOWN.SET`). We expand each strip frame to a full picture and
-write **RGBA** PNG (not paletted).
+delta SET (`TOWN.SET`). We write each strip frame as a **paletted PNG**
+(`PLTE` = `still_plte`). The browser expands that on load. See
+[performance.md](performance.md).
 
 | Form | Town outdoor (`_TOWN`, 3155 frames) |
 |---|---|
 | `TOWN.SET` on the CD (delta, indexed) | ~60 MB |
-| Our PNG dump (complete frames, RGBA) | ~115 MB |
+| Our PNG dump (complete frames, paletted) | ~half the old RGBA dump; ~19 KB vs ~38 KB per still in a TOWN sample |
+| Older RGBA PNG dump (before paletted write) | ~115 MB |
 | Raw 8-bit indices, every frame resident | ~426 MB |
 | Decoded RGBA / WebGL, every frame resident | ~1.7 GB |
 
 1.7 GB is “all stills as 32-bit textures,” not the film. `_NITE` is
-another ~55 MB SET / ~95 MB PNG. The remake currently fetches PNGs over
-HTTP and keeps ~80 GPU textures. Do not treat RGBA-resident-all as a
-requirement.
+another ~55 MB SET and a second paletted dump. The remake currently
+fetches PNGs over HTTP and keeps ~80 GPU textures. Do not treat
+RGBA-resident-all as a requirement.
 
 ## How to identify a still vs a sprite vs audio
 

@@ -1,7 +1,7 @@
 # Output catalog
 
 Where extracted Dust assets live, what each file **is**, and how to
-find the thing you want. Root is `dfextract/out/` after
+find the thing you want. Root is `../out/` after
 `python cli.py`.
 
 Canonical layout:
