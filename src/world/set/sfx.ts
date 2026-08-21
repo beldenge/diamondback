@@ -1,6 +1,8 @@
+import { extractUrl } from "./extract";
+
 /** One-shot Dust WAVs from `SND/_UNILIB`. Click is a user gesture, so play() is allowed. */
 
-const UNILIB = "/extract/SND/_UNILIB";
+const UNILIB = extractUrl("SND/_UNILIB");
 
 const SFX: Record<string, string> = {
   knock1: `${UNILIB}/knock1.wav`,

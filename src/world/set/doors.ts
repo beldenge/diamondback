@@ -1,4 +1,5 @@
 import type { ClockSlot } from "../../core/time";
+import { extractUrl } from "./extract";
 import { tileKey, WORLD_TOWN } from "./graph";
 import { FACE_OPPOSITE, type Dir, type SetGraph, type WalkerPose } from "./types";
 
@@ -119,7 +120,7 @@ export function doorSpriteUrl(state: string): string | undefined {
   if (!file) {
     return undefined;
   }
-  return `/extract/PRP/_HOUSE/FRAMES/door/${state}/${file}`;
+  return extractUrl(`PRP/_HOUSE/FRAMES/door/${state}/${file}`);
 }
 
 export function hitTest(box: HitBox, x: number, y: number): boolean {

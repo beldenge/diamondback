@@ -58,6 +58,8 @@ function extractPlugin(): Plugin {
 }
 
 export default defineConfig({
+  // Custom domain (diamondback.town) is `/`. Project-pages path comes from CI.
+  base: process.env.VITE_BASE || "/",
   plugins: [extractPlugin()],
   server: {
     port: 5173,

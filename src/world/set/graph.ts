@@ -12,6 +12,7 @@ import {
   type TransitionRecord,
   type WalkerPose,
 } from "./types";
+import { extractUrl } from "./extract";
 
 export function tileKey(x: number, y: number): string {
   return `${x},${y}`;
@@ -198,8 +199,8 @@ export function framesFolder(world: string, night: boolean): string {
 
 export function extractSetUrls(folder: string): { scenes: string; transitions: string } {
   return {
-    scenes: `/extract/SET/${folder}/scenes.json`,
-    transitions: `/extract/SET/${folder}/transitions.json`,
+    scenes: extractUrl(`SET/${folder}/scenes.json`),
+    transitions: extractUrl(`SET/${folder}/transitions.json`),
   };
 }
 
@@ -227,7 +228,7 @@ export async function loadTownGraph(fetchImpl: typeof fetch = fetch): Promise<Se
 }
 
 export function frameUrl(folder: string, frame0: number, offset: number): string {
-  return `/extract/SET/${folder}/FRAMES/${frame0}_${offset}.png`;
+  return extractUrl(`SET/${folder}/FRAMES/${frame0}_${offset}.png`);
 }
 
 export function poseLabel(graph: SetGraph, pose: WalkerPose, world: string = WORLD_TOWN): string {
