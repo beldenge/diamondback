@@ -18,6 +18,7 @@ and know what is still wrong.
 | [performance.md](performance.md) | Why the dump was slow, what we changed, leftover speed ideas |
 | [file-types.md](file-types.md) | PUP, CST, SND, BOOT, SET, FLT, PRP, MOV |
 | [findings.md](findings.md) | Sources, what we proved, limits, vs DFET |
+| [../../dustdecompile/docs/findings.md](../../dustdecompile/docs/findings.md) | **Engine binaries** — opcode table, plugin ABI, MOVPLAY tick/mixer/framebuffer (§7) |
 
 The extractor is isolated from the Three.js remake on purpose. DFET
 (GPL-3) is the reference implementation for shared codecs. Dust-only

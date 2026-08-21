@@ -27,6 +27,8 @@ class TestCliDefaults(unittest.TestCase):
     def test_no_flags_means_all_kinds_and_types(self) -> None:
         args = parse_args([])
         self.assertEqual(selected_kinds(args), CONTENT_KINDS)
+        self.assertNotIn("video", CONTENT_KINDS)
+        self.assertNotIn("video", selected_kinds(args))
         self.assertEqual(selected_types(args), DUST_TYPES)
         self.assertEqual(args.jobs, 0)
 

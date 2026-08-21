@@ -110,8 +110,9 @@ A venv is optional. `python -m pip install -r requirements.txt` into
 your user site-packages also works; the only runtime dependency is
 Pillow.
 
-No flags means **everything**: all types, scripts + audio + frames, from
-the Dust tree above. Output is `out/` (created if needed).
+No flags means **scripts + audio + frames** for all types, from the Dust
+tree above. **`--video` is opt-in** (ffmpeg; not in a default run).
+Output is `out/` (created if needed).
 
 ### 4. What a successful run looks like
 
@@ -184,7 +185,7 @@ python cli.py path\to\DUSTCD -o D:\tmp\dust-out
 | Argument | Effect |
 |---|---|
 | *(none)* | All types, all content kinds, from `sources/dust.dbgl` |
-| `--scripts` / `--audio` / `--frames` / `--video` | Only those kinds (any one of them turns the others off). `--video` is opt-in (not in the default dump) and needs `ffmpeg` on PATH or `pip install imageio-ffmpeg`. It encodes full-screen MOV reels to `movie.mp4`, not SET walks or inspectables. |
+| `--scripts` / `--audio` / `--frames` / `--video` | Only those kinds (any one of them turns the others off). `--video` is opt-in (not in the default dump) and needs `ffmpeg` on PATH or `pip install imageio-ffmpeg`. It encodes each MOV that has stills to `movie.mp4` (intros, overlays, inspectables), not SET walks. |
 | `--type pup,set,flt,prp,mov,cst,snd,boot` | Only those file types |
 | paths | Only these files or directories |
 | `-o DIR` | Output directory (default: `out/` next to `cli.py`) |
@@ -244,7 +245,7 @@ More detail: [`docs/reproducing.md`](docs/reproducing.md).
 - [x] `.FLT` puzzle scripts and stills
 - [x] `.PRP` prop scripts and **named** sprites (`Bone/small`, …)
 - [x] `.MOV` Dust v1 stills / cutscene frames / audio
-- [x] `--video` encodes full-screen MOV reels (`playmovie` / INFO / intros) to `movie.mp4` at 14 fps
+- [x] `--video` (opt-in) encodes each MOV that has stills to `movie.mp4` at 60 fps with MOVPLAY holds, A/B mixer, per-scene palettes (not 14 fps)
 - [x] Full SET/FLT/PRP/MOV dump
 - [x] Previous-frame still decode (Yunni box open/close)
 - [ ] Occasional SET/MOV right-edge artifact; `ZUNUSED` is not DF

@@ -1,6 +1,6 @@
 import type { ClockSlot } from "../../core/time";
 import { tileKey, WORLD_TOWN } from "./graph";
-import type { Dir, SetGraph } from "./types";
+import { FACE_OPPOSITE, type Dir, type SetGraph, type WalkerPose } from "./types";
 
 /** Dust `pointx`/`pointy` box. Tests use the original exclusive bounds (`>` / `<`). */
 export interface HitBox {
@@ -52,38 +52,53 @@ export interface DoorDef {
   knockSound: DoorSfx;
   locked: (ctx: DoorLockCtx) => boolean;
   go: DoorGo;
+  /** Stairs: walk forward hops, no click. Movies (`salup.mov`, etc.) are skipped. */
+  autoWalk?: boolean;
+}
+
+function stairDoor(
+  id: string,
+  world: string,
+  scene: string,
+  facing: Dir,
+  go: DoorGo,
+): DoorDef {
+  return {
+    id,
+    world,
+    scene,
+    facing,
+    hitbox: { x0: 100, y0: 10, x1: 412, y1: 263 },
+    sprite: "",
+    openSound: "dooropen1",
+    knockSound: "knock1",
+    locked: neverLocked,
+    autoWalk: true,
+    go,
+  };
 }
 
 /** PRP door PNG filenames (`00_c<container>.png`). */
+/**
+ * Usable open-door sprites. Omitted on purpose: court/school/padre dumps
+ * are solid black; hotel / chin / paper / undertak sprites are a different
+ * door than the facade still. Opening still works (sound + walk in).
+ */
 const DOOR_PNG: Record<string, string> = {
   apoth: "00_c563.png",
   bank: "00_c565.png",
   store: "00_c567.png",
-  hotel: "00_c569.png",
-  chin: "00_c571.png",
   doctor: "00_c573.png",
   back: "00_c575.png",
   saloon: "00_c577.png",
   jail: "00_c579.png",
   livery: "00_c581.png",
-  paper: "00_c583.png",
   stage: "00_c585.png",
-  undertak: "00_c587.png",
   mayor: "00_c589.png",
   nitemayo: "00_c591.png",
   doc1: "00_c629.png",
   doc2: "00_c631.png",
   doc4: "00_c633.png",
-  padre: "00_c649.png",
-  padreout: "00_c655.png",
-  courtout: "00_c657.png",
-  court: "00_c659.png",
-  schoolin: "00_c661.png",
-  schoolout: "00_c663.png",
-  courtoutnite: "00_c665.png",
-  courtinnite: "00_c667.png",
-  schoolinnite: "00_c669.png",
-  schooloutnite: "00_c671.png",
 };
 
 export function closeSfx(door: DoorDef): DoorSfx {
@@ -231,7 +246,13 @@ export function lockPaper(ctx: DoorLockCtx): boolean {
  *
  * Opposite facades share a tile (L7 jail/chin, E7 hotel/doctor, H7
  * saloon/stage). Original `gototown` facing is the other door. We step
- * out on `townPose.facing` (the door you used) and only enter when open.
+ * out on the enter tile facing *away* from the door (walked through it).
+ * Only enter when the door is open.
+ *
+ * Nested rooms are the same click-then-walk hop between SETs. Street
+ * poses are the filmed facades, not the script tiles Dust attached the
+ * handlers to (J9 mayor, D8 paper, A7 undertaker, J6 livery). Paper is
+ * **H4 W** (The Rattler). Caretaker is **G1 S** (Sidewinder).
  */
 export const DOORS: readonly DoorDef[] = [
   {
@@ -306,6 +327,54 @@ export const DOORS: readonly DoorDef[] = [
     locked: neverLocked,
     go: { kind: "town", facing: "E" },
   },
+  stairDoor("saloon-up", "_SALLOWER", "scene d6", "W", {
+    kind: "set",
+    world: "_SALUPPER",
+    scene: "scene a4",
+    facing: "W",
+  }),
+  stairDoor("saloon-down", "_SALUPPER", "scene a4", "E", {
+    kind: "set",
+    world: "_SALLOWER",
+    scene: "scene d6",
+    facing: "E",
+  }),
+  {
+    id: "saloon-ruby",
+    world: "_SALUPPER",
+    scene: "scene a1",
+    facing: "N",
+    hitbox: { x0: 138, y0: 2, x1: 327, y1: 263 },
+    sprite: "ruby",
+    openSound: "dooropen1",
+    knockSound: "knock1",
+    locked: neverLocked,
+    go: { kind: "set", world: "_SALROOM", scene: "scene b1", facing: "W" },
+  },
+  {
+    id: "saloon-oona",
+    world: "_SALUPPER",
+    scene: "scene a3",
+    facing: "E",
+    hitbox: { x0: 133, y0: 2, x1: 357, y1: 263 },
+    sprite: "oona",
+    openSound: "dooropen1",
+    knockSound: "knock1",
+    locked: neverLocked,
+    go: { kind: "set", world: "_SALROOM", scene: "scene b1", facing: "W" },
+  },
+  {
+    id: "salroom-out",
+    world: "_SALROOM",
+    scene: "scene b1",
+    facing: "E",
+    hitbox: { x0: 170, y0: 48, x1: 341, y1: 263 },
+    sprite: "salroom",
+    openSound: "dooropen1",
+    knockSound: "knock1",
+    locked: neverLocked,
+    go: { kind: "set", world: "_SALUPPER", scene: "scene a1", facing: "S" },
+  },
   {
     id: "town-stage",
     world: WORLD_TOWN,
@@ -354,6 +423,42 @@ export const DOORS: readonly DoorDef[] = [
     locked: neverLocked,
     go: { kind: "town", facing: "W" },
   },
+  stairDoor("hotel-up", "_HOTLOWER", "scene d3", "N", {
+    kind: "set",
+    world: "_HOTUPPER",
+    scene: "scene d1",
+    facing: "N",
+  }),
+  stairDoor("hotel-down", "_HOTUPPER", "scene d1", "S", {
+    kind: "set",
+    world: "_HOTLOWER",
+    scene: "scene d3",
+    facing: "S",
+  }),
+  {
+    id: "hotel-playroom",
+    world: "_HOTUPPER",
+    scene: "scene c4",
+    facing: "W",
+    hitbox: { x0: 168, y0: 50, x1: 329, y1: 263 },
+    sprite: "playroom",
+    openSound: "dooropen1",
+    knockSound: "knock1",
+    locked: neverLocked,
+    go: { kind: "set", world: "_HOTROOM", scene: "scene b1", facing: "W" },
+  },
+  {
+    id: "hotroom-out",
+    world: "_HOTROOM",
+    scene: "scene b1",
+    facing: "E",
+    hitbox: { x0: 176, y0: 62, x1: 339, y1: 263 },
+    sprite: "inside",
+    openSound: "dooropen1",
+    knockSound: "knock1",
+    locked: neverLocked,
+    go: { kind: "set", world: "_HOTUPPER", scene: "scene c4", facing: "E" },
+  },
   {
     id: "town-doctor",
     world: WORLD_TOWN,
@@ -377,6 +482,30 @@ export const DOORS: readonly DoorDef[] = [
     knockSound: "knock1",
     locked: neverLocked,
     go: { kind: "town", facing: "E" },
+  },
+  {
+    id: "doctor-inner",
+    world: "_DOCTOR1",
+    scene: "scene b1",
+    facing: "W",
+    hitbox: { x0: 190, y0: 65, x1: 307, y1: 261 },
+    sprite: "doc1",
+    openSound: "dooropen1",
+    knockSound: "knock1",
+    locked: neverLocked,
+    go: { kind: "set", world: "_DOCTOR2", scene: "scene a1", facing: "W" },
+  },
+  {
+    id: "doctor2-out",
+    world: "_DOCTOR2",
+    scene: "scene a1",
+    facing: "E",
+    hitbox: { x0: 205, y0: 68, x1: 319, y1: 262 },
+    sprite: "doc4",
+    openSound: "dooropen1",
+    knockSound: "knock1",
+    locked: neverLocked,
+    go: { kind: "set", world: "_DOCTOR1", scene: "scene b1", facing: "E" },
   },
   {
     id: "town-store",
@@ -495,10 +624,126 @@ export const DOORS: readonly DoorDef[] = [
     go: { kind: "town", facing: "S" },
   },
   {
+    id: "court-school",
+    world: "_COURT",
+    scene: "scene c3",
+    facing: "N",
+    hitbox: { x0: 148, y0: 45, x1: 355, y1: 263 },
+    sprite: "schoolin",
+    spriteNight: "schoolinnite",
+    openSound: "dooropen2",
+    knockSound: "knock1",
+    locked: neverLocked,
+    go: {
+      kind: "set",
+      world: "_SCHOOL",
+      worldNight: "_NITESCHO",
+      scene: "scene b2",
+      facing: "N",
+    },
+  },
+  {
+    id: "nitecour-school",
+    world: "_NITECOUR",
+    scene: "scene c3",
+    facing: "N",
+    hitbox: { x0: 148, y0: 45, x1: 355, y1: 263 },
+    sprite: "schoolinnite",
+    openSound: "dooropen2",
+    knockSound: "knock1",
+    locked: neverLocked,
+    go: {
+      kind: "set",
+      world: "_SCHOOL",
+      worldNight: "_NITESCHO",
+      scene: "scene b2",
+      facing: "N",
+    },
+  },
+  {
+    id: "school-out",
+    world: "_SCHOOL",
+    scene: "scene b2",
+    facing: "S",
+    hitbox: { x0: 147, y0: 78, x1: 376, y1: 263 },
+    sprite: "schoolout",
+    spriteNight: "schooloutnite",
+    openSound: "dooropen2",
+    knockSound: "knock1",
+    locked: neverLocked,
+    go: {
+      kind: "set",
+      world: "_COURT",
+      worldNight: "_NITECOUR",
+      scene: "scene c3",
+      facing: "S",
+    },
+  },
+  {
+    id: "nitescho-out",
+    world: "_NITESCHO",
+    scene: "scene b2",
+    facing: "S",
+    hitbox: { x0: 147, y0: 78, x1: 376, y1: 263 },
+    sprite: "schooloutnite",
+    openSound: "dooropen2",
+    knockSound: "knock1",
+    locked: neverLocked,
+    go: {
+      kind: "set",
+      world: "_COURT",
+      worldNight: "_NITECOUR",
+      scene: "scene c3",
+      facing: "S",
+    },
+  },
+  {
+    id: "school-padre",
+    world: "_SCHOOL",
+    scene: "scene a2",
+    facing: "W",
+    hitbox: { x0: 207, y0: 79, x1: 320, y1: 263 },
+    sprite: "padre",
+    openSound: "dooropen2",
+    knockSound: "knock2",
+    locked: neverLocked,
+    go: { kind: "set", world: "_PADRE", scene: "scene a2", facing: "W" },
+  },
+  {
+    id: "nitescho-padre",
+    world: "_NITESCHO",
+    scene: "scene a2",
+    facing: "W",
+    hitbox: { x0: 207, y0: 79, x1: 320, y1: 263 },
+    sprite: "padre",
+    openSound: "dooropen2",
+    knockSound: "knock2",
+    locked: neverLocked,
+    go: { kind: "set", world: "_PADRE", scene: "scene a2", facing: "W" },
+  },
+  {
+    id: "padre-out",
+    world: "_PADRE",
+    scene: "scene a2",
+    facing: "E",
+    hitbox: { x0: 193, y0: 81, x1: 303, y1: 264 },
+    sprite: "padreout",
+    openSound: "dooropen2",
+    knockSound: "knock2",
+    locked: neverLocked,
+    go: {
+      kind: "set",
+      world: "_SCHOOL",
+      worldNight: "_NITESCHO",
+      scene: "scene a2",
+      facing: "E",
+    },
+  },
+  {
     id: "town-undertak",
     world: WORLD_TOWN,
-    scene: "scene d4",
-    facing: "W",
+    scene: "scene g1",
+    facing: "S",
     hitbox: { x0: 206, y0: 74, x1: 298, y1: 221 },
     sprite: "undertak",
     openSound: "dooropen3",
@@ -521,7 +766,7 @@ export const DOORS: readonly DoorDef[] = [
   {
     id: "town-paper",
     world: WORLD_TOWN,
-    scene: "scene d8",
+    scene: "scene h4",
     facing: "W",
     hitbox: { x0: 213, y0: 98, x1: 282, y1: 211 },
     sprite: "paper",
@@ -545,8 +790,8 @@ export const DOORS: readonly DoorDef[] = [
   {
     id: "town-livery",
     world: WORLD_TOWN,
-    scene: "scene d9",
-    facing: "W",
+    scene: "scene f10",
+    facing: "E",
     hitbox: { x0: 204, y0: 82, x1: 293, y1: 235 },
     sprite: "livery",
     openSound: "dooropen3",
@@ -569,7 +814,7 @@ export const DOORS: readonly DoorDef[] = [
   {
     id: "town-mayor",
     world: WORLD_TOWN,
-    scene: "scene j9",
+    scene: "scene i10",
     facing: "E",
     hitbox: { x0: 174, y0: 82, x1: 335, y1: 228 },
     sprite: "mayor",
@@ -590,6 +835,90 @@ export const DOORS: readonly DoorDef[] = [
     knockSound: "knock1",
     locked: neverLocked,
     go: { kind: "town", facing: "W" },
+  },
+  {
+    id: "mayor-study",
+    world: "_MAYHALL",
+    scene: "scene c3",
+    facing: "W",
+    hitbox: { x0: 142, y0: 77, x1: 368, y1: 263 },
+    sprite: "study",
+    openSound: "dooropen1",
+    knockSound: "knock1",
+    locked: neverLocked,
+    go: { kind: "set", world: "_MAYSTUDY", scene: "scene b2", facing: "W" },
+  },
+  {
+    id: "maystudy-out",
+    world: "_MAYSTUDY",
+    scene: "scene b2",
+    facing: "E",
+    hitbox: { x0: 121, y0: 19, x1: 391, y1: 262 },
+    sprite: "hall",
+    openSound: "dooropen1",
+    knockSound: "knock1",
+    locked: neverLocked,
+    go: { kind: "set", world: "_MAYHALL", scene: "scene c3", facing: "E" },
+  },
+  {
+    id: "mayor-dine",
+    world: "_MAYHALL",
+    scene: "scene c3",
+    facing: "E",
+    hitbox: { x0: 146, y0: 78, x1: 366, y1: 262 },
+    sprite: "dine",
+    openSound: "dooropen1",
+    knockSound: "knock1",
+    locked: neverLocked,
+    go: { kind: "set", world: "_MAYDINE", scene: "scene d2", facing: "E" },
+  },
+  {
+    id: "maydine-out",
+    world: "_MAYDINE",
+    scene: "scene d2",
+    facing: "W",
+    hitbox: { x0: 120, y0: 20, x1: 388, y1: 263 },
+    sprite: "hall2",
+    openSound: "dooropen1",
+    knockSound: "knock1",
+    locked: neverLocked,
+    go: { kind: "set", world: "_MAYHALL", scene: "scene c3", facing: "W" },
+  },
+  stairDoor("mayor-up", "_MAYHALL", "scene c3", "N", {
+    kind: "set",
+    world: "_MAYUPPER",
+    scene: "scene c1",
+    facing: "N",
+  }),
+  stairDoor("mayor-down", "_MAYUPPER", "scene c1", "S", {
+    kind: "set",
+    world: "_MAYHALL",
+    scene: "scene c3",
+    facing: "S",
+  }),
+  {
+    id: "mayor-bedroom",
+    world: "_MAYUPPER",
+    scene: "scene b1",
+    facing: "N",
+    hitbox: { x0: 168, y0: 23, x1: 336, y1: 263 },
+    sprite: "room",
+    openSound: "dooropen1",
+    knockSound: "knock1",
+    locked: neverLocked,
+    go: { kind: "set", world: "_MAYROOM", scene: "scene a2", facing: "N" },
+  },
+  {
+    id: "mayroom-out",
+    world: "_MAYROOM",
+    scene: "scene a2",
+    facing: "S",
+    hitbox: { x0: 172, y0: 19, x1: 345, y1: 263 },
+    sprite: "exit",
+    openSound: "dooropen1",
+    knockSound: "knock1",
+    locked: neverLocked,
+    go: { kind: "set", world: "_MAYUPPER", scene: "scene b1", facing: "S" },
   },
   {
     id: "town-back",
@@ -660,6 +989,11 @@ export function doorMatchesPose(
   );
 }
 
+/** Street tile you came from, looking out instead of back at the door. */
+export function exitTownPose(enter: WalkerPose): WalkerPose {
+  return { x: enter.x, y: enter.y, facing: FACE_OPPOSITE[enter.facing] };
+}
+
 export function goWorld(go: DoorGo, night: boolean): string | undefined {
   if (go.kind === "town") {
     return WORLD_TOWN;
@@ -675,7 +1009,7 @@ export function oppositeFacadePairs(): { scene: string; a: DoorDef; b: DoorDef }
     for (let j = i + 1; j < town.length; j += 1) {
       const a = town[i];
       const b = town[j];
-      if (a.scene === b.scene && a.facing !== b.facing) {
+      if (a.scene === b.scene && FACE_OPPOSITE[a.facing] === b.facing) {
         pairs.push({ scene: a.scene, a, b });
       }
     }

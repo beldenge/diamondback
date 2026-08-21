@@ -21,7 +21,7 @@ infect the remake tree. We do not keep or test against DFET output.
 | [mrxstudios 2022-04-25](https://mrxstudios.home.blog/2022/04/25/reverse-engineering-dust-game-locations-and-map-layout/) | SET block kinds, 32-byte scene records, 50-byte waypoints, 28-byte framelist, 6 frames per transition, 255-unit tiles |
 | [M3tox/DFET](https://github.com/M3tox/DFET) (local `D:\dev\DFET`) | `LPPALPPA` reader, script pretty-printer + 4.0 opcode map, ADPCM v40/v41, both image codecs, PUP/CST/SND/BOOT Dust branches |
 | ResHax / ZenHAX thread | Only a pointer back at the 2021 blog. No extra layouts |
-| Dust `DF.EXE` | Confirmed opcode ASCII still present (`puppetspeak` @ 277700). Not parsed as a table |
+| Dust `DF.EXE` | Opcode ASCII (`puppetspeak` @ 277700). Packed name/id table, Dust-vs-Titanic aliases, plugin ABI: [`dustdecompile/docs/findings.md`](../../dustdecompile/docs/findings.md) |
 
 mrxstudios never published the SET still codec (he said it was
 Cyberflix in-house Huffman). DFET already had it for Titanic
@@ -51,9 +51,12 @@ stills.
 - MOV v1 is the same container file; audio clips are ordinary v40/v41
   containers mixed in with stills. INTRO stills start at container 9
   (eight clips first). No `script_*.txt` in the opening reels; boot
-  only `playmovie`s intro then intro2. `--video` MP4s exist but
-  **timing is unsolved** (see [reconstruction-gaps.md](reconstruction-gaps.md)
-  §4a). Decoded MOV PNGs are full composited stills, not residuals.
+  only `playmovie`s intro then intro2. `--video` is opt-in; with the
+  flag it muxes **all** MOVs that have stills (overlays too) using
+  MOVPLAY 60 Hz holds, A/B mixer, and per-scene palettes
+  ([dustdecompile findings §7](../../dustdecompile/docs/findings.md)).
+  Decoded MOV PNGs are full composited stills (one framebuffer; do not
+  clear prior on scene headers; each scene’s `+0x3E` palette).
 - FLT/PRP are the same container + script token + the two image codecs.
   No new magic.
 - SET strips that share a container id must decode separately

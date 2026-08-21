@@ -18,3 +18,4 @@ venv/
 sources/dust.dbgl/
 sources/*.pdf
 dfextract/out/
+dustdecompile/out/

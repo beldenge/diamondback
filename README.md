@@ -26,6 +26,10 @@ Optional: `?clock=1|2|3` (morning / afternoon / night).
 
 You need a local Dust install under `sources/dust.dbgl/`. Then see [`dfextract/README.md`](dfextract/README.md). Output goes to `dfextract/out/` and is **not** committed.
 
+Engine binaries (opcode table, plugin ABI, working verb protocols) are
+a separate tool: [`dustdecompile/README.md`](dustdecompile/README.md).
+What we proved from the EXEs: [`dustdecompile/docs/findings.md`](dustdecompile/docs/findings.md).
+
 ## Not in git
 
 Original CD / DOSBox tree, extracted PNG/WAV, and `dfextract` output stay on disk only (copyrighted; too large for GitHub). The spec and extractor source are enough to reproduce a dump if you have the game.

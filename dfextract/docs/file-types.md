@@ -248,28 +248,64 @@ CHECKERS: `me1/normal`, `me1/king`, `him1/king`, `exitclick/click`.
 
 258 on disk. Dust v1. DFET refuses these.
 
+A file is one or more **scene headers** plus audio and still containers.
+Container 0 is always a scene header. Later scene headers are blocks
+that start `00 00 01 00`, are not audio, and have 264×512 or 384×512
+at +34.
+
+Scene header (proven from `MOVPLAY.EXE`; full writeup
+[`dustdecompile/docs/findings.md`](../../dustdecompile/docs/findings.md) §7):
+
 ```
-i32 version                       @ 2   # must be 1
-i32 something / frame count hint  @ 24
-palette via find_palette
+u32 signature                     @ 0     # 0x00010000
+i32 version                       @ 2     # must be 1
+u16 still count                   @ 24    # 0x18
+u16 group A count                 @ 26    # 0x1A  voice/SFX slots
+u16 group B count                 @ 28    # 0x1C  theme clips
+i16 height, width                 @ 34    # 264×512 or 384×512
+u32 default hold ticks            @ 0x26
+u16 B playlist length             @ 0x34
+ColorPalette[256]                 @ 0x3E  # 8 bytes each; MOVPLAY copy @ 0x40BC9A
+u16 B playlist[]                  @ 0x83E # 1-based indices into the B clips
+80-byte frame records             @ 0x8C2 # count × 80; MOVPLAY rep movsd ecx=20
+    u32 extra hold                @ rec+2 # hold = max(default, extra); 0 → default
+    u16 still container           @ rec+28 # relative to this scene header’s index
+    u16 group-A slot              @ rec+32 # 0 = none; else 1-based, retrigger restarts
 ```
+
+Tick = `timeGetTime() * 3 / 50` = **60 Hz**. Duplicate each still
+`hold` times and encode at 60 fps.
 
 Then each later container is classified:
 
-- audio signature → `AUDIO/clip_<i>.wav`
+- audio signature → `AUDIO/clip_<i>.wav` (group A then group B after the header)
 - first token `code` → `script_<i>.txt` (rare)
+- scene header → skip (not an image; do **not** clear the prior framebuffer)
 - otherwise try indexed still → `FRAMES/frame_<i>.png`
 
-INTRO.MOV: 638 frames, 27 audio clips. INTRO2: 354 frames. INTRO3: 1475
-frames. User wall-clock for all three back-to-back ≈ 2:58 → **14 fps
-average** used by `--video`. That mux (clip starts at stills-before / 14 s,
-overlap when clustered) is a **first guess and sounds wrong**; see
-[reconstruction-gaps.md](reconstruction-gaps.md) §4a. Sidecar WAVs still
-go under `AUDIO/` with `--audio`.
+Stills are **deltas into one framebuffer**. Skip spans keep whatever
+was already there. Each scene installs its **own palette** at `+0x3E`;
+PNG/RGB use that palette, not container 0’s.
 
-`--video` encodes **reels** only: `playmovie` / `doamovie` stems, `INFO/`
-attract movies, plus `INTRO3` / `FINALEND`. It does **not** encode
-`INVEN/` inspectables, `spotmovie` overlays, or SET/PUP frames.
+**Group A** starts when `record+32` matches the slot. Same slot again
+restarts that clip (INTRO2 A2). A new scene that would start while the
+previous scene’s A line is still playing is **held** until that line’s
+original end (INTRO `clip_325` vs `clip_423`). **Group B** is a
+sequential playlist; `n_b == 0` keeps the previous bed.
+
+INTRO.MOV: 638 frames, 27 audio clips, **42.15 s**. INTRO2: 354 frames,
+**18.60 s**. INTRO3: 1475 frames, **101.30 s**. Three intros ≈ **162 s**
+of picture (was 176 s at a flat 14 fps). SALUP stairs **1.73 s**.
+`DOG1` / `DOG2` overlays are ~1 s (same table, not `playmovie` reels).
+
+Sidecar WAVs go under `AUDIO/` with `--audio`. `--video` is **opt-in**
+(`python cli.py` does not mux). With `--video`, every Dust v1 MOV that
+has stills gets `movie.mp4` + `timeline.json`: intros, day-change,
+spotmovie overlays (`DOG1`, `APOTHPIG`, …), `INFO/` attract reels, and
+INVEN inspectables. Mixed 512×384 / 512×264 (TIPRE) is letterboxed;
+odd sizes (NITEWARN 516×265) pad to even for x264. Not SET/PUP frames.
+`is_reel_movie` is only a label for full-screen `playmovie` stems vs
+overlays.
 
 Inventory inspectables (`APPLE.MOV`, `GUN.MOV`, …) are 1–3 stills.
 

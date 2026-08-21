@@ -74,9 +74,11 @@ clone if it ever changes:
 # historically: parse {id, "name"} from D:\dev\DFET\libs\DFfile\DFscript.h
 ```
 
-We did **not** extract a fresh table from Dust `DF.EXE`. The 4.0 names
-match every Dust script we have printed. `DF.EXE` still contains the
-ASCII (`puppetspeak` at file offset 277700, etc.) if you need to audit.
+`dustdecompile` recovers Dust's own name/id table from `DF.EXE` (packed
+6-byte records). The 4.0 names in this file still match most printed
+Dust scripts; a few Dust verbs differ (`makeball` not `makecricket`,
+`sendtofloor` not `sendtopainting`). `puppetspeak` ASCII is at file
+offset 277700.
 
 ## We do not encode
 
@@ -84,6 +86,8 @@ There is no text→binary writer. The remake will parse these `.txt`
 files (or a later JSON AST) into its own dialogue/event graph. Writing
 DreamFactory bytecode would only help patch the original `DF.EXE` game.
 
-**Names are not a language spec.** See
-[reconstruction-gaps.md](reconstruction-gaps.md) for what an agent
-still has to define (`puppetbevel` ids, `pluginfx`, path FS, …).
+**Names are not a language spec.** Dust’s own table and the verb
+protocols (dialogue, clicks, plugins) are in
+[`dustdecompile/docs/findings.md`](../../dustdecompile/docs/findings.md)
+and [`dustdecompile/docs/handbook.md`](../../dustdecompile/docs/handbook.md).
+Remaining holes: [reconstruction-gaps.md](reconstruction-gaps.md).

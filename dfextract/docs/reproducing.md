@@ -48,8 +48,9 @@ pip install -r requirements.txt
 python cli.py
 ```
 
-No flags means **everything**: all types, scripts + audio + frames, from
-the Dust tree above. Output defaults to `../out/`.
+No flags means **scripts + audio + frames** (all types) from the Dust
+tree above. **`--video` is opt-in** (ffmpeg) and is not in a default
+run. Output defaults to `out/` next to `cli.py`.
 
 Flags only **narrow** the run:
 
@@ -64,7 +65,7 @@ python cli.py path\to\DUSTCD -o D:\tmp\dust-out
 
 | Argument | Effect |
 |---|---|
-| *(none)* | All types, all kinds, default Dust roots |
+| *(none)* | All types, scripts + audio + frames. **No** `movie.mp4`. |
 | `--scripts` / `--audio` / `--frames` / `--video` | Only those kinds (any one of them turns the others off). `--video` is opt-in and needs `ffmpeg`. |
 | `--type pup,set,flt,prp,mov,cst,snd,boot` | Only those suffixes |
 | paths | Only these files or directories |
@@ -132,16 +133,17 @@ These assume the Dust CD tree is present. Checks include:
 
 A complete `python cli.py` (scripts + audio + frames) produces roughly:
 
-| Artifact | Count (this repo, 2026-08-18) |
+| Artifact | Count (this repo, 2026-08-20) |
 |---|---|
-| Script `.txt` | ~640 |
+| Script `.txt` | ~655 |
 | Dialogue CSV | 78 (one per PUP that has lines, plus leftovers) |
 | WAV | ~4,300 (PUP speech + SND + MOV clips) |
-| PNG | ~30,000+ once SET/MOV stills are included |
+| PNG | ~33,000 (SET + MOV + sprites) |
 | SET JSON | 105 (`scenes` / `waypoints` / `transitions` × 35) |
+| `movie.mp4` | **0** unless you pass `--video` (**247** then: all `LPPALPPA` MOVs) |
 
 TOWN.SET and NITE.SET write **3,155** stills each (`{frame0}_{offset}.png`).
-INTRO3.MOV wrote 1,465 frames. Budget disk accordingly; a full dump is
-usually a couple of minutes on a multi-core machine. Why, and what we
-timed: [performance.md](performance.md). Each `OK` line prints that
-file’s extract time; `Done.` is wall-clock.
+INTRO3.MOV wrote 1,475 frames. Budget disk accordingly; a full dump is
+usually a couple of minutes on a multi-core machine (`--video` adds
+under a minute). Why, and what we timed: [performance.md](performance.md).
+Each `OK` line prints that file’s extract time; `Done.` is wall-clock.

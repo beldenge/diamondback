@@ -75,6 +75,20 @@ and EXTRA writes Jenix `stand/frame_195.png`.
 DFET: `getRawImageData`. In-house codec (mrxstudios called it Huffman-ish).
 Used for 512×264 (sometimes 512×384) 8-bit images.
 
+MOVPLAY (and DFET) keep **one framebuffer**. Skip spans and “copy from
+prior” read whatever is already there. Mid-file MOV scene headers are
+palette + frame table, not pictures — skip them **without** clearing
+prior. INTRO still 461 is a delta from the previous scene; treating the
+header as a failed image used to punch 300 black pixels.
+
+Each MOV scene header also has its own 256-entry palette at offset
+**62** (`0x3E`). MOVPLAY copies it into the hardware palette at scene
+load. Export RGB / PNG with that scene’s palette, not container 0’s.
+
+`--video` letterboxes mixed 512×384 / 512×264 reels (TIPRE) onto one
+canvas and pads odd sizes even (NITEWARN 516×265) for x264. PNG
+`FRAMES/` stay native size.
+
 Header:
 
 ```

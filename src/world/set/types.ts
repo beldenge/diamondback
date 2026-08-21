@@ -12,6 +12,7 @@ export const DIR_FROM_CODE: Record<number, Dir> = {
 /** Turn left / right as Dust's arrow keys do (N→W left, N→E right). */
 export const TURN_LEFT: Record<Dir, Dir> = { N: "W", W: "S", S: "E", E: "N" };
 export const TURN_RIGHT: Record<Dir, Dir> = { N: "E", E: "S", S: "W", W: "N" };
+export const FACE_OPPOSITE: Record<Dir, Dir> = { N: "S", S: "N", E: "W", W: "E" };
 
 /** +x east, +y south (SET tile space). */
 export const WALK_DELTA: Record<Dir, { dx: number; dy: number }> = {

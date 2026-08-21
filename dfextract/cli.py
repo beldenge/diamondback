@@ -148,7 +148,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Extract Dust: A Tale of the Wired West assets. "
-            "Default is everything. Flags only restrict the run."
+            "Default is scripts, audio, and frames. "
+            "--video is opt-in (ffmpeg) and not part of the default dump."
         )
     )
     parser.add_argument(
@@ -183,9 +184,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--video",
         action="store_true",
-        help="Encode full-screen MOV reels to movie.mp4 (needs ffmpeg). "
-        "Opt-in; not part of the default dump. Combined with other "
-        "kind flags, restricts the run like --frames.",
+        help="Encode MOV stills to movie.mp4 (needs ffmpeg). Opt-in: a "
+        "plain `python cli.py` does not mux video. Combined with other "
+        "kind flags, runs only the kinds you list.",
     )
     parser.add_argument(
         "--type",

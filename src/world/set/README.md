@@ -184,8 +184,9 @@ not the G-row “looking down Main Street” stills. Sandbox: every door is
 unlocked. Click a door to open it (click again to close). Walk forward
 while it is open to go in (plays the matching `doorclose*`). Three tiles
 have opposite facades: **L7** jail / curiosities, **E7** hotel / doctor,
-**H7** saloon / stage. Stepping out lands on the door you used, not the
-other face.
+**H7** saloon / stage. Stepping out keeps the tile you entered from,
+facing **away** from the door (walked through it). On those shared tiles
+you therefore look at the other shop.
 
 | Street pose | What you see | Interior |
 |---|---|---|
@@ -199,26 +200,49 @@ other face.
 | **L7 W** | Sheriff | `_JAIL` |
 | **L7 E** | Curiosities | `_CHIN` |
 | **D7 N** | Mission / court doors | `_COURT` |
-| **D9 W** | Barn / livery | `_LIVERY` |
-| **D4 W** | Cemetery (undertaker) | `_UNDERTAK` |
-| D8 W | Paper (script tile) | `_PAPER` |
+| **F10 E** | Livery office | `_LIVERY` |
+| **H4 W** | The Rattler (newspaper) | `_PAPER` |
+| **G1 S** | Sidewinder undertaker / caretaker | `_UNDERTAK` |
+| **I10 E** | Mayor mansion gate | `_MAYHALL` |
 | J4 E | Saloon back door | `_SALLOWER` B4 |
-| J9 E | Mayor (script tile; may be off the filmed graph) | `_MAYHALL` |
+
+Inside the mission, **C3 N** is the classroom (`_SCHOOL`, `_NITESCHO` at night). The classroom’s west door is the padre’s room (`_PADRE`). Dr. Rodham’s inner office is **doctor1 B1 W** → `_DOCTOR2`.
+
+| Inside | Pose | Goes to |
+|---|---|---|
+| Saloon | D6 W (stairs) | `_SALUPPER` |
+| Saloon upstairs | A1 N Ruby, A3 E Oona | `_SALROOM` |
+| Hotel | D3 N (stairs) | `_HOTUPPER` |
+| Hotel upstairs | C4 W (your room) | `_HOTROOM` |
+| Mansion hall | C3 W study / C3 E dining / C3 N stairs | `_MAYSTUDY` / `_MAYDINE` / `_MAYUPPER` |
+| Mansion upstairs | B1 N bedroom | `_MAYROOM` |
 
 From the south gate: walk **north** up the road to the cross (G7). Shops
 are **south** of that (H7, I7, J7 — turn east/west). Hotel / doctor / bank
 are **north** of G7 (E7, F7). Jail / curiosities further south (L7).
+The Rattler is **H4 west** (from G7 walk west to G4, then south to H4,
+look west). Sidewinder’s is **G1 south** (west down G-street to the end,
+look south). Mansion gate is **I10 east**. Livery is **F10 east**.
 
 Interior scene tables are often **transposed** vs the framelist. `buildSetGraph`
 swaps those names onto filmed cells (225-cell TOWN/NITE/TARGET stay put).
 
 Interior stills use the same 5-motion + dest-HQ walker on that SET’s
 graph. Interiors were re-dumped as `{frame0}_{offset}.png` like town.
-Some interior `setupprop` states (`pharm`, `salout`, …) have no PRP
-PNG; the door still **opens** (state + sound), we just skip the overlay.
+Some `setupprop` states have no usable overlay: missing PRP PNGs
+(`pharm`, `salout`, …), solid-black extracts (court / school / padre),
+or a sprite that does not match the facade (hotel double doors, Rattler
+glass, Sidewinder, curiosities). The door still **opens** (state + sound);
+we skip the blit.
 
-Not in this pass: NPCs, sign movies, hotel stairs / room doors,
-mayor gate movie, inventory keys.
+Stairs (`salup.mov` / `hotup.mov` / `mayup.mov` and the down reels) are
+skipped: face the steps and walk forward. Room doors are click-then-walk.
+Shared bedrooms (`salroom`, `hotroom`, `mayroom`) return to the door you
+used. Sophie / Mazie / Buick / Laurel / Blood doors are knock-only in
+Dust (no interior SET); they stay closed here.
+
+Not in this pass: NPCs, sign movies, inventory keys. The mayor street
+pose is the filmed **I10 E** gate, not unfilmed script tile J9.
 
 `N` inside a building still flips the discrete clock; interior frames
 do not swap (except you entered court at night).
@@ -242,7 +266,7 @@ do not swap (except you entered court at night).
 
 ## Still open (outdoor / interiors)
 
-- Nested interior doors (hotel stairs, doctor2, saloon rooms, mayor rooms)
+- NPC knock-doors (Sophie, Mazie, Buick, Laurel, Blood) and sign movies
 - NPCs / CST overlays / Z-buffers
 - Free-roam later, on **this** SET graph (255 units/tile), not a second inferred map
 - Exact original frame timing from `DF.EXE`

@@ -1,13 +1,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildSetGraph, sceneByName } from "./graph";
-import type { SceneRecord, TransitionRecord } from "./types";
+import { buildSetGraph, hqFrame, sceneByName } from "./graph";
+import { FACE_OPPOSITE, type SceneRecord, type TransitionRecord } from "./types";
 import {
   DOORS,
   closeSfx,
   doorAt,
   doorMatchesPose,
+  doorOnPose,
+  exitTownPose,
   goWorld,
   hitTest,
   oppositeFacadePairs,
@@ -70,6 +72,12 @@ describe("door hitboxes", () => {
     expect(pairs).toHaveLength(3);
   });
 
+  it("faces away from the building when stepping back onto the street", () => {
+    expect(exitTownPose({ x: 6, y: 8, facing: "E" })).toEqual({ x: 6, y: 8, facing: "W" });
+    expect(exitTownPose({ x: 6, y: 3, facing: "N" })).toEqual({ x: 6, y: 3, facing: "S" });
+    expect(exitTownPose({ x: 6, y: 5, facing: "W" })).toEqual({ x: 6, y: 5, facing: "E" });
+  });
+
   it("maps open creaks to matching close sounds", () => {
     expect(closeSfx(townDoor("town-saloon"))).toBe("doorclose1");
     expect(closeSfx(townDoor("town-hotel"))).toBe("doorclose2");
@@ -111,16 +119,132 @@ describe("catalog", () => {
     }
   });
 
-  it("has overlay art for street doors and skips missing interior states", () => {
+  it("has overlay art for matching street doors and skips unusable ones", () => {
     expect(overlaySprite(townDoor("town-apoth"), false)).toContain("/door/apoth/");
+    expect(overlaySprite(townDoor("town-saloon"), false)).toContain("/door/saloon/");
     expect(overlaySprite(townDoor("apoth-out"), false)).toBeUndefined();
-    expect(overlaySprite(townDoor("town-court"), true)).toContain("/door/courtinnite/");
+    expect(overlaySprite(townDoor("town-court"), false)).toBeUndefined();
+    expect(overlaySprite(townDoor("town-court"), true)).toBeUndefined();
+    expect(overlaySprite(townDoor("town-hotel"), false)).toBeUndefined();
+    expect(overlaySprite(townDoor("town-chin"), false)).toBeUndefined();
+    expect(overlaySprite(townDoor("town-paper"), false)).toBeUndefined();
+    expect(overlaySprite(townDoor("town-undertak"), false)).toBeUndefined();
   });
 
   it("sends court to NITECOUR at night", () => {
     const court = townDoor("town-court");
     expect(goWorld(court.go, false)).toBe("_COURT");
     expect(goWorld(court.go, true)).toBe("_NITECOUR");
+  });
+
+  it("puts street doors on filmed facades, not script tiles", () => {
+    expect(townDoor("town-paper")).toMatchObject({
+      scene: "scene h4",
+      facing: "W",
+      go: { kind: "set", world: "_PAPER", scene: "scene b2", facing: "W" },
+    });
+    expect(townDoor("town-mayor")).toMatchObject({
+      scene: "scene i10",
+      facing: "E",
+      go: { kind: "set", world: "_MAYHALL", scene: "scene c4", facing: "N" },
+    });
+    expect(townDoor("town-undertak")).toMatchObject({
+      scene: "scene g1",
+      facing: "S",
+      go: { kind: "set", world: "_UNDERTAK", scene: "scene a2", facing: "E" },
+    });
+    expect(townDoor("town-livery")).toMatchObject({
+      scene: "scene f10",
+      facing: "E",
+      go: { kind: "set", world: "_LIVERY", scene: "scene d2", facing: "W" },
+    });
+    expect(doorAt("town", "Scene J9", "E", 250, 150)).toBeUndefined();
+    expect(doorAt("town", "Scene D8", "W", 250, 150)).toBeUndefined();
+    expect(doorAt("town", "Scene I10", "E", 250, 150)?.id).toBe("town-mayor");
+    expect(doorAt("town", "Scene I10", "W", 250, 150)).toBeUndefined();
+    expect(doorAt("town", "Scene H4", "W", 250, 150)?.id).toBe("town-paper");
+    expect(doorAt("town", "Scene G1", "S", 250, 150)?.id).toBe("town-undertak");
+    expect(doorAt("town", "Scene F10", "E", 250, 150)?.id).toBe("town-livery");
+  });
+
+  it("opens nested mission and doctor rooms", () => {
+    expect(doorAt("_COURT", "Scene C3", "N", 250, 150)?.go).toEqual({
+      kind: "set",
+      world: "_SCHOOL",
+      worldNight: "_NITESCHO",
+      scene: "scene b2",
+      facing: "N",
+    });
+    expect(doorAt("_SCHOOL", "Scene B2", "S", 250, 150)?.go).toEqual({
+      kind: "set",
+      world: "_COURT",
+      worldNight: "_NITECOUR",
+      scene: "scene c3",
+      facing: "S",
+    });
+    expect(doorAt("_SCHOOL", "Scene A2", "W", 250, 150)?.go).toEqual({
+      kind: "set",
+      world: "_PADRE",
+      scene: "scene a2",
+      facing: "W",
+    });
+    expect(doorAt("_DOCTOR1", "Scene B1", "W", 250, 150)?.go).toEqual({
+      kind: "set",
+      world: "_DOCTOR2",
+      scene: "scene a1",
+      facing: "W",
+    });
+    expect(doorAt("_DOCTOR2", "Scene A1", "E", 250, 150)?.go).toEqual({
+      kind: "set",
+      world: "_DOCTOR1",
+      scene: "scene b1",
+      facing: "E",
+    });
+    expect(goWorld(townDoor("court-school").go, true)).toBe("_NITESCHO");
+  });
+
+  it("walks saloon, hotel, and mansion stairs without a click", () => {
+    expect(townDoor("saloon-up").autoWalk).toBe(true);
+    expect(townDoor("hotel-up").autoWalk).toBe(true);
+    expect(townDoor("mayor-up").autoWalk).toBe(true);
+    expect(doorAt("_SALLOWER", "Scene D6", "W", 250, 150)?.id).toBe("saloon-up");
+    expect(doorOnPose("_SALLOWER", "Scene D6", "W")?.id).toBe("saloon-up");
+    expect(doorOnPose("_HOTLOWER", "Scene D3", "N")?.id).toBe("hotel-up");
+    expect(doorOnPose("_MAYHALL", "Scene C3", "N")?.id).toBe("mayor-up");
+  });
+
+  it("opens saloon rooms, hotel playroom, and mansion rooms", () => {
+    expect(doorAt("_SALUPPER", "Scene A1", "N", 250, 150)?.go).toEqual({
+      kind: "set",
+      world: "_SALROOM",
+      scene: "scene b1",
+      facing: "W",
+    });
+    expect(doorAt("_SALUPPER", "Scene A3", "E", 250, 150)?.id).toBe("saloon-oona");
+    expect(doorAt("_HOTUPPER", "Scene C4", "W", 250, 150)?.go).toEqual({
+      kind: "set",
+      world: "_HOTROOM",
+      scene: "scene b1",
+      facing: "W",
+    });
+    expect(doorAt("_MAYHALL", "Scene C3", "W", 250, 150)?.go).toEqual({
+      kind: "set",
+      world: "_MAYSTUDY",
+      scene: "scene b2",
+      facing: "W",
+    });
+    expect(doorAt("_MAYHALL", "Scene C3", "E", 250, 150)?.go).toEqual({
+      kind: "set",
+      world: "_MAYDINE",
+      scene: "scene d2",
+      facing: "E",
+    });
+    expect(doorAt("_MAYUPPER", "Scene B1", "N", 250, 150)?.go).toEqual({
+      kind: "set",
+      world: "_MAYROOM",
+      scene: "scene a2",
+      facing: "N",
+    });
   });
 
   it("lands every SET hop on a filmed tile when the extract is present", () => {
@@ -143,6 +267,32 @@ describe("catalog", () => {
       expect(graph.cameraTiles.has(`${dest!.x},${dest!.y}`), `${door.id} not filmed`).toBe(
         true,
       );
+    }
+  });
+
+  it("puts every street door on a filmed town tile when the extract is present", () => {
+    const scenesPath = resolve("dfextract/out/SET/_TOWN/scenes.json");
+    const transPath = resolve("dfextract/out/SET/_TOWN/transitions.json");
+    if (!existsSync(scenesPath) || !existsSync(transPath)) {
+      return;
+    }
+    const scenes = JSON.parse(readFileSync(scenesPath, "utf8")) as SceneRecord[];
+    const records = JSON.parse(readFileSync(transPath, "utf8")) as TransitionRecord[];
+    const graph = buildSetGraph(scenes, records);
+    const townDoors = DOORS.filter((door) => door.world === "town");
+    for (const door of townDoors) {
+      const here = sceneByName(graph, door.scene);
+      expect(here, `${door.id} ${door.scene}`).toBeDefined();
+      expect(
+        graph.cameraTiles.has(`${here!.x},${here!.y}`),
+        `${door.id} ${door.scene} not filmed`,
+      ).toBe(true);
+      const leave = exitTownPose({ x: here!.x, y: here!.y, facing: door.facing });
+      expect(leave.facing).toBe(FACE_OPPOSITE[door.facing]);
+      expect(
+        hqFrame(graph, leave),
+        `${door.id} exit ${leave.facing} has no HQ`,
+      ).toBeDefined();
     }
   });
 });

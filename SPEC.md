@@ -61,6 +61,7 @@ Original boot defaults (from extracted `_BOOTFILE`): `day = 1`, `clock = 2`, `ph
   What each file is: [`dfextract/docs/output-catalog.md`](dfextract/docs/output-catalog.md).
   What a remake agent still has to invent (opcode meaning, plugins,
   file graph): [`dfextract/docs/reconstruction-gaps.md`](dfextract/docs/reconstruction-gaps.md).
+- **Engine decompile (current):** `dustdecompile/` — PE/NE inventory, `DF.EXE` opcode table, plugin surface. Isolated from `src/`. Does not run in the browser. Pipeline: [`dustdecompile/docs/pipeline.md`](dustdecompile/docs/pipeline.md).
 - Extracted today (full dump): 39 puppets, 35 SETs (grids, waypoints,
   transitions, stills, scene scripts), 4 CSTs, 40 SND banks, 20 FLT
   puzzles, 14 PRP packs, 247 MOV dests, boot script. SET/`TOWN` layout
@@ -98,11 +99,11 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 - Debug query: `?clock=1|2|3`.
 - How strips, HQ, G11, flipbook (~24 fps, no skip, no input queue), loader, and doors work: [`src/world/set/README.md`](src/world/set/README.md).
 - Still codec / palette / sizes: [`dfextract/docs/images.md`](dfextract/docs/images.md) (`255` white, cream index 2 skull, negative look, `_TOWN` vs `_NITE`).
-- Sandbox: every door is unlocked. Facades live on the north–south road (I7 apoth, H7 saloon/stage, E7 hotel/doctor, …). Click opens (click again closes); walk forward enters.
+- Sandbox: every door is unlocked. Facades live on the north–south road (I7 apoth, H7 saloon/stage, E7 hotel/doctor, …) plus H4 paper, G1 caretaker, F10 livery, I10 mayor. Click opens (click again closes); walk forward enters. Nested: mission classroom, Rodham inner office, saloon/hotel/mansion rooms.
 - Extractor setup: [`dfextract/README.md`](dfextract/README.md). The remake does not run that tool.
 - npm package / repo name: `diamondback`.
 
-**Next:** nested interior doors (hotel stairs, rooms), then Jones/Help. Do not inpaint remaining still holes.
+**Next:** Jones/Help puppets. Do not inpaint remaining still holes.
 
 ## 10. Decision Log
 
@@ -137,8 +138,11 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 | 2026-08-18 | SET frames are `FRAMES/{frame0}_{offset}.png`. Container IDs overlap (O7→N7 walk and an N7 turn both use 1640). Decode each strip from a clean prior. |
 | 2026-08-19 | Remaining skip-holes (O7 north ox skull) stay as extracted. NITE is a different film, not a prior for TOWN. Do not invent filler. |
 | 2026-08-19 | Interiors: click Dust `pointin*` door boxes, overlay HOUSE door sprites, walk forward to `gotointerior` / `gototown`. Hand-ported in `doors.ts`. Do not run DF scripts. Nested rooms later. |
+| 2026-08-19 | Nested rooms: mission C3 N → school / nitescho, school A2 W → padre, doctor1 B1 W → doctor2. Street facades (not script tiles): I10 E mayor gate, H4 W paper (The Rattler), G1 S caretaker (Sidewinder), F10 E livery. Skip `maygate.mov`. |
+| 2026-08-20 | Saloon / hotel / mansion inner rooms. Stairs auto-walk (skip `salup`/`hotup`/`mayup` movies). Shared bedrooms return to the caller pose, facing away. |
+| 2026-08-20 | Skip door overlays that are black-box extracts (court/school/padre) or the wrong door (hotel, paper, undertak, chin). Open is sound + walk-in. |
 | 2026-08-19 | Sandbox: all doors unlocked. Facade poses are I7/H7/E7/F7/L7/D7 on the north–south road, not G-row street views. |
-| 2026-08-19 | Opposite facades: L7 jail/chin, E7 hotel/doctor, H7 saloon/stage. Exit onto the enter facing. Close WAV plays on walk-in. |
+| 2026-08-19 | Opposite facades: L7 jail/chin, E7 hotel/doctor, H7 saloon/stage. Exit onto the enter tile facing away from the door. Close WAV plays on walk-in. |
 | 2026-08-19 | Indexed stills force palette 255 to white (DFET/VGA). Stored 255 is (0,0,0); that was the black ox skull. Bone body is index 2 cream. Day-only blue on glass/posters is sky index 116 / unused 0. |
 | 2026-08-19 | Stills input: ignore taps while busy (no queue); hold-to-repeat after the step. Extract `/extract` is `no-store`. |
 | 2026-08-19 | Flipbook at ~24 fps (was ~12). One frame per interval, never skip; wait if a PNG is not ready. First motion frame paints on the keypress. |
@@ -146,3 +150,10 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 | 2026-08-19 | MOV reels (`playmovie` / intros / INFO) can extract to `movie.mp4` at 14 fps (`--video`, needs ffmpeg). SET walks and inspectables stay PNG. Audio not muxed. |
 | 2026-08-19 | MOV `--video` mixes overlapping `clip_<n>` WAVs onto the still timeline (start at stills-before / 14 s) into `movie.mp4`. |
 | 2026-08-19 | That mux is experimental and wrong on playback (opening beds stacked at 0:00; local fps uneven). Findings: [`dfextract/docs/reconstruction-gaps.md`](dfextract/docs/reconstruction-gaps.md) §4a. |
+| 2026-08-19 | `dustdecompile/` started: recover engine structure from `DF.EXE` / `MOVPLAY.EXE` / `CHECKERS.DLL` toward TypeScript. Isolated like `dfextract`. Not a Ghidra→TS transpiler. SPEC §2 (not a DF port / no script interpreter) still stands until we decide otherwise. |
+| 2026-08-20 | Opcode/library handbook: Dust vs Titanic names, engine hooks, `new.flt` (`spotmovie`/`gototown` are library not opcodes), high-value verb meanings from scripts. `dustdecompile/docs/handbook.md`. |
+| 2026-08-20 | Wrote `dustdecompile/docs/findings.md`: PE/NE hashes, packed 6-byte opcode table recovery, Dust vs Titanic aliases, plugin `PlugProc`/`checkmove`, working dialogue/click/path/travel protocols. |
+| 2026-08-20 | MOV timing: MOVPLAY `timeGetTime()*3/50` = 60 Hz; 80-byte frame records at header+0x8C2; hold=max(header+0x26, rec+2). `--video` uses that instead of 14 fps. Three intros ~162 s. |
+| 2026-08-20 | MOV mixer from MOVPLAY: group A cued by record+32 (retrigger restarts that slot); group B sequential playlist at header+0x83E (n_b=0 keeps the bed). Stills are deltas into one framebuffer; skip scene headers without clearing prior. |
+| 2026-08-20 | MOV scene palettes: each scene header loads 256 colors at +0x3E. `--video` / FRAMES use the current scene palette; container 0’s palette made later INTRO shots look like residuals. |
+| 2026-08-20 | MOV extract: `--video` is opt-in (not in a default `python cli.py`). Encodes every MOV with stills (overlays like `DOG1`, inspectables, `INFO/`), not only `playmovie` reels. Cross-scene group-A hold so a new scene does not stack on the previous line (INTRO 325 vs 423). TIPRE 384/264 letterboxed; NITEWARN odd size padded even. |

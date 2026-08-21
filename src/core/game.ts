@@ -33,6 +33,7 @@ import {
   doorAt,
   doorMatchesPose,
   doorOnPose,
+  exitTownPose,
   goWorld,
   hitCenter,
   overlaySprite,
@@ -61,6 +62,7 @@ export class Game {
     graph: SetGraph;
     pose: WalkerPose;
     townPose: WalkerPose;
+    interiorReturn: { world: string; pose: WalkerPose }[];
     openDoor: DoorDef | null;
     anim: StillAnim | null;
     pending: SetTransition | null;
@@ -124,6 +126,7 @@ export class Game {
         graph,
         pose,
         townPose: pose,
+        interiorReturn: [],
         openDoor: null,
         anim: null,
         pending: null,
@@ -162,6 +165,15 @@ export class Game {
   private onClick(event: MouseEvent): void {
     const door = this.doorUnder(event);
     if (door) {
+      if (door.autoWalk) {
+        const session = this.stills;
+        if (!session || session.busy) {
+          return;
+        }
+        session.openDoor = door;
+        void this.enterOpenDoor();
+        return;
+      }
       this.clickDoor(door);
       return;
     }
@@ -256,9 +268,17 @@ export class Game {
       return;
     }
     session.hqGen += 1;
-    if (input === "forward" && this.openDoorAhead()) {
-      void this.enterOpenDoor();
-      return;
+    if (input === "forward") {
+      const auto = this.autoWalkAhead();
+      if (auto) {
+        session.openDoor = auto;
+        void this.enterOpenDoor();
+        return;
+      }
+      if (this.openDoorAhead()) {
+        void this.enterOpenDoor();
+        return;
+      }
     }
     const tr = transitionForInput(session.graph, session.pose, input);
     if (!tr) {
@@ -478,7 +498,7 @@ export class Game {
       const label = poseLabel(this.stills.graph, this.stills.pose, this.stills.world);
       const door = this.doorOnThisPose();
       this.promptEl.textContent = door
-        ? this.stills.openDoor?.id === door.id
+        ? door.autoWalk || this.stills.openDoor?.id === door.id
           ? `${label} · walk in`
           : `${label} · click to open`
         : label;
@@ -524,6 +544,14 @@ export class Game {
       return null;
     }
     return session.openDoor;
+  }
+
+  private autoWalkAhead(): DoorDef | null {
+    const door = this.doorOnThisPose();
+    if (!door?.autoWalk || door.locked(this.lockCtx())) {
+      return null;
+    }
+    return door;
   }
 
   private clickDoor(door: DoorDef): void {
@@ -580,29 +608,48 @@ export class Game {
         if (this.stills !== session) {
           return;
         }
+        session.interiorReturn = [];
         session.world = WORLD_TOWN;
         session.graph = graph;
-        session.pose = { ...session.townPose };
+        session.pose = exitTownPose(session.townPose);
       } else {
         const world = goWorld(door.go, isNight(this.state.clock));
         if (!world) {
           return;
         }
-        const graph = await this.graphFor(world);
-        const dest = sceneByName(graph, door.go.scene);
-        if (!dest || !graph.cameraTiles.has(`${dest.x},${dest.y}`)) {
-          throw new Error(`Interior spawn missing (${world} ${door.go.scene})`);
+        const top = session.interiorReturn.at(-1);
+        const back = top !== undefined && top.world === world;
+        if (back && top) {
+          session.interiorReturn.pop();
+          const graph = await this.graphFor(top.world);
+          if (this.stills !== session) {
+            return;
+          }
+          session.world = top.world;
+          session.graph = graph;
+          session.pose = exitTownPose(top.pose);
+        } else {
+          const graph = await this.graphFor(world);
+          const dest = sceneByName(graph, door.go.scene);
+          if (!dest || !graph.cameraTiles.has(`${dest.x},${dest.y}`)) {
+            throw new Error(`Interior spawn missing (${world} ${door.go.scene})`);
+          }
+          if (this.stills !== session) {
+            return;
+          }
+          if (session.world === WORLD_TOWN) {
+            session.townPose = session.pose;
+            session.interiorReturn = [];
+          } else {
+            session.interiorReturn.push({ world: session.world, pose: { ...session.pose } });
+          }
+          session.world = world;
+          session.graph = graph;
+          session.pose = { x: dest.x, y: dest.y, facing: door.go.facing };
         }
-        if (this.stills !== session) {
-          return;
+        if (!door.autoWalk) {
+          playSfx(closeSfx(door));
         }
-        if (session.world === WORLD_TOWN) {
-          session.townPose = session.pose;
-        }
-        playSfx(closeSfx(door));
-        session.world = world;
-        session.graph = graph;
-        session.pose = { x: dest.x, y: dest.y, facing: door.go.facing };
       }
       session.openDoor = null;
       session.hqGen += 1;

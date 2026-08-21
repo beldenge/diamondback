@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import array
+import json
 import shutil
 import struct
 import subprocess
@@ -11,7 +12,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from audio import AudioError, decode_audio_container, write_wav
+from audio import AudioError, audio_params, decode_audio_container, write_wav
 from container import DFError, DFFile
 from image import (
     ImageError,
@@ -26,15 +27,28 @@ from pup import EXTRACTOR_BANNER
 from script import binary_script_to_text
 from set import looks_like_script
 
-# INTRO + INTRO2 + INTRO3 = 2467 stills. Timed back-to-back at ~2:58
-# (178 s) → 13.86 fps. Use 14. Not the outdoor walker's ~24 fps, and
-# not boot's `framerate (3)` (unknown units).
-#
-# Audio lives in the same container stream as stills. A clip at index N
-# starts when that many stills have already played (clips with no still
-# between them overlap). Mux those cues into movie.mp4; sidecar WAVs
-# stay under AUDIO/ when --audio is on.
-REEL_FPS = 14
+# MOVPLAY.EXE play loop (VA 0x405E50 / 0x40BCF7 / scene load 0x40B933):
+#   tick = timeGetTime() * 3 / 50     # 60 Hz when the 3 matches boot framerate(3)
+#   record i is at header + 0x8C2 + i*80, copied with rep movsd ecx=20
+#   hold_ticks = max(dword header+0x26, dword record+2)
+#   group A (u16 header+0x1A): voice slots; start when rec+32 == 1-based index
+#     (0x40C1A0 -> 0x40FB60). Same index again restarts that slot.
+#   group B (u16 header+0x1C): theme playlist; u16 count at +0x34, 1-based
+#     indices at +0x83E into the B clips. Sequential, one theme channel.
+#     A scene with n_b==0 keeps the previous playlist running (0x40BA06).
+#   One 512x264 (or 384) framebuffer. Skip spans keep prior pixels. Scene
+#   headers are not images — do not clear prior when skipping them.
+#   Each scene header installs a 256-entry palette at +0x3E (MOVPLAY copy
+#   loop at 0x40BC9A). Index pixels stay; RGB uses the current scene pal.
+# Duplicate each still `hold_ticks` times and encode at TICK_HZ.
+# Fallback 14 fps is only for reels whose v1 table does not parse.
+TICK_HZ = 60
+FRAME_TABLE_OFF = 0x8C2
+FRAME_REC_SIZE = 80
+FRAME_AUDIO_OFF = 32  # u16, 1-based group-A slot
+PLAYLIST_COUNT_OFF = 0x34
+PLAYLIST_OFF = 0x83E
+REEL_FPS = 14  # legacy fallback; not original
 
 # playmovie / doamovie stems, plus INTRO3 / FINALEND (unreferenced
 # extras that are still full-screen reels). INFO/* is also a reel
@@ -101,12 +115,191 @@ REEL_STEMS = frozenset(
 
 @dataclass(frozen=True)
 class AudioCue:
-    """One MOV clip and the still-count at which it starts."""
+    """One MOV clip. start_tick is 60 Hz engine time from MOVPLAY."""
 
-    start_stills: int
+    start_tick: int
     pcm: bytes
     hertz: int
     width: int
+    channel: str = ""
+
+
+@dataclass(frozen=True)
+class FrameHold:
+    container: int
+    hold_ticks: int
+    start_tick: int
+
+
+@dataclass(frozen=True)
+class StillFrame:
+    """One composited still with the scene palette MOVPLAY would have loaded."""
+
+    container: int
+    image: IndexedImage
+    palette: Palette
+
+
+@dataclass(frozen=True)
+class ClipStart:
+    """One scheduled play of an audio container (A slot or B playlist)."""
+
+    container: int
+    start_tick: int
+    channel: str
+
+
+@dataclass(frozen=True)
+class ReelTimeline:
+    """Per-still holds recovered from Dust v1 MOV headers + MOVPLAY."""
+
+    tick_hz: int
+    frames: tuple[FrameHold, ...]
+    clip_starts: tuple[ClipStart, ...]
+
+    @property
+    def duration_ticks(self) -> int:
+        if not self.frames:
+            return 0
+        last = self.frames[-1]
+        return last.start_tick + last.hold_ticks
+
+    def hold_for(self, container: int) -> int:
+        for frame in self.frames:
+            if frame.container == container:
+                return frame.hold_ticks
+        return 1
+
+
+def is_scene_header(data: bytes) -> bool:
+    """Dust v1 MOV scene block: palette + 80-byte frame table at 0x8C2."""
+    if len(data) < FRAME_TABLE_OFF + FRAME_REC_SIZE:
+        return False
+    if struct.unpack_from("<I", data, 0)[0] != 0x00010000:
+        return False
+    if is_audio_container(data):
+        return False
+    height, width = struct.unpack_from("<hh", data, 34)
+    return height in (264, 384) and width == 512
+
+
+def audio_duration_ticks(data: bytes, tick_hz: int = TICK_HZ) -> int:
+    """PCM length in engine ticks from the audio container header."""
+    try:
+        codec, hertz, size = audio_params(data)
+    except AudioError:
+        return 0
+    width = 1 if codec == 1 else 2
+    if hertz <= 0 or size <= 0 or width <= 0:
+        return 0
+    samples = size // width
+    return max(0, int(round(samples * tick_hz / hertz)))
+
+
+def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
+    """Read v1 scene headers. None if this MOV has no Dust frame table."""
+    if len(df.containers) < 2:
+        return None
+    header = df.containers[0].data
+    version = struct.unpack_from("<i", header, 2)[0] if len(header) >= 6 else 0
+    if version != 1 or not is_scene_header(header):
+        return None
+    scenes = [0]
+    for index, container in enumerate(df.containers[1:], start=1):
+        if is_scene_header(container.data):
+            scenes.append(index)
+    frames: list[FrameHold] = []
+    clip_starts: list[ClipStart] = []
+    # Group-A starts: (container, frame_tick, duration_ticks, channel, scene)
+    a_events: list[tuple[int, int, int, str, int]] = []
+    tick = 0
+    ncont = len(df.containers)
+    for scene_i, scene_index in enumerate(scenes):
+        data = df.containers[scene_index].data
+        count = struct.unpack_from("<H", data, 24)[0]
+        default = struct.unpack_from("<I", data, 0x26)[0]
+        n_a = struct.unpack_from("<H", data, 26)[0]
+        n_b = struct.unpack_from("<H", data, 28)[0]
+        next_scene = scenes[scene_i + 1] if scene_i + 1 < len(scenes) else ncont
+        audios: list[int] = []
+        for index in range(scene_index + 1, next_scene):
+            if is_audio_container(df.containers[index].data):
+                audios.append(index)
+        a_clips = audios[:n_a]
+        b_clips = audios[n_a : n_a + n_b]
+        if n_b > 0 and b_clips:
+            # New theme table replaces the old playlist (MOVPLAY frees B
+            # at 0x40BA26 when header+0x1C != 0). Drop not-yet-started beds.
+            clip_starts[:] = [
+                clip
+                for clip in clip_starts
+                if not (clip.channel == "B" and clip.start_tick >= tick)
+            ]
+            n_c = struct.unpack_from("<H", data, PLAYLIST_COUNT_OFF)[0]
+            seq: list[int] = []
+            if n_c > 0 and PLAYLIST_OFF + n_c * 2 <= len(data):
+                order = struct.unpack_from(f"<{n_c}H", data, PLAYLIST_OFF)
+                for slot in order:
+                    if 1 <= slot <= len(b_clips):
+                        seq.append(b_clips[slot - 1])
+            if not seq:
+                seq = list(b_clips)
+            bed = tick
+            for index in seq:
+                clip_starts.append(ClipStart(index, bed, "B"))
+                bed += audio_duration_ticks(df.containers[index].data)
+        need = count * FRAME_REC_SIZE
+        if FRAME_TABLE_OFF + need > len(data):
+            return None
+        for rec_i in range(count):
+            rec = data[
+                FRAME_TABLE_OFF + rec_i * FRAME_REC_SIZE : FRAME_TABLE_OFF
+                + (rec_i + 1) * FRAME_REC_SIZE
+            ]
+            extra = struct.unpack_from("<I", rec, 2)[0]
+            local = struct.unpack_from("<H", rec, 28)[0]
+            hold = extra if extra > default else default
+            if hold <= 0:
+                hold = default if default > 0 else 1
+            slot = struct.unpack_from("<H", rec, FRAME_AUDIO_OFF)[0]
+            if 1 <= slot <= len(a_clips):
+                cont = a_clips[slot - 1]
+                a_events.append(
+                    (
+                        cont,
+                        tick,
+                        audio_duration_ticks(df.containers[cont].data),
+                        f"A{slot}",
+                        scene_index,
+                    )
+                )
+            frames.append(
+                FrameHold(
+                    container=scene_index + local,
+                    hold_ticks=hold,
+                    start_tick=tick,
+                )
+            )
+            tick += hold
+    # A new scene can fire rec+32 while the previous scene's line is still
+    # going (INTRO clip 325 vs 423). MOVPLAY's voice start is that frame;
+    # stacking the two makes the first unintelligible. Hold the new scene's
+    # line until the previous scene's *original* end — do not chain delays,
+    # and do not change same-scene retriggers (INTRO2 A2).
+    for index, (cont, start, dur, channel, scene) in enumerate(a_events):
+        held = start
+        for _c, prev_start, prev_dur, _ch, prev_scene in a_events[:index]:
+            if prev_scene == scene or prev_start > start:
+                continue
+            prev_end = prev_start + prev_dur
+            if held < prev_end:
+                held = prev_end
+        clip_starts.append(ClipStart(cont, held, channel))
+    if not frames:
+        return None
+    return ReelTimeline(
+        tick_hz=TICK_HZ, frames=tuple(frames), clip_starts=tuple(clip_starts)
+    )
 
 
 def is_audio_container(data: bytes) -> bool:
@@ -165,18 +358,22 @@ def write_mov_extract(
     counts: dict[str, int] = {}
     if write_scripts:
         counts["scripts"] = _write_scripts(df, out_dir)
-    want_stills = write_frames or (write_video and is_reel_movie(df.path))
-    stills: list[tuple[int, IndexedImage]] | None = None
+    want_stills = write_frames or write_video
+    stills: list[StillFrame] | None = None
     cues: list[AudioCue] = []
     palette: Palette | None = None
     if want_stills:
         palette = find_palette(df.containers[0].data)
         if palette is not None:
             stills, cues = _collect_reel(df, decode_audio=write_video)
-    if write_frames and stills is not None and palette is not None:
-        counts["frames"] = _write_frames(stills, palette, out_dir)
-    if write_video and is_reel_movie(df.path) and stills and palette is not None:
-        counts["video"] = _write_video(stills, palette, cues, out_dir)
+    if write_frames and stills is not None:
+        counts["frames"] = _write_frames(stills, out_dir)
+    timeline = parse_reel_timeline(df)
+    if timeline is not None and (write_frames or write_video):
+        _write_timeline(timeline, out_dir)
+        counts["timeline"] = 1
+    if write_video and stills:
+        counts["video"] = _write_video(stills, cues, out_dir, timeline=timeline)
     if write_audio:
         counts["audio"] = _write_audio(df, out_dir)
     return {key: value for key, value in counts.items() if value}
@@ -197,25 +394,41 @@ def _write_scripts(df: DFFile, out_dir: Path) -> int:
     return written
 
 
-def _iter_stills(df: DFFile) -> Iterator[tuple[int, IndexedImage]]:
+def _iter_stills(df: DFFile) -> Iterator[StillFrame]:
     stills, _cues = _collect_reel(df, decode_audio=False)
     yield from stills
 
 
 def _collect_reel(
     df: DFFile, *, decode_audio: bool
-) -> tuple[list[tuple[int, IndexedImage]], list[AudioCue]]:
-    stills: list[tuple[int, IndexedImage]] = []
+) -> tuple[list[StillFrame], list[AudioCue]]:
+    stills: list[StillFrame] = []
     cues: list[AudioCue] = []
+    timeline = parse_reel_timeline(df)
+    schedule: dict[int, list[tuple[int, str]]] = {}
+    if timeline is not None:
+        for clip in timeline.clip_starts:
+            schedule.setdefault(clip.container, []).append(
+                (clip.start_tick, clip.channel)
+            )
+    palette = find_palette(df.containers[0].data)
+    if palette is None:
+        return stills, cues
     prior: bytes | None = None
     for index, container in enumerate(df.containers[1:], start=1):
         if is_audio_container(container.data):
-            if decode_audio:
+            if decode_audio and index in schedule:
                 try:
                     pcm, hertz, width = decode_audio_container(container.data)
                 except AudioError:
                     continue
-                cues.append(AudioCue(len(stills), pcm, hertz, width))
+                for start, channel in schedule[index]:
+                    cues.append(AudioCue(start, pcm, hertz, width, channel))
+            continue
+        if is_scene_header(container.data):
+            next_pal = find_palette(container.data)
+            if next_pal is not None:
+                palette = next_pal
             continue
         if len(container.data) < 64:
             continue
@@ -225,10 +438,9 @@ def _collect_reel(
             try:
                 image = decode_indexed_image(container.data, None)
             except ImageError:
-                prior = None
                 continue
         prior = image.pixels
-        stills.append((index, image))
+        stills.append(StillFrame(index, image, palette))
     return stills, cues
 
 
@@ -262,20 +474,42 @@ def resample_floats(samples: list[float], src_hz: int, dst_hz: int) -> list[floa
 
 
 def mix_cues(
-    cues: list[AudioCue], n_stills: int, fps: int = REEL_FPS
+    cues: list[AudioCue],
+    duration_ticks: int,
+    tick_hz: int = TICK_HZ,
 ) -> tuple[bytes, int]:
-    """Overlap clips onto one 16-bit mono stream. Empty cues → empty PCM."""
+    """Mix clips onto one 16-bit mono stream. Empty cues → empty PCM.
+
+    Distinct channels add. A later cue on the same channel cuts the
+    earlier one (MOVPLAY restarts that slot; INTRO2 retriggers A2).
+    """
     if not cues:
         return b"", 22050
     out_hz = max(cue.hertz for cue in cues)
-    video_n = int(round(n_stills / fps * out_hz)) if n_stills else 0
-    placed: list[tuple[int, list[float]]] = []
-    last = video_n
+    video_n = int(round(duration_ticks / tick_hz * out_hz)) if duration_ticks else 0
+    by_channel: dict[str, list[tuple[int, list[float]]]] = {}
+    unique = 0
     for cue in cues:
         samples = resample_floats(pcm_to_floats(cue.pcm, cue.width), cue.hertz, out_hz)
-        start = int(round(cue.start_stills / fps * out_hz))
-        placed.append((start, samples))
-        last = max(last, start + len(samples))
+        start = int(round(cue.start_tick / tick_hz * out_hz))
+        channel = cue.channel or f"_{unique}"
+        unique += 1
+        by_channel.setdefault(channel, []).append((start, samples))
+    placed: list[tuple[int, list[float]]] = []
+    last = video_n
+    for items in by_channel.values():
+        items.sort(key=lambda item: item[0])
+        for index, (start, samples) in enumerate(items):
+            if index + 1 < len(items):
+                nxt = items[index + 1][0]
+                if nxt <= start:
+                    samples = []
+                elif nxt < start + len(samples):
+                    samples = samples[: nxt - start]
+            if not samples:
+                continue
+            placed.append((start, samples))
+            last = max(last, start + len(samples))
     if last <= 0:
         return b"", out_hz
     mix = array.array("d", [0.0]) * last
@@ -295,34 +529,99 @@ def mix_cues(
     return bytes(pcm), out_hz
 
 
-def _write_frames(
-    stills: list[tuple[int, IndexedImage]], palette: Palette, out_dir: Path
-) -> int:
+def _write_timeline(timeline: ReelTimeline, out_dir: Path) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "tick_hz": timeline.tick_hz,
+        "duration_ticks": timeline.duration_ticks,
+        "duration_seconds": round(timeline.duration_ticks / timeline.tick_hz, 4),
+        "frame_count": len(timeline.frames),
+        "frames": [
+            {
+                "container": f.container,
+                "hold_ticks": f.hold_ticks,
+                "start_tick": f.start_tick,
+            }
+            for f in timeline.frames
+        ],
+        "clips": [
+            {
+                "container": clip.container,
+                "start_tick": clip.start_tick,
+                "channel": clip.channel,
+            }
+            for clip in timeline.clip_starts
+        ],
+        "source": (
+            "MOVPLAY tick=timeGetTime()*3/50; record at header+0x8C2 i*80; "
+            "hold=max(header+0x26, rec+2); A cue=rec+32; B playlist at +0x83E"
+        ),
+    }
+    (out_dir / "timeline.json").write_text(
+        json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def _write_frames(stills: list[StillFrame], out_dir: Path) -> int:
     frame_dir = out_dir / "FRAMES"
     frame_dir.mkdir(parents=True, exist_ok=True)
-    for index, image in stills:
-        write_indexed_png(frame_dir / f"frame_{index}.png", image, palette)
+    for still in stills:
+        write_indexed_png(
+            frame_dir / f"frame_{still.container}.png", still.image, still.palette
+        )
     return len(stills)
 
 
+def fit_rgb24(image: IndexedImage, palette: Palette, width: int, height: int) -> bytes:
+    """Pack a still into a ``width``×``height`` RGB24 canvas (black letterbox).
+
+    Attract reels such as TIPRE switch 512×384 title cards and 512×264
+    picture; MOVPLAY's framebuffer is per-scene. One MP4 needs one size.
+    """
+    src = still_rgb24(image, palette)
+    if image.width == width and image.height == height:
+        return src
+    if image.width > width or image.height > height:
+        raise DFError(
+            f"reel frame {image.width}x{image.height} larger than canvas {width}x{height}"
+        )
+    canvas = bytearray(width * height * 3)
+    x0 = (width - image.width) // 2
+    y0 = (height - image.height) // 2
+    src_row = image.width * 3
+    for y in range(image.height):
+        start = y * src_row
+        dest = ((y + y0) * width + x0) * 3
+        canvas[dest : dest + src_row] = src[start : start + src_row]
+    return bytes(canvas)
+
+
 def _write_video(
-    stills: list[tuple[int, IndexedImage]],
-    palette: Palette,
+    stills: list[StillFrame],
     cues: list[AudioCue],
     out_dir: Path,
+    timeline: ReelTimeline | None = None,
 ) -> int:
     ffmpeg = find_ffmpeg()
     if ffmpeg is None:
         raise DFError("ffmpeg not found on PATH (required for --video)")
-    first = stills[0][1]
-    width, height = first.width, first.height
-    for _index, image in stills:
-        if image.width != width or image.height != height:
-            raise DFError(
-                f"reel frame size changed {width}x{height} -> {image.width}x{image.height}"
-            )
+    width = max(still.image.width for still in stills)
+    height = max(still.image.height for still in stills)
+    # libx264 yuv420p needs even dimensions (NITEWARN is 516×265).
+    if width % 2:
+        width += 1
+    if height % 2:
+        height += 1
     dest = out_dir / "movie.mp4"
-    mixed_pcm, mixed_hz = mix_cues(cues, len(stills))
+    if timeline is not None:
+        duration_ticks = timeline.duration_ticks
+        tick_hz = timeline.tick_hz
+        fps = tick_hz
+    else:
+        duration_ticks = len(stills) * 1
+        tick_hz = REEL_FPS
+        fps = REEL_FPS
+    mixed_pcm, mixed_hz = mix_cues(cues, duration_ticks, tick_hz)
     wav_path: Path | None = None
     if mixed_pcm:
         handle = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
@@ -339,7 +638,7 @@ def _write_video(
         "-s",
         f"{width}x{height}",
         "-r",
-        str(REEL_FPS),
+        str(fps),
         "-i",
         "pipe:0",
     ]
@@ -389,8 +688,13 @@ def _write_video(
             raise DFError(f"could not start ffmpeg: {exc}") from exc
         assert proc.stdin is not None
         try:
-            for _index, image in stills:
-                proc.stdin.write(still_rgb24(image, palette))
+            for still in stills:
+                rgb = fit_rgb24(still.image, still.palette, width, height)
+                copies = (
+                    timeline.hold_for(still.container) if timeline is not None else 1
+                )
+                for _ in range(max(1, copies)):
+                    proc.stdin.write(rgb)
             proc.stdin.close()
         except BrokenPipeError:
             pass

@@ -4,6 +4,9 @@ This is **not** an extraction guide. It lists what the dump already
 gives you versus what you still have to define, guess, or verify by
 playing Dust / reading `DF.EXE`.
 
+Engine-binary findings (opcode table, plugin ABI, working protocols):
+[`dustdecompile/docs/findings.md`](../../dustdecompile/docs/findings.md).
+
 If you only read `out/**/*.txt` and invent the rest, the remake will
 look plausible and be wrong on branches.
 
@@ -21,7 +24,8 @@ How tokens decode: [scripts.md](scripts.md).
 | `SET/**/scenes.json` | Walkable vs blocked tiles, which script is attached |
 | `SET/**/waypoints.json` | Named stand / walk-to points (255 units per tile) |
 | `SET/**/transitions.json` | Which 6 stills play for a step/turn |
-| `SET|MOV|FLT|CST|PUP|PRP` PNGs | What that view / sprite looked like |
+| `SET|MOV|FLT|CST|PUP|PRP` PNGs | What that view / sprite looked like (MOV stills composited; per-scene palette) |
+| `MOV/**/movie.mp4` + `timeline.json` | **`--video` only.** MOVPLAY holds, A/B mixer, palettes. Close to original; not a capture. |
 | `SND/**/*.wav` | World / UI audio |
 
 Dialogue trees, flag names (`jenixphase`, `day`, `playercash`), and
@@ -48,8 +52,9 @@ may treat `101` as a style, a sound, or a locale. In Dust it is the
 **choice id** later returned by `puppetevent`. That kind of mistake is
 the default if you only have the name.
 
-**Fill this with:** an opcode handbook (even incomplete), derived from
-`DF.EXE`, play, and the call sites. Highest-value verbs first:
+**Fill this with:** the opcode handbook at
+[`dustdecompile/docs/handbook.md`](../../dustdecompile/docs/handbook.md)
+(regenerate with `python -m dustdecompile`). Highest-value verbs first:
 
 | Verb (seen constantly) | What you still have to pin down |
 |---|---|
@@ -107,7 +112,7 @@ legal checkers moves from `playcheckers.txt` alone.
 | Missing | Why it matters |
 |---|---|
 | How a 6-frame SET transition is **timed** / blended | Outdoor walker: 5 motion @ ~24 fps, then dest HQ immediately. Dust delayed HQ ~500 ms. Exact `DF.EXE` tick not proven. See [`src/world/set/README.md`](../../src/world/set/README.md). |
-| MOV reel playback (rate + audio cues) | Unsolved. `--video` is a first guess (see §4a). Do not treat `movie.mp4` as original timing. |
+| MOV reel playback (rate + audio cues) | Holds, A/B mixer, framebuffer, palettes recovered from `MOVPLAY` (see §4a). B playlist wrap after last entry is the leftover. |
 | How stills are **stored at runtime** | Dump is paletted PNG (old RGBA dump was ~115 MB town). Dust’s SET is ~60 MB of 8-bit deltas into one 135 KB buffer. Do not assume 1.7 GB (all frames as RGBA textures). HTTP-per-PNG + 80-texture LRU is what the walker does now. |
 | Z-buffers (not decoded on extract, not written) | Sprite occlusion against stills |
 | MOV click-row masks (mostly empty `0x28` fills) | Inspectable cursor polish only — see session notes |
@@ -119,51 +124,46 @@ legal checkers moves from `playcheckers.txt` alone.
 **Fill this with:** assets + play. Scripts tell you *that* a walk
 happens, not the frame rate.
 
-### 4a. MOV reels (`--video` is experimental)
+### 4a. MOV playback (holds + mixer recovered from `MOVPLAY.EXE`)
 
-There are **no DreamFactory scripts inside** INTRO / INTRO2 / INTRO3
-(zero `script_*.txt` under `out/MOV/`). Boot is fire-and-forget:
-`playmovie ("intro.mov")` then `playmovie ("intro2.mov")`. INTRO3 is
-**not named** in extracted scripts; it still looks like the third
-opening reel (user: all three back-to-back ≈ 2:58).
+There are **no DreamFactory scripts inside** INTRO / INTRO2 / INTRO3.
+Boot: `playmovie ("intro.mov")` then `playmovie ("intro2.mov")`. INTRO3
+is not named in scripts. Spotmovies (`dog1.mov`, `apothpig.mov`, …) use
+the **same** v1 table; `spotmovie` in `new.flt` is just `playmovie` plus
+fades.
 
-What the file actually is:
+**Still timing and audio cues are in the file + `MOVPLAY.EXE`, not 14 fps.**
+Full writeup:
+[`dustdecompile/docs/findings.md`](../../dustdecompile/docs/findings.md) §7.
+Layout: [file-types.md](file-types.md) (MOV).
 
-- Same `LPPALPPA` container stream as SET stills. Audio is ordinary
-  v40/v41, mixed in the **same index space**. First still of INTRO is
-  container **9** (clips 1–8 sit before any picture).
-- Later clip groups are preceded by a non-frame, non-audio container
-  (INTRO has 9; INTRO3 has 5). Same `00 00 01 00` prefix as audio,
-  264×512 words at +34, **do not** decode as stills or as `code`
-  scripts. Likely click-row / mixer metadata. DFET’s Titanic
-  `AudioBlockInfos` offsets do **not** apply (`+0x64` is `-1` here).
-- Decode is delta-from-previous into one framebuffer, then a **full**
-  512×264 PNG. Those PNGs are composited pictures, not residuals
-  (checked: cigar close-up, lizard, last town still).
-- If that “other” container fails, the extract currently **clears**
-  `prior`. That punches ~300 extra zeros into 29 INTRO stills;
-  INTRO3 is unchanged. Keep prior across unknowns when you fix it.
-- Header 80-byte records at INTRO `+2252`: field +14 = 1…135, +18 =
-  container 9…143 (the first still run only). Not a duration table
-  for the whole reel.
+- Tick = `timeGetTime() * 3 / 50` = **60 Hz**.
+- 80-byte records at header **+2242**. Hold =
+  `max(dword header+0x26, dword record+2)`.
+- **Group A** (`u16 +0x1A`): voice slots. Start when `record+32` equals
+  the 1-based slot. Retrigger restarts that slot (does not stack).
+  A new scene that would overlap the previous scene’s still-playing A
+  line is **held** until that line’s original end (INTRO 325 vs 423).
+- **Group B** (`u16 +0x1C`): theme playlist at `+0x83E`. Sequential, one
+  channel. A later scene with `n_b=0` keeps the bed running.
+- Stills are **deltas into one framebuffer**. Scene headers are not
+  images. Skip them without clearing prior (INTRO still 461 is a delta
+  from the previous scene; clearing prior punched 300 black pixels).
+- Each scene header has its own palette at **`+0x3E`**. RGB/PNG must
+  use that palette; container 0’s colors make later shots look like
+  residuals.
+- Three intros: **162 s** of picture. SALUP stairs **1.7 s**. Overlays
+  like `DOG1` ~1 s.
 
-`--video` today (wrong, but recorded so we do not re-guess the same
-way): constant **14 fps** = 2467 stills / ~178 s; start each clip at
-`stills_before / 14` s; overlap when no still sits between clips.
-That piles INTRO’s first eight beds (16 s + 12 s + 10 s + SFX) at
-0:00. Sequential WAV sum of the three intros is ~3:31, so they were
-never strictly serial. Encoded durations: INTRO 45.6 s, INTRO2 25.3 s,
-INTRO3 105.4 s (2:56). Playback: overall length is close; local pacing
-is not (saloon run at the end of INTRO3 is too slow). Average 14 fps
-is not a proven per-frame rate.
+`--video` is **opt-in** (`python cli.py` does not mux). With the flag it
+writes `timeline.json` plus `movie.mp4` at 60 fps for **every** MOV that
+has stills (intros, overlays, inspectables, `INFO/`). Mixed 384/264
+(TIPRE) is letterboxed; odd sizes (NITEWARN) pad even for x264. Do not
+use constant 14 fps for new muxes.
 
-`WIN31/DUST/MOVPLAY.EXE` strings: `playtheme`, `voicesound`,
-`singlesound`, `dualsound`, `multiplesound`, `soundloop`, `delay`,
-`actionframe`, `framerate`, `machinespeed`. Boot `framerate (3)`
-units unknown. Capture the original player if you need ground truth.
-
-**Fill this with:** parse the pre-clip “other” containers and/or
-MOVPLAY; do not invent a second cue sheet.
+Leftover: whether the B playlist **wraps** after the last `+0x83E`
+entry (`header+0x8BE`). The extract is close, not proven 1-to-1 with a
+capture of original `MOVPLAY`.
 
 ### 5. Types, `me`, and values
 
