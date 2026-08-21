@@ -3,6 +3,15 @@ name: Deploy Pages
 on:
   push:
     branches: [main]
+    paths:
+      - "src/**"
+      - "index.html"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "vite.config.ts"
+      - "vitest.config.ts"
+      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:

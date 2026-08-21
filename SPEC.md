@@ -74,6 +74,8 @@ Original boot defaults (from extracted `_BOOTFILE`): `day = 1`, `clock = 2`, `ph
 
 **Do not commit** the CD/DOSBox tree, extracted media, or `dfextract/out/` (or `out-backup/`). They are copyrighted and too large for GitHub. `.gitignore` already excludes them. Clone + this spec + `dfextract` source is enough to rebuild a dump if you have the game.
 
+A **town-sandbox subset** of the extract (street + interior SETs, house-door PRP, `SND/_UNILIB`) is hosted on CloudFront so https://diamondback.town can play. The CD and the full dump stay local. JS/HTML is GitHub Pages; stills are not in git.
+
 The remake still **hand-ports** dialogue and does **not** interpret
 DreamFactory `.txt` at runtime (§2). The extract is the reference for
 that port, plus PNG/WAV the browser may load as-is.
@@ -94,6 +96,8 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 
 - `npm test` — unit tests (time, SET graph / HQ lookup, doors)
 - `npm run dev` — http://localhost:5173 (needs `dfextract/out/SET/_TOWN` + `_NITE`)
+- Hosted: https://diamondback.town (Pages). Stills from CloudFront via `VITE_EXTRACT_BASE`. Local `/extract` is unchanged.
+- Command cheat sheet: [`README.md`](README.md).
 - Spawn: Scene O7 facing north. **N** swaps day/night stills; does not change `day`.
 - Sleep has no stills UI yet (hotel bed later). Clock is discrete; `sleep()` still wakes next morning.
 - Debug query: `?clock=1|2|3`.
@@ -134,6 +138,7 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 | 2026-08-18 | Standing HQ = outgoing walk `+5`, else clockwise/right-turn `+5` (G11 dead-end). A turn that *ends* here is the other facing’s from-still. |
 | 2026-08-18 | Town spawn is O7 facing north (south gate). |
 | 2026-08-18 | Show landing HQ immediately (Dust delayed ~500 ms). Queue one input while busy; hold-to-repeat after a step. |
+| 2026-08-20 | HQ delay restored to 500 ms on the last LQ frame; dest HQ after that. Input is not blocked during the wait — a new step cancels the HQ swap. |
 | 2026-08-18 | Texture loader: max 3 inflight, current strip high-priority. Uncapped prefetch froze input after idle. |
 | 2026-08-18 | SET frames are `FRAMES/{frame0}_{offset}.png`. Container IDs overlap (O7→N7 walk and an N7 turn both use 1640). Decode each strip from a clean prior. |
 | 2026-08-19 | Remaining skip-holes (O7 north ox skull) stay as extracted. NITE is a different film, not a prior for TOWN. Do not invent filler. |
@@ -157,3 +162,4 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 | 2026-08-20 | MOV mixer from MOVPLAY: group A cued by record+32 (retrigger restarts that slot); group B sequential playlist at header+0x83E (n_b=0 keeps the bed). Stills are deltas into one framebuffer; skip scene headers without clearing prior. |
 | 2026-08-20 | MOV scene palettes: each scene header loads 256 colors at +0x3E. `--video` / FRAMES use the current scene palette; container 0’s palette made later INTRO shots look like residuals. |
 | 2026-08-20 | MOV extract: `--video` is opt-in (not in a default `python cli.py`). Encodes every MOV with stills (overlays like `DOG1`, inspectables, `INFO/`), not only `playmovie` reels. Cross-scene group-A hold so a new scene does not stack on the previous line (INTRO 325 vs 423). TIPRE 384/264 letterboxed; NITEWARN odd size padded even. |
+| 2026-08-20 | Hosted town sandbox: GitHub Pages (https://diamondback.town) for JS; S3 + CloudFront (`d3en1dc3mw7cky.cloudfront.net`) for an allowlisted extract. `VITE_EXTRACT_BASE` is a repository Actions variable. CI does not upload stills. Public unlisted URL is an explicit override of “do not publish extract output” for this subset only. |

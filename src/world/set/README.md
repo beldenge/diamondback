@@ -45,9 +45,10 @@ you have already stepped. That is why early builds felt like
 “two steps forward, one back.”
 
 **Play five motion frames, then the landing pose’s HQ still.**
-`framesToPlay()` returns 5. Dust originally delayed that HQ reveal
-~500 ms (JPEG-style sharpen). We show it **immediately** so the next
-input is not blocked on a timer.
+`framesToPlay()` returns 5. After the last motion frame we hold ~500 ms
+(`HQ_REVEAL_DELAY_SEC`) on that LQ plate, then swap in dest HQ (Dust’s
+JPEG-style sharpen). A new walk or turn during the wait cancels the
+swap; input is not blocked on the timer.
 
 Turns also play 5 motion frames. On a turn, `+5` is the HQ of the
 **starting** facing; the dest HQ is still looked up separately.
@@ -89,8 +90,8 @@ O7 north spawn HQ is `1640_5.png`.
 |---|---|
 | Motion rate | `STILL_FRAME_SEC = 1/24` (~24 fps). Five motion frames ≈ 210 ms. |
 | Hitch policy | Advance **one** frame per interval. Never skip. If a PNG is not ready, hold until it is. |
-| HQ delay | None (original ~500 ms). |
-| Input while busy | Ignored. Hold-to-repeat after the step if the key is still down. |
+| HQ delay | `HQ_REVEAL_DELAY_SEC = 0.5`. Last LQ frame stays up; dest HQ after that. A new step cancels it. |
+| Input while busy | Ignored **during the strip**. After the strip, input is live (including during the HQ wait). Hold-to-repeat after the step if the key is still down. |
 | Dead / unfilmed move | No-op (no transition in the graph). |
 
 On keydown the first motion frame paints immediately if it is already
@@ -102,9 +103,11 @@ in the background. If a PNG is missing when the clock wants it, **wait**
 8-bit deltas; the PNG dump is ~115 MB; keeping every town still as RGBA
 would be ~1.7 GB.
 
-Vite serves extract files at `/extract/…` → `../../../dfextract/out/…` with
-`Cache-Control: no-store` so a re-dump shows up on reload (no
-`?v=` cache-buster).
+Locally, Vite serves extract files at `/extract/…` →
+`../../../dfextract/out/…` with `Cache-Control: no-store` so a re-dump
+shows up on reload (no `?v=` cache-buster). Hosted Pages builds prefix
+the same relative paths with `VITE_EXTRACT_BASE` (CloudFront). See
+`extract.ts`.
 
 ---
 
@@ -255,6 +258,7 @@ do not swap (except you entered court at night).
 |---|---|
 | `types.ts` | Dirs, spawn, frame counts, `framesToPlay` |
 | `graph.ts` | Load SET JSON, `hqFrame` / `holdFrame` / spawn |
+| `extract.ts` | `/extract` locally, `VITE_EXTRACT_BASE` when hosted |
 | `walker.ts` | Input → filmed transition |
 | `playback.ts` | One-frame-per-tick strip clock (no catch-up) |
 | `stillsView.ts` | Ortho blit + texture cache (no priority queue) |
