@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -11,7 +12,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 from container import read_df_file
-from pup import extract_pup
+from pup import extract_pup, parse_viseme_track, visemes_from_dialogue
 
 REPO = HERE.parent
 PUPPETS = REPO / "sources" / "dust.dbgl" / "dosroot" / "0" / "dust" / "DUSTCD" / "PUPPETS"
@@ -55,6 +56,43 @@ class TestPupScripts(unittest.TestCase):
         self.assertIn("code ", day1)
         self.assertIn("puppetspeak", day1)
         self.assertIn("bolivar", day1.lower())
+
+    def test_leroy_viseme_track_matches_wav_length(self) -> None:
+        path = PUPPETS / "LEROY.PUP"
+        if not path.exists():
+            self.skipTest("LEROY.PUP not present")
+        df = read_df_file(path)
+        extract = extract_pup(df)
+        line = next(item for item in extract.dialogue if item.ident == "leroy.1")
+        self.assertEqual(line.duration_ticks, 93)
+        blob = df.containers[line.anim_logic].data
+        self.assertEqual(len(blob) % 82, 0)
+        self.assertEqual(len(blob) // 82, 93)
+        frames = parse_viseme_track(blob)
+        self.assertEqual(frames[0]["t"], 0)
+        self.assertEqual(frames[-1]["t"], 184)
+        self.assertAlmostEqual(frames[-1]["t"] / 60, 3.11, delta=0.1)
+        jaws = {frame["layers"]["Jaw"] for frame in frames}
+        self.assertGreater(len(jaws), 3)
+        table = visemes_from_dialogue(df, extract.dialogue)
+        self.assertIn("leroy.1", table)
+        self.assertEqual(table["leroy.1"]["ticks"], 93)
+        from pup import write_viseme_files
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            write_viseme_files(Path(tmp), table)
+            line_path = Path(tmp) / "visemes" / "leroy.1.json"
+            self.assertTrue(line_path.exists())
+            payload = json.loads(line_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["ticks"], 93)
+        rest = frames[0]["at"]
+        # Viseme extras are DFET hotspots on the 512×264 still.
+        self.assertEqual(rest["Background"], [256, 132])
+        self.assertEqual(rest["Body"], [256, 207])
+        self.assertLess(rest["Head"][1], rest["Body"][1])
+        self.assertLess(rest["Eyebrows"][1], rest["Eyes"][1])
+        self.assertGreater(rest["Jaw"][1], rest["Eyes"][1])
+        self.assertAlmostEqual(rest["Body"][1] + 114 / 2, 264, delta=2)
 
 
 if __name__ == "__main__":

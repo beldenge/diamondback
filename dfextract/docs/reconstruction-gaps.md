@@ -69,7 +69,7 @@ the default if you only have the name.
 | `@` | String concat (confirmed in dumps); any other use? |
 | `plugin` / `pluginfx` | Leaves the script VM (see §3) |
 | `path` | Virtual FS (`dust:data:`) vs real folders |
-| `savegame` / `opengame` / `dumpglobal` | Save format we have not specified |
+| `savegame` / `opengame` / `dumpglobal` | Filter in `DF.EXE` is `*.rtd`. No save in this install. Layout unknown. |
 
 Anything printed as `cmd_<number>` is an opcode **not** in the 4.0
 table. Treat as unknown; do not guess.
@@ -114,10 +114,10 @@ legal checkers moves from `playcheckers.txt` alone.
 | How a 6-frame SET transition is **timed** / blended | Outdoor walker: 5 motion @ ~24 fps, then dest HQ immediately. Dust delayed HQ ~500 ms. Exact `DF.EXE` tick not proven. See [`src/world/set/README.md`](../../src/world/set/README.md). |
 | MOV reel playback (rate + audio cues) | Holds, A/B mixer, framebuffer, palettes recovered from `MOVPLAY` (see §4a). B playlist wrap after last entry is the leftover. |
 | How stills are **stored at runtime** | Dump is paletted PNG (old RGBA dump was ~115 MB town). Dust’s SET is ~60 MB of 8-bit deltas into one 135 KB buffer. Do not assume 1.7 GB (all frames as RGBA textures). HTTP-per-PNG + 80-texture LRU is what the walker does now. |
-| Z-buffers (not decoded on extract, not written) | Sprite occlusion against stills |
+| Z-buffers | **Decoded.** Trailing RLE after SET color stills. Offsets are from the Z table start (first offset = `height*2`). `python cli.py --z` writes `FRAMES/z/*.png`. Default dump does not write them. |
 | MOV click-row masks (mostly empty `0x28` fills) | Inspectable cursor polish only — see session notes |
-| Face `animLogic` (integer on each PUP line, not exported) | Mouth / viseme sync |
-| UI chrome (bevel art, inventory layout, cursors) | `setcursor ("touch")` does not include the bitmap |
+| Face `animLogic` | **Proven.** Container of 82-byte / 60 Hz keyframes (`durationTicks` long). Slot 0 = Jaw/Head/Eyes/… table index (`-1` hide). Dump: `AUDIO/visemes.json`. Last tick/60 matches the WAV. |
+| UI chrome (bevel art, inventory layout) | **Main play HUD** is `FLT/_NEW/frame_3.png` (512×384, white top = world hole, leather bar + map + portrait in the bottom 120). HOUSE.PRP has `avatar` (day/nite faces), `inven day` / `inven time`, `map day` / `map time`, bevels. Sprite `pos_x`/`pos_y` are in `sprites.json`. **Cursors** from `DF.EXE`: `dustdecompile --rsrc` → `dustdecompile/out/rsrc/cursors/{touch,arrow,goleft,goright,gostrait,watch}.cur`. |
 | Day/night: `_TOWN` vs `_NITE` pairing | Same 225-cell / 52-camera graph; remake swaps still folders on **N**. Day-change movies (`D2MD2A`, …) not wired. |
 | Camera / FOV / 512×264 vs 512×384 | Scripts use raw `pointx` numbers. Outdoor stills are 512×264. |
 
@@ -171,11 +171,11 @@ capture of original `MOVPLAY`.
   token plus `1` (we pretty-print `(-1)`).
 - Strings vs bare names: `"jenix.5"` vs `jenixphase` vs `me`.
 - `true` / `false` / `me` / `target` are opcodes, not variables.
-- Globals persist; we have not listed the full global set or save
-  layout. `savegame` / `opengame` exist in the opcode list.
+- Globals persist. Declaration names are in `out/catalog.json`
+  (`globals`). Save files are `*.rtd`; none in this install.
 
-**Fill this with:** a pass over all `global` declarations plus a save
-from the original game if you need bit-identical state.
+**Fill this with:** a save from the original game if you need
+bit-identical state. Do not invent the `.rtd` layout.
 
 ### 6. Extractor holes (do not treat as game content)
 
@@ -191,15 +191,17 @@ from the original game if you need bit-identical state.
 ## Suggested agent workflow
 
 1. Read [output-catalog.md](output-catalog.md).  
-2. Load scripts as **data** (control flow + call names + literals).  
-3. Resolve `"….wav"` / `"….mov"` / `"….pup"` / scene names via the
-   catalog. Fail loudly on misses.  
+2. Load scripts as **data**. Prefer `*.json` token streams (Dust names)
+   over pretty-printed `.txt` (Titanic 4.0 names).  
+3. Resolve `"….wav"` / `"….mov"` / `"….pup"` / scene names via
+   `out/catalog.json`. Fail loudly on misses.  
 4. Keep an **opcode book** you update when a verb’s meaning is proven.
    Do not invent.  
 5. Treat `plugin` / `pluginfx` as FFI, not as script.  
 6. Play-verify: Jenix money, one interior door, checkers, one death,
    day change. Those hit the common gaps.
 
-The extract is enough to rebuild Dust **if** you fill the verb book,
-the file graph, and the plugins. It is not enough if you only “understand
-the code” from the `.txt` files.
+The extract plus `dustdecompile --rsrc` is enough to start a TypeScript
+VM. Remaining engine holes (`delay` units, `.rtd` layout, checkers
+search, viseme mapping) get filled while implementing verbs, not as a
+pre-req to 100% of `DF.EXE`.

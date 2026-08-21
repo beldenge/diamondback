@@ -153,6 +153,24 @@ class TestRemaining(unittest.TestCase):
         self.assertEqual(rgba, bytes(expected))
         self.assertGreater(white, 200)
 
+    def test_town_stills_have_a_z_plane(self) -> None:
+        """Color stream does not consume the container. Trailing RLE is Z.
+
+        Offsets are from the Z table start (first offset = height*2).
+        """
+        if not TOWN.exists():
+            self.skipTest("TOWN.SET not present")
+        df = read_df_file(TOWN)
+        for index in (1640, 1640 + 5, 1635):
+            data = df.containers[index].data
+            image = decode_indexed_image(data, decode_z=True)
+            self.assertIsNotNone(image.z_pixels)
+            assert image.z_pixels is not None
+            self.assertEqual(len(image.z_pixels), image.width * image.height)
+            depths = set(image.z_pixels)
+            self.assertGreater(len(depths), 1)
+            self.assertGreater(min(depths), 0)
+
     def test_l7_turn_wall_is_not_sky(self) -> None:
         """L7 west→north motion used to paint sky-blue speckles on the
         sheriff wall. Negative ``look`` must copy *ahead* into the prior
@@ -191,11 +209,19 @@ class TestRemaining(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             dest = Path(tmp)
-            counts = write_set_extract(read_df_file(APOTH), dest, write_scripts=False, write_frames=True)
+            counts = write_set_extract(
+                read_df_file(APOTH),
+                dest,
+                write_scripts=False,
+                write_frames=True,
+                write_z=True,
+            )
             first = dest / "FRAMES" / "45_0.png"
             last = dest / "FRAMES" / f"{45}_5.png"
+            z_first = dest / "FRAMES" / "z" / "45_0.png"
             self.assertTrue(first.exists(), first)
             self.assertTrue(last.exists(), last)
+            self.assertTrue(z_first.exists(), z_first)
             self.assertGreaterEqual(counts.get("frames", 0), 28 * 5)
 
     def test_apoth_boot_is_script(self) -> None:

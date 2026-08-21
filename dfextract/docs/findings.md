@@ -94,10 +94,11 @@ WAV, ~30,000 PNG after SET/MOV, and all playable SET / FLT / PRP / MOV.
    clear its decode buffer). Walk cycles and Yunni-box open/close need
    that. A faint right-edge artifact can still appear on some stills.
 2. **`MOVIES/ZUNUSED/`** (11 files) are not `LPPALPPA`. Skipped.
-3. **Z-buffers** for SET stills exist after the color image. The extract
-   path does not decode them (`decode_z=False`) and does not write Z PNGs.
-4. **Opcode table** is Titanic 4.0. Fine so far; re-audit from `DF.EXE`
-   if you see `cmd_NNNN` in a script.
+3. **Z-buffers** trail SET stills. Decode with `decode_z=True` (offsets
+   from the Z table start). Default extract does not write them;
+   `python cli.py --z` writes `FRAMES/z/*.png`.
+4. **Pretty-print opcode table** is still Titanic 4.0. JSON ASTs use
+   Dust names. Re-audit from `DF.EXE` if you see `cmd_NNNN`.
 5. Old un-namespaced folders (`out/_JENIX`, …) and old flat
    `FRAMES/frame_N.png` under PRP may remain from early runs. Canonical
    PRP art is `FRAMES/<Item>/<state>/`.
@@ -119,11 +120,11 @@ Extracted game assets are Cyberflix data, not GPL.
 
 ## Suggested next work (not extraction)
 
-- Fix the still-codec refill so Yunni-box and the right edge clean up,
-  then re-dump SET/MOV frames.
-- Emit a JSON AST of scripts (tokens, not just pretty text) for the
-  remake dialogue graph.
-- Write Z-buffer previews.
+- JSON AST of scripts: done (`*.json` next to each `.txt`).
+- Z-buffer decode: done (`--z` writes `FRAMES/z/`). Default dump skips
+  the extra PNGs.
+- Still-codec leftover: Yunni-box and the thin right-edge stripe. Re-dump
+  after any decode change. Do not inpaint skip-coded holes.
 - Ignore or separately catalog `ZUNUSED`.
 - Extract speed leftovers (Cython decoder, worker caps):
   [performance.md](performance.md).

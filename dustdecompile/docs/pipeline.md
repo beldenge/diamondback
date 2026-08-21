@@ -33,10 +33,12 @@ it, play-verify.
    verbs *do*, Titanic-vs-Dust name aliases, engine hooks, `new.flt`
    library (`spotmovie`, `gototown`, …), call sites from `dfextract/out`.
    Marked proven / inferred / unknown. Do not invent the unknown rows.
-2. **Native plugins / MOVPLAY.** Checkers `PlugProc` encoding; movie
-   holds, A/B mixer, framebuffer + per-scene palettes (findings.md §7).
-   dfextract `--video` implements that mux (opt-in). Ghidra optional.
-   B playlist wrap and VM `*sound` handlers still open.
+2. **Native plugins / MOVPLAY / rsrc.** Checkers `PlugProc` encoding;
+   movie holds, A/B mixer, framebuffer + per-scene palettes
+   (findings.md §7). Cursors/menu/strings from `DF.EXE` `.rsrc`
+   (`--rsrc`). dfextract `--video` implements the mux (opt-in). Ghidra
+   optional for checkers search and `.rtd`. B playlist wrap and VM
+   `*sound` handlers still open.
 3. **TypeScript remake, one subsystem at a time,** using scripts + this
    handbook so an agent does not guess verb meanings.
 4. **Play-verify.** Jenix money, one door, checkers, one death, day
@@ -44,16 +46,10 @@ it, play-verify.
 
 ## Relationship to the remake
 
-`SPEC.md` currently says the browser client is **not** a DreamFactory
-port and will **not** interpret original scripts at runtime. This tool
-can feed either:
-
-- an **oracle** for hand-ports (dialogue JSON, door tables, checkers
-  rules stay authored in TypeScript, but they match the engine), or
-- a later **script VM** that runs the extracted tokens.
-
-That product choice is still open. Do not import `dustdecompile` from
-`src/`.
+`SPEC.md` now says the browser client interprets extracted Dust **tokens**
+in a TypeScript VM (not a C port of `DF.EXE`, not a hand-port of 541
+scripts). This tool is the opcode/protocol oracle that VM implements.
+Do not import `dustdecompile` from `src/`.
 
 ## Opcode table (stage 0 fact)
 

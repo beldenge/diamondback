@@ -532,11 +532,15 @@ Do not pretend these are done:
 - `singlesound` / `dualsound` / `multiplesound` **VM** handlers (game
   SND, not MOV reels). Reel mixing is the A-slot + B-playlist path in §7.
 - `walktostar` blocking vs async; `actorxyz` units.
-- Save blob format.
-- Mouth/`animLogic` visemes (integer on PUP lines, not in this table).
-- Cursor/bevel bitmaps (`cursor("touch")` is a name, not a resource dump
-  from `DF.EXE` in this pass).
-- Z-buffer use at runtime (patent + Appleton; extract still skips Z).
+- Save blob format. Filter string is `Saved games (.RTD)!*.rtd`. No
+  `.rtd` in this install.
+- Mouth/`animLogic` visemes: integer is now in `texts.csv`; how it
+  indexes jaw/mouth frames is still unproven (not a PUP container id).
+- Bevel / inventory chrome layout (cursors **are** dumped: `python -m
+  dustdecompile --rsrc` → `out/rsrc/cursors/`). Script `cursor("touch")`
+  maps to `CURS.TOUCH`.
+- Z-buffer **use** at runtime (how `actorzclip` combines with the SET
+  Z plane). The plane itself decodes; `dfextract --z` writes it.
 
 ---
 

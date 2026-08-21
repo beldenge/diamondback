@@ -44,8 +44,13 @@ Header (8 bytes):
 ```
 i16 height
 i16 width
-i16 rawY     # DFET: posY = 192 - rawY   (384/2)
-i16 rawX     # DFET: posX = 256 - rawX   (512/2)
+i16 rawY     # DFET blit top-left: posY = 192 - rawY   (384/2)
+i16 rawX     # DFET blit top-left: posX = 256 - rawX   (512/2)
+# Codec hotspots sit at (256, 192). That is NOT the talking-head composite.
+# Each viseme slot is 3×i16: frameIndex, hotspotY, hotspotX on the 512×264
+# still (HUD at y=264). Play mode keeps the header offset from (256, 192)
+# and moves that hotspot (`FRAMES/sprites.json` `rest`, live `at` on viseme
+# frames). Do not bbox-center — open jaws are wider to one side.
 ```
 
 Then one **row segment** per row:
@@ -69,6 +74,25 @@ current row (a few Dust sprites do).
 
 Proven: Bolivar `FRAMES/Background/frame_4.png` decodes at 512×264
 and EXTRA writes Jenix `stand/frame_195.png`.
+
+`pos_x` / `pos_y` are the top-left of the sprite on the **512×384**
+DreamFactory stage (SET stills occupy y=0…264; HUD chrome is the
+bottom 120). Frame dumps now write that placement next to the PNGs:
+
+- PUP: `FRAMES/sprites.json` (`layers.<Part>[]`)
+- CST: `sprites.json` (`actors.<Name>.<pose>[]`)
+- PRP: `x`,`y`,`w`,`h` on each `props.json` row, plus `sprites.json` sidecar
+
+Bolivar/Leroy backgrounds sit at `(0, 60)` — a 264-tall plate centered
+on 384. Some plates are real rooms (Bolivar); Leroy/Jenix are a flat
+studio fill, so play mode keeps the SET still behind the puppet. Face
+parts (`Head`, `Jaw`, `Eyes`, `Nose`, `Eyebrows`) share that stage; idle
+is those layers only. `Left` / `Right` / `Hands` are gesture overlays,
+not idle. CST walk frames are **8 facings per pose** (front,
+¾, side…) then the next pose, not 8 poses of one facing.
+
+NEW.FLT button rects are Mac `{top, left, bottom, right}` in 512×384.
+Mainpanel HUD: `map` (left), `horn` (skull), `self` (portrait).
 
 ## Indexed stills (SET walks, MOV cutscenes, FLT boards)
 
@@ -132,9 +156,13 @@ most MOVs; it still fails some Yunni-box frames (`BOXOPEN.MOV`,
 some stills.
 
 Optional Z-buffer after the color image: `height` × `u16` scanline
-offsets, then runs of `(count, depth)`. `decode_indexed_image` only
-parses that when `decode_z=True`. The extract path does not; we do
-not write Z PNGs.
+offsets, then runs of `(count, depth)`. **Offsets are from the start
+of the Z table** (first offset is `height * 2`, i.e. just past the
+table). DFET-style `data_start + offset` overshoots Dust stills.
+`decode_indexed_image(..., decode_z=True)` parses that. Default extract
+does not write Z PNGs; `python cli.py --z` writes `FRAMES/z/*.png`
+(8-bit grayscale). TOWN stills have a real plane (dozens of depth
+values, never zero on sampled HQ frames).
 
 **Previous frame.** DFET keeps one decode buffer and never clears it.
 Skip spans (mode 2 and row param 10) therefore leave the last still’s

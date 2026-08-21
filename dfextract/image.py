@@ -150,6 +150,24 @@ def write_png(path: Path, sprite: Sprite) -> None:
     image.save(path, format="PNG")
 
 
+def sprite_record(
+    sprite: Sprite,
+    rel: str,
+    extra: dict | None = None,
+) -> dict:
+    """Placement on the 512×384 DreamFactory stage (top-left origin)."""
+    rec = {
+        "path": rel.replace("\\", "/"),
+        "x": sprite.pos_x,
+        "y": sprite.pos_y,
+        "w": sprite.width,
+        "h": sprite.height,
+    }
+    if extra:
+        rec.update(extra)
+    return rec
+
+
 def pup_palette(header: bytes) -> Palette:
     return Palette.from_container(header, 58)
 
@@ -180,6 +198,7 @@ class IndexedImage:
     height: int
     pixels: bytes  # 8-bit indices, top-to-bottom
     z_pixels: bytes | None = None
+    consumed: int = 0  # bytes of color stream used; leftover may be a Z plane
 
 
 def decode_indexed_image(
@@ -194,8 +213,9 @@ def decode_indexed_image(
     (mode 2 / row param 10) keep whatever was already there — usually
     the previous frame in the same movie or walk cycle.
 
-    Z-scanlines are parsed only when ``decode_z`` is true; we do not
-    write Z PNGs on the extract path.
+    Trailing Z-scanlines are parsed when ``decode_z`` is true. Dust
+    offsets are from the start of the Z table (first offset is
+    ``height * 2``). Writing Z PNGs is a separate ``--z`` flag.
     """
     if len(container) < 6:
         raise ImageError("indexed image smaller than header")
@@ -298,7 +318,13 @@ def decode_indexed_image(
         except ImageError:
             z_pixels = None
 
-    return IndexedImage(width=width, height=height, pixels=bytes(out), z_pixels=z_pixels)
+    return IndexedImage(
+        width=width,
+        height=height,
+        pixels=bytes(out),
+        z_pixels=z_pixels,
+        consumed=src,
+    )
 
 
 def _copy_back(out: bytearray, dst: int, offset: int, count: int) -> None:
@@ -410,6 +436,16 @@ def _decode_delta_span(
     return src
 
 
+def write_z_png(path: Path, image: IndexedImage) -> None:
+    """8-bit grayscale PNG of the still's depth plane, if present."""
+    if not image.z_pixels:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.frombytes("L", (image.width, image.height), image.z_pixels).save(
+        path, format="PNG"
+    )
+
+
 def write_indexed_png(path: Path, image: IndexedImage, palette: Palette) -> None:
     """Write a paletted PNG whose PLTE matches ``still_rgba``.
 
@@ -433,14 +469,14 @@ def _still_pil(image: IndexedImage, palette: Palette) -> Image.Image:
 
 
 def _decode_z(container: bytes, src: int, width: int, height: int) -> bytes:
+    """RLE depth plane. Offsets are from ``src`` (the table), not after it."""
     total = width * height
     zbuf = bytearray(total)
     table = src
-    data_start = src + height * 2
     dst = 0
     for row in range(height):
         offset = struct.unpack_from("<H", container, table + row * 2)[0]
-        ptr = data_start + offset
+        ptr = table + offset
         if ptr >= len(container):
             raise ImageError("z-scanline offset out of range")
         segs = container[ptr]

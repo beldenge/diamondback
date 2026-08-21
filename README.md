@@ -2,7 +2,7 @@
 
 Browser rebuild of *Dust: A Tale of the Wired West*, plus a DreamFactory extractor.
 
-Non-commercial fan reconstruction. Not a port of CyberFlix’s engine. Playable client is Three.js; original scripts are hand-ported, not interpreted.
+Non-commercial fan reconstruction. Not a port of CyberFlix’s engine C. Playable client is Three.js. Game logic will run extracted DreamFactory tokens in a TypeScript VM. https://diamondback.town stays the unlocked town walker.
 
 Hosted town sandbox: **https://diamondback.town** (GitHub Pages + CloudFront stills).
 
@@ -22,15 +22,20 @@ npm run dev
 
 Open http://localhost:5173 — Vite serves stills from `dfextract/out/` at `/extract/…`.
 
+**Sandbox** (`/`): unlocked-doors town walker. Hosted at https://diamondback.town.
+
+**Play mode** (`/?mode=play`): Day 1 night with the original dashboard under the stills, CST sprites that face you / walk up on talk, and a layered PUP talking-head. Needs a full local extract (PUP/CST/FLT/PRP, not just SET stills). Intros skipped unless `/?mode=play&intro=1`. Playback notes (visemes, Firefox audio delay): [`src/play/README.md`](src/play/README.md).
+
 | Key / click | Action |
 |---|---|
 | **← →** or **A / D** | Turn |
 | **↑** or **W** | Walk one filmed block |
-| **N** | Day ↔ night stills (does not change the day number) |
+| **N** | Day ↔ night stills (sandbox only; does not change the day number) |
 | Click left / right / top of the picture | Turn or walk |
 | Click a door, then walk forward | Open (if allowed) and go inside |
+| Click a nearby person (play mode) | Talk (puppet + choices) |
 
-`?clock=1|2|3` — morning / afternoon / night.
+`?clock=1|2|3` — morning / afternoon / night (sandbox).
 
 Production-style local build (`preview` still mounts `/extract` from `dfextract/out/`):
 
@@ -84,7 +89,8 @@ Reads `DF.EXE` / `MOVPLAY.EXE` / plugins. Not used by the browser client.
 python -m dustdecompile
 ```
 
-Output: `dustdecompile/out/` (gitignored). Details: [`dustdecompile/README.md`](dustdecompile/README.md).
+Output: `dustdecompile/out/` (gitignored), including `out/rsrc/cursors/`
+from `DF.EXE`. Details: [`dustdecompile/README.md`](dustdecompile/README.md).
 
 ### Tests
 

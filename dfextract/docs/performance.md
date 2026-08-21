@@ -168,9 +168,8 @@ tweak should feel instant.”
 8. **Correctness stills, not speed:** Yunni-box (`BOXOPEN` /
    `BOXCLOSE`) and the thin right-edge stripe. Re-dump after any
    decode change. Do not inpaint skip-coded holes.
-9. **Z PNG previews** if the remake ever needs occlusion. That would
-   turn `decode_z` back on and add writes; it is a feature, not a
-   speedup.
+9. **Z PNG previews** (`python cli.py --z`) if the remake needs
+   occlusion textures. Decode is fixed; writing is opt-in.
 
 Threading the decoder will not help (GIL). Threading Pillow after
 paletted PNG is ~1.5 ms and not worth a pool.

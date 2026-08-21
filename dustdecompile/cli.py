@@ -28,9 +28,10 @@ from ne import NeImage
 from opcodes import recover_opcodes
 from pe import PeError, PeImage
 from plugins import describe_plugin
+from rsrc import dump_pe_resources
 
 DEFAULT_OUT = HERE / "out"
-KINDS = ("inventory", "opcodes", "plugins", "handbook")
+KINDS = ("inventory", "opcodes", "plugins", "handbook", "rsrc")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -52,6 +53,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--handbook",
         action="store_true",
         help="Only write the opcode/library handbook (needs dfextract/out for call sites).",
+    )
+    parser.add_argument(
+        "--rsrc",
+        action="store_true",
+        help="Only dump DF.EXE PE resources (cursors, menu, strings, CLUTs).",
     )
     return parser.parse_args(argv)
 
@@ -115,6 +121,11 @@ def main(argv: list[str] | None = None) -> int:
     if "handbook" in kinds:
         handbook = build_handbook(opcodes, default_scripts_root())
         written.extend(write_handbook(args.output, handbook))
+    if "rsrc" in kinds:
+        engine = engine_target(targets)
+        image = images.get(engine.path) if engine is not None else None
+        if isinstance(image, PeImage):
+            written.extend(dump_pe_resources(image, args.output / "rsrc"))
 
     _print_summary(targets, images, opcodes, written)
     return 0

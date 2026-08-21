@@ -23,8 +23,7 @@ from image import (
     still_rgb24,
     write_indexed_png,
 )
-from pup import EXTRACTOR_BANNER
-from script import binary_script_to_text
+from script import decode_and_write_script
 from set import looks_like_script
 
 # MOVPLAY.EXE play loop (VA 0x405E50 / 0x40BCF7 / scene load 0x40B933):
@@ -384,13 +383,8 @@ def _write_scripts(df: DFFile, out_dir: Path) -> int:
     for index, container in enumerate(df.containers[1:], start=1):
         if not looks_like_script(container.data):
             continue
-        text = binary_script_to_text(container.data)
-        if len(text) <= 1:
-            continue
-        (out_dir / f"script_{index}.txt").write_text(
-            EXTRACTOR_BANNER + text, encoding="utf-8", newline="\n"
-        )
-        written += 1
+        if decode_and_write_script(out_dir / f"script_{index}.txt", container.data):
+            written += 1
     return written
 
 

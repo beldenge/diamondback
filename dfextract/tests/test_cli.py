@@ -29,8 +29,10 @@ class TestCliDefaults(unittest.TestCase):
         self.assertEqual(selected_kinds(args), CONTENT_KINDS)
         self.assertNotIn("video", CONTENT_KINDS)
         self.assertNotIn("video", selected_kinds(args))
+        self.assertNotIn("z", selected_kinds(args))
         self.assertEqual(selected_types(args), DUST_TYPES)
         self.assertEqual(args.jobs, 0)
+        self.assertFalse(args.catalog)
 
     def test_format_elapsed(self) -> None:
         self.assertEqual(_format_elapsed(0), "<0.01s")
@@ -56,6 +58,8 @@ class TestCliDefaults(unittest.TestCase):
         self.assertEqual(selected_kinds(args), ("audio", "frames"))
         args = parse_args(["--video"])
         self.assertEqual(selected_kinds(args), ("video",))
+        args = parse_args(["--z"])
+        self.assertEqual(selected_kinds(args), ("z",))
 
     def test_type_flag_restricts_types(self) -> None:
         args = parse_args(["--type", "pup,set,SET,bootfile"])

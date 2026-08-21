@@ -9,8 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from container import DFError, DFFile
-from pup import EXTRACTOR_BANNER
-from script import binary_script_to_text
+from script import binary_script_to_text, tokenize_script, write_script_files
 
 
 @dataclass
@@ -18,6 +17,7 @@ class BootScript:
     name: str
     container_index: int
     text: str
+    tokens: list
 
 
 def extract_boot(df: DFFile) -> list[BootScript]:
@@ -29,7 +29,12 @@ def extract_boot(df: DFFile) -> list[BootScript]:
         if len(text) <= 1:
             continue
         scripts.append(
-            BootScript(name=f"Script {index}", container_index=index, text=text)
+            BootScript(
+                name=f"Script {index}",
+                container_index=index,
+                text=text,
+                tokens=tokenize_script(container.data),
+            )
         )
     return scripts
 
@@ -39,6 +44,6 @@ def write_boot_scripts(scripts: list[BootScript], out_dir: Path) -> list[Path]:
     written: list[Path] = []
     for script in scripts:
         path = out_dir / f"{script.name}.txt"
-        path.write_text(EXTRACTOR_BANNER + script.text, encoding="utf-8", newline="\n")
+        write_script_files(path, script.text, script.tokens)
         written.append(path)
     return written

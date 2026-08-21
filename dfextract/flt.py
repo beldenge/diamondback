@@ -6,8 +6,7 @@ from pathlib import Path
 
 from container import DFError, DFFile
 from image import ImageError, decode_indexed_image, find_palette, write_indexed_png
-from pup import EXTRACTOR_BANNER
-from script import binary_script_to_text
+from script import binary_script_to_text, decode_and_write_script
 from set import looks_like_script
 
 
@@ -40,10 +39,8 @@ def _write_scripts(df: DFFile, out_dir: Path) -> int:
         first = text.split("\n", 1)[0].strip()
         name = first.replace("code ", "").replace("()", "").strip() or f"script_{index}"
         safe = "".join(ch if ch.isalnum() or ch in "._- " else "_" for ch in name)
-        (out_dir / f"{safe}.txt").write_text(
-            EXTRACTOR_BANNER + text, encoding="utf-8", newline="\n"
-        )
-        written += 1
+        if decode_and_write_script(out_dir / f"{safe}.txt", container.data):
+            written += 1
     return written
 
 

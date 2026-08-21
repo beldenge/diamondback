@@ -15,6 +15,8 @@ body,
 }
 
 #viewport {
+  position: relative;
+  z-index: 0;
   display: block;
   width: 100%;
   height: 100%;
@@ -24,14 +26,16 @@ body,
 #hud {
   position: absolute;
   inset: 0;
+  z-index: 20;
   pointer-events: none;
   padding: 16px 20px;
 }
 
 #hud-time {
-  font-size: 20px;
+  font-size: 22px;
+  font-weight: 700;
   letter-spacing: 0.08em;
-  text-shadow: 0 1px 4px #000;
+  text-shadow: 0 1px 4px #000, 0 0 12px #000;
 }
 
 #hud-prompt {
@@ -51,4 +55,187 @@ body,
   font-size: 13px;
   opacity: 0.8;
   text-shadow: 0 1px 4px #000;
+}
+
+#puppet-ui button {
+  font: inherit;
+  color: #1a120c;
+  background: #e6d5a3;
+  border: 1px solid #8a7018;
+  margin: 4px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+#actor-layer {
+  position: absolute;
+  z-index: 12;
+  pointer-events: none;
+}
+
+.actor-chip {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: url("/rsrc/cursors/touch.cur"), pointer;
+}
+
+.actor-chip img {
+  height: auto;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 2px 4px #000);
+}
+
+body.play {
+  background: #000;
+}
+
+body.play #hud {
+  display: none;
+}
+
+body.play #app {
+  background: #000;
+}
+
+#play-stage {
+  position: absolute;
+  overflow: hidden;
+  background: #000;
+  image-rendering: pixelated;
+}
+
+body.play #viewport {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: auto;
+  height: auto;
+}
+
+#play-hud {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(120 / 384 * 100%);
+  background-repeat: no-repeat;
+  background-position: bottom;
+  background-size: 100% auto;
+  image-rendering: pixelated;
+  pointer-events: auto;
+  z-index: 16;
+}
+
+#play-hud-face {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  height: 100%;
+  width: auto;
+  image-rendering: pixelated;
+}
+
+#play-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 8px;
+  text-align: center;
+  font-size: 12px;
+  opacity: 0.75;
+  pointer-events: none;
+  text-shadow: 0 1px 3px #000;
+  z-index: 30;
+}
+
+#puppet-ui {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 18;
+  pointer-events: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  transform: none;
+  text-align: center;
+}
+
+#puppet-layers {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+
+#play-flat {
+  position: absolute;
+  inset: 0;
+  z-index: 18;
+  background: #000;
+  cursor: pointer;
+}
+
+#play-flat img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+
+#play-flat-cash {
+  position: absolute;
+  top: 18%;
+  right: 12%;
+  font-size: 22px;
+  font-weight: 700;
+  color: #1a120c;
+  text-shadow: none;
+  pointer-events: none;
+}
+
+#puppet-line {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: calc(120 / 384 * 100% + 10px);
+  margin: 0;
+  min-height: 2.4em;
+  color: #fff6d8;
+  font-size: 18px;
+  line-height: 1.35;
+  text-shadow: 0 1px 4px #000, 0 0 8px #000;
+  pointer-events: none;
+  z-index: 2;
+}
+
+#puppet-choices,
+#puppet-ui > button {
+  pointer-events: auto;
+}
+
+#puppet-choices {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  bottom: calc(120 / 384 * 100% + 52px);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+#puppet-ui > button {
+  position: absolute;
+  right: 8px;
+  bottom: calc(120 / 384 * 100% + 8px);
 }

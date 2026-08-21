@@ -7,16 +7,22 @@ Layout follows DFET DFpup.cpp. Dust puppets use engine version 1
 from __future__ import annotations
 
 import csv
+import json
 import struct
 from dataclasses import dataclass
 from pathlib import Path
 
 from container import DFError, DFFile
-from script import binary_script_to_text, pascal_string
-
-EXTRACTOR_BANNER = (
-    "// Extracted with dfextract — Dust-only Python port of DFET script decoding\n\n"
+from script import (
+    binary_script_to_text,
+    pascal_string,
+    tokenize_script,
+    write_script_files,
 )
+
+
+VISEME_FRAME = 82
+VISEME_HZ = 60
 
 
 @dataclass
@@ -26,6 +32,7 @@ class DialogueLine:
     anim_logic: int
     ident: str
     text: str
+    duration_ticks: int
 
 
 @dataclass
@@ -33,6 +40,7 @@ class PupScript:
     name: str
     container_index: int
     text: str
+    tokens: list
 
 
 @dataclass
@@ -74,6 +82,108 @@ PUP_FACE_TABLES = (
 )
 
 
+def viseme_anchor(index: int, cy: int, cx: int) -> list[int] | None:
+    """Per-layer viseme extras are the DFET hotspot on the 512×264 still.
+
+    Slot is 3×i16: frameIndex, hotspotY, hotspotX. Hidden layers (index < 0)
+    hold uninitialized junk. The sprite header's (x, y) is top-left when the
+    hotspot sat at (256, 192); play mode keeps that offset and moves the
+    hotspot. Rest pose sits the body on y=264 (HUD).
+    """
+    if index < 0:
+        return None
+    if cx < 0 or cx > 512 or cy < -64 or cy > 400:
+        return None
+    return [int(cx), int(cy)]
+
+
+def parse_viseme_track(data: bytes) -> list[dict]:
+    """One 82-byte keyframe per 60 Hz tick. First i16 is t; then 11 layer slots.
+
+    Layer slot = 3×i16 starting at +16: frameIndex (0-based into that PUP
+    face table, -1 = hide), centerY, centerX. Proven: len(track) / 82 ==
+    dialogue durationTicks, last t / 60 == WAV seconds.
+    """
+    frames: list[dict] = []
+    if len(data) < VISEME_FRAME:
+        return frames
+    for off in range(0, len(data) - VISEME_FRAME + 1, VISEME_FRAME):
+        tick = struct.unpack_from("<h", data, off)[0]
+        layers: dict[str, int] = {}
+        at: dict[str, list[int]] = {}
+        for index, name in enumerate(PUP_FACE_TABLES):
+            frame_i, cy, cx = struct.unpack_from("<hhh", data, off + 16 + index * 6)
+            layers[name] = int(frame_i)
+            anchor = viseme_anchor(int(frame_i), int(cy), int(cx))
+            if anchor:
+                at[name] = anchor
+        rec: dict = {"t": int(tick), "layers": layers}
+        if at:
+            rec["at"] = at
+        frames.append(rec)
+    return frames
+
+
+def rest_anchors_from_df(df: DFFile) -> dict[str, list[int]]:
+    """Idle compositor centers from the first viseme rest frame."""
+    if not df.containers:
+        return {}
+    header = df.containers[0].data
+    if len(header) < 2160:
+        return {}
+    vis = visemes_from_dialogue(df, _read_dialogue(header))
+    for line in vis.values():
+        frames = line.get("frames") or []
+        at = frames[0].get("at") if frames else None
+        if at:
+            return at
+    return {}
+
+
+def sprite_sheet_payload(layers: dict, rest: dict | None = None) -> dict:
+    payload: dict = {"screen": [512, 384], "still": [512, 264], "layers": layers}
+    if rest:
+        payload["rest"] = rest
+    return payload
+
+
+def write_viseme_files(audio_dir: Path, visemes: dict) -> None:
+    """One small JSON per line. Play mode must not parse a multi-megabyte blob."""
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    lines_dir = audio_dir / "visemes"
+    lines_dir.mkdir(parents=True, exist_ok=True)
+    for ident, line in visemes.items():
+        safe = ident.replace("/", "_").replace("\\", "_")
+        (lines_dir / f"{safe}.json").write_text(
+            json.dumps(line, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+    (audio_dir / "visemes.json").write_text(
+        json.dumps({"hz": VISEME_HZ, "lines": visemes}, separators=(",", ":"))
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def visemes_from_dialogue(df: DFFile, dialogue: list[DialogueLine]) -> dict:
+    out: dict[str, dict] = {}
+    for line in dialogue:
+        ident = line.ident.strip()
+        if not ident:
+            continue
+        idx = line.anim_logic
+        if idx < 0 or idx >= len(df.containers):
+            continue
+        data = df.containers[idx].data
+        if len(data) < VISEME_FRAME or len(data) % VISEME_FRAME:
+            continue
+        out[ident.lower()] = {
+            "ticks": len(data) // VISEME_FRAME,
+            "frames": parse_viseme_track(data),
+        }
+    return out
+
+
 def write_pup_extract(
     extract: PupExtract,
     out_dir: Path,
@@ -88,9 +198,8 @@ def write_pup_extract(
 
     if write_scripts:
         for script in extract.scripts:
-            path = out_dir / f"{script.name}.txt"
-            path.write_text(
-                EXTRACTOR_BANNER + script.text, encoding="utf-8", newline="\n"
+            write_script_files(
+                out_dir / f"{script.name}.txt", script.text, script.tokens
             )
             counts["scripts"] += 1
 
@@ -98,12 +207,24 @@ def write_pup_extract(
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         with csv_path.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle, quoting=csv.QUOTE_MINIMAL)
-            writer.writerow(["ID", "container", "Identifier", "Text"])
+            writer.writerow(
+                ["ID", "container", "Identifier", "Text", "animLogic", "durationTicks"]
+            )
             for line in extract.dialogue:
                 writer.writerow(
-                    [line.index, line.audio_container, line.ident, line.text]
+                    [
+                        line.index,
+                        line.audio_container,
+                        line.ident,
+                        line.text,
+                        line.anim_logic,
+                        line.duration_ticks,
+                    ]
                 )
         counts["dialogue"] = len(extract.dialogue)
+        if df is not None:
+            visemes = visemes_from_dialogue(df, extract.dialogue)
+            write_viseme_files(out_dir / "AUDIO", visemes)
 
     if write_audio:
         if df is None:
@@ -139,7 +260,7 @@ def write_pup_extract(
 
 
 def write_pup_frames(df: DFFile, out_dir: Path) -> int:
-    from image import ImageError, decode_trans_sprite, pup_palette, write_png
+    from image import ImageError, decode_trans_sprite, pup_palette, sprite_record, write_png
 
     if len(df.containers) < 4:
         raise DFError(f"{df.path}: PUP is missing the frame table (container 3)")
@@ -154,6 +275,7 @@ def write_pup_frames(df: DFFile, out_dir: Path) -> int:
 
     palette = pup_palette(header)
     written = 0
+    layers: dict[str, list] = {}
     cursor = 22
     for name in PUP_FACE_TABLES:
         count, _unk, _total = struct.unpack_from("<hhh", table, cursor)
@@ -172,8 +294,22 @@ def write_pup_frames(df: DFFile, out_dir: Path) -> int:
                 )
             except ImageError:
                 continue
+            rel = f"{name}/frame_{container_id}.png"
             write_png(folder / f"frame_{container_id}.png", sprite)
+            layers.setdefault(name, []).append(
+                sprite_record(sprite, rel, extra={"id": container_id, "index": index})
+            )
             written += 1
+    frames_dir = out_dir / "FRAMES"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    (frames_dir / "sprites.json").write_text(
+        json.dumps(
+            sprite_sheet_payload(layers, rest_anchors_from_df(df)),
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     return written
 
 
@@ -195,7 +331,7 @@ def _read_dialogue(header: bytes) -> list[DialogueLine]:
     lines: list[DialogueLine] = []
     for index in range(count):
         rec = start + index * record_size
-        _u1, _s1, _s2, audio, anim, _u2, _u3 = struct.unpack_from(
+        _u1, _s1, duration_ticks, audio, anim, _u2, _u3 = struct.unpack_from(
             "<ihhiiii", header, rec
         )
         text = pascal_string(header, rec + 24)
@@ -207,6 +343,7 @@ def _read_dialogue(header: bytes) -> list[DialogueLine]:
                 anim_logic=anim,
                 ident=ident,
                 text=text,
+                duration_ticks=duration_ticks,
             )
         )
     return lines
@@ -231,10 +368,16 @@ def _read_scripts(df: DFFile) -> list[PupScript]:
         cursor += 40
         if location < 0 or location >= len(df.containers):
             raise DFError(f"{df.path}: script {name!r} points at container {location}")
-        text = binary_script_to_text(df.containers[location].data)
+        data = df.containers[location].data
+        text = binary_script_to_text(data)
         if len(text) <= 1:
             continue
         scripts.append(
-            PupScript(name=name, container_index=location, text=text)
+            PupScript(
+                name=name,
+                container_index=location,
+                text=text,
+                tokens=tokenize_script(data),
+            )
         )
     return scripts

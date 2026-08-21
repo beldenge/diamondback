@@ -82,9 +82,10 @@ offset 277700.
 
 ## We do not encode
 
-There is no text→binary writer. The remake will parse these `.txt`
-files (or a later JSON AST) into its own dialogue/event graph. Writing
-DreamFactory bytecode would only help patch the original `DF.EXE` game.
+There is no text→binary writer. The remake VM should parse the sidecar `*.json` token streams (Dust
+names, `kind` / `cmd` / `value`). `.txt` is the human dump and still
+prints Titanic 4.0 names. Writing DreamFactory bytecode would only help
+patch the original `DF.EXE` game.
 
 **Names are not a language spec.** Dust’s own table and the verb
 protocols (dialogue, clicks, plugins) are in

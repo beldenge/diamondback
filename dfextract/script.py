@@ -1,13 +1,21 @@
-"""Decode DreamFactory script containers to text.
+"""Decode DreamFactory script containers to text and JSON tokens.
 
 Token layout and pretty-print rules follow DFET DFscript.cpp.
+JSON ASTs use Dust DF.EXE names; `.txt` still prints the Titanic 4.0 table.
 """
 
 from __future__ import annotations
 
+import json
 import struct
+from pathlib import Path
+from typing import Any
 
-from opcodes import SCRIPT_COMMANDS
+from opcodes import SCRIPT_COMMANDS, dust_opcode_name
+
+EXTRACTOR_BANNER = (
+    "// Extracted with dfextract — Dust-only Python port of DFET script decoding\n\n"
+)
 
 CMD_STRING = 3
 CMD_INTEGER = 4
@@ -67,6 +75,63 @@ def binary_script_to_text(data: bytes) -> str:
         pos += 8
 
     return "".join(parts)
+
+
+def tokenize_script(data: bytes) -> list[dict[str, Any]]:
+    """8-byte token stream as JSON-friendly dicts. Dust names on opcodes."""
+    if len(data) < 8:
+        return []
+    tokens: list[dict[str, Any]] = []
+    pos = 0
+    while pos + 8 <= len(data):
+        cmd, info, unknown = struct.unpack_from("<HIH", data, pos)
+        if cmd == 0:
+            break
+        tok: dict[str, Any] = {"off": pos, "cmd": cmd, "info": info}
+        if unknown:
+            tok["unknown"] = unknown
+        if cmd == CMD_STRING:
+            tok["kind"] = "string"
+            tok["value"] = pascal_string(data, pos + info)
+        elif cmd == CMD_INTEGER:
+            tok["kind"] = "integer"
+            tok["value"] = info
+        elif cmd == CMD_VARIABLE:
+            tok["kind"] = "variable"
+            tok["value"] = pascal_string(data, pos + info)
+        elif cmd == CMD_BREAK:
+            tok["kind"] = "break"
+            tok["indent"] = info
+        else:
+            tok["kind"] = "opcode"
+            tok["name"] = dust_opcode_name(cmd)
+            printed = SCRIPT_COMMANDS.get(cmd)
+            if printed is not None and printed != tok["name"]:
+                tok["printed"] = printed
+        tokens.append(tok)
+        pos += 8
+    return tokens
+
+
+def write_script_files(
+    path: Path, text: str, tokens: list[dict[str, Any]] | None = None
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(EXTRACTOR_BANNER + text, encoding="utf-8", newline="\n")
+    if tokens is None:
+        return
+    payload = {"name": path.stem, "tokens": tokens}
+    path.with_suffix(".json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def decode_and_write_script(path: Path, data: bytes) -> bool:
+    text = binary_script_to_text(data)
+    if len(text) <= 1:
+        return False
+    write_script_files(path, text, tokenize_script(data))
+    return True
 
 
 def _break_line(parts: list[str], indent: int) -> None:

@@ -27,8 +27,9 @@ first PUP-only runs. Those are stale. Use `out/PUP/_JENIX`.
 | Character dialogue text + line IDs | `PUP/_<NAME>/AUDIO/texts.csv` |
 | Character spoken audio | `PUP/_<NAME>/AUDIO/<ident>.wav` |
 | Character conversation logic | `PUP/_<NAME>/*.txt` (`day1`, `Boot Script`, …) |
-| Character face / mouth sprites | `PUP/_<NAME>/FRAMES/<Part>/frame_<id>.png` |
-| In-world body / walk sprites | `CST/_EXTRA/…` extras; `CST/_GANG/…` named people |
+| Character face / mouth sprites | `PUP/_<NAME>/FRAMES/<Part>/frame_<id>.png` plus `FRAMES/sprites.json` (512×384 `x,y,w,h`) |
+| In-world body / walk sprites | `CST/_GANG/…` named people; `CST/_EXTRA/…` extras; `CST/_GANG/sprites.json` for placement + frame lists |
+| Play HUD chrome | `FLT/_NEW/frame_3.png` (512×384 dashboard). HOUSE `FRAMES/avatar/nitefaces` overlays the portrait at night |
 | Location map + hotspots | `SET/_<PLACE>/scenes.json` |
 | NPC / item stand points | `SET/_<PLACE>/waypoints.json` |
 | Walk / turn filmstrips | `SET/_<PLACE>/transitions.json` + `FRAMES/<frame0>_<offset>.png` |
@@ -41,6 +42,9 @@ first PUP-only runs. Those are stale. Use `out/PUP/_JENIX`.
 | Cutscene voice / SFX | `MOV/_<NAME>/AUDIO/clip_<n>.wav` |
 | Ambient / one-shot world audio | `SND/_<BANK>/<clip>.wav` |
 | Game boot / paths / globals | `BOOT/_BOOTFILE/Script 1.txt` |
+| File graph + globals + line ids | `catalog.json` (rebuild: `python cli.py --catalog`) |
+| Script token AST (Dust names) | same stem as each `.txt`, `*.json` |
+| Cursor bitmaps | `dustdecompile/out/rsrc/cursors/` (not this dump) |
 
 ---
 
@@ -72,7 +76,8 @@ first PUP-only runs. Those are stale. Use `out/PUP/_JENIX`.
 | File | What it is |
 |---|---|
 | `Boot Script.txt`, `day1.txt`, `day2.txt`, … | Conversation / AI scripts. Name comes from the PUP script table |
-| `AUDIO/texts.csv` | Columns: `ID`, `container`, `Identifier`, `Text`. `Identifier` is `jenix.5`; `Text` is the spoken line; `container` is the WAV’s container index |
+| same names with `.json` | Token AST (Dust opcode names). `.txt` still prints Titanic 4.0 names |
+| `AUDIO/texts.csv` | Columns: `ID`, `container`, `Identifier`, `Text`, `animLogic`. `Identifier` is `jenix.5`; `Text` is the spoken line; `container` is the WAV’s container index; `animLogic` is the per-line viseme/anim integer |
 | `AUDIO/<Identifier>.wav` | Speech for that line (8-bit or 16-bit mono PCM) |
 | `FRAMES/Background/frame_<id>.png` | Backdrop plate for the talking head |
 | `FRAMES/Body`, `Head`, `Eyes`, `Eyebrows`, `Nose`, `Jaw`, `Left`, `Right`, `Hands 1`, `Hands 2` | Face-part sprites. `<id>` is the source container index. Missing folders means that part has `count == 0` |
@@ -86,6 +91,7 @@ Puppet folder names (39): `_BLOOD`, `_BOLIVAR`, `_BUICK`, `_COBB`, `_DEAD`, `_DE
 | File | What it is |
 |---|---|
 | `<Actor>/Script.txt` | In-world actor logic (`setupactor`, `mousedown`, schedules) |
+| `Cast.txt` | Cast library (not an actor): `initactors`, `runpuppet`, `walktopuppet`, `stdactor`, … |
 | `<Actor>/<anim>/frame_<id>.png` | Body sprites for that animation (`stand`, `walk`, `grunt`, …) |
 
 `_EXTRA` = animals / Jenix beggar / bounty / kidgang. `_GANG` = named townspeople. `_TARGET` = shooting-gallery marks. `_MINE` = mine extras.
@@ -109,6 +115,7 @@ No scripts. Folder stem matches the `.SND` file (`TOWN.SND` → `_TOWN`).
 | `Boot Script.txt` | Set-level script (cursor defaults, etc.) if present |
 | `<Scene name>.txt` | Per-tile script **only if** that container actually holds a `code` script (blocked tiles are often empty) |
 | `FRAMES/<frame0>_<offset>.png` | 512×264 walk/turn still. One file per strip slot (`0`…`5`). Container IDs can overlap two strips, so we do **not** share `frame_<id>.png`. On walks, slot `5` is the **from**-pose HQ; the remake plays `0`–`4` then looks up the dest HQ separately ([`src/world/set/README.md`](../../src/world/set/README.md)). |
+| `FRAMES/z/<frame0>_<offset>.png` | **`--z` only.** 8-bit grayscale depth plane for sprite occlusion. |
 
 Important sets: `_TOWN` and `_NITE` (same 225-cell / 15×15 outdoor grid,
 day/night; 52 walkable tiles), interiors `_APOTH`, `_BANK`, `_STORE`,

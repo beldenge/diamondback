@@ -6,6 +6,7 @@ import { defineConfig } from "vite";
 
 const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 const extractRoot = path.resolve(repoRoot, "dfextract/out");
+const rsrcRoot = path.resolve(repoRoot, "dustdecompile/out/rsrc");
 
 const MIME: Record<string, string> = {
   ".png": "image/png",
@@ -13,9 +14,11 @@ const MIME: Record<string, string> = {
   ".txt": "text/plain; charset=utf-8",
   ".wav": "audio/wav",
   ".csv": "text/csv; charset=utf-8",
+  ".cur": "image/vnd.microsoft.icon",
 };
 
-function serveExtract(): Connect.NextHandleFunction {
+function serveTree(root: string): Connect.NextHandleFunction {
+  const prefix = root.endsWith(path.sep) ? root : root + path.sep;
   return (req, res, next) => {
     const raw = (req.url ?? "/").split("?")[0];
     let rel: string;
@@ -26,9 +29,8 @@ function serveExtract(): Connect.NextHandleFunction {
       res.end();
       return;
     }
-    const file = path.resolve(extractRoot, `.${rel.replaceAll("\\", "/")}`);
-    const prefix = extractRoot.endsWith(path.sep) ? extractRoot : extractRoot + path.sep;
-    if (file !== extractRoot && !file.startsWith(prefix)) {
+    const file = path.resolve(root, `.${rel.replaceAll("\\", "/")}`);
+    if (file !== root && !file.startsWith(prefix)) {
       res.statusCode = 403;
       res.end();
       return;
@@ -38,8 +40,13 @@ function serveExtract(): Connect.NextHandleFunction {
         next();
         return;
       }
-      res.setHeader("Content-Type", MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream");
-      res.setHeader("Cache-Control", "no-store");
+      const ext = path.extname(file).toLowerCase();
+      res.setHeader("Content-Type", MIME[ext] ?? "application/octet-stream");
+      res.setHeader("Content-Length", String(st.size));
+      res.setHeader(
+        "Cache-Control",
+        ext === ".wav" || ext === ".png" ? "public, max-age=86400" : "no-store",
+      );
       fs.createReadStream(file).pipe(res);
     });
   };
@@ -49,10 +56,12 @@ function extractPlugin(): Plugin {
   return {
     name: "serve-dust-extract",
     configureServer(server) {
-      server.middlewares.use("/extract", serveExtract());
+      server.middlewares.use("/extract", serveTree(extractRoot));
+      server.middlewares.use("/rsrc", serveTree(rsrcRoot));
     },
     configurePreviewServer(server) {
-      server.middlewares.use("/extract", serveExtract());
+      server.middlewares.use("/extract", serveTree(extractRoot));
+      server.middlewares.use("/rsrc", serveTree(rsrcRoot));
     },
   };
 }
@@ -64,8 +73,11 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    headers: {
+      "Cache-Control": "no-store",
+    },
     fs: {
-      allow: [repoRoot, extractRoot],
+      allow: [repoRoot, extractRoot, rsrcRoot],
     },
   },
 });

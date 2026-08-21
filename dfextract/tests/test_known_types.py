@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -12,7 +13,7 @@ if str(HERE) not in sys.path:
 
 from boot import extract_boot
 from container import read_df_file
-from cst import extract_cst
+from cst import extract_cst, write_cst_scripts
 from snd import extract_snd
 
 REPO = HERE.parent
@@ -39,6 +40,19 @@ class TestKnownTypes(unittest.TestCase):
         self.assertIn("pig", actors)
         self.assertIn("code resetactor ()", actors["Jenix"].script)
         self.assertIn("code initactor ()", actors["Jenix"].script)
+
+    def test_gang_writes_cast_library(self) -> None:
+        gang = DUST / "DUSTCD" / "DATA" / "GANG.CST"
+        if not gang.exists():
+            self.skipTest("GANG.CST not present")
+        df = read_df_file(gang)
+        actors = extract_cst(df)
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            write_cst_scripts(actors, dest, df)
+            text = (dest / "Cast.txt").read_text(encoding="utf-8")
+        self.assertIn("code initactors ()", text)
+        self.assertIn("code runpuppet (pupname)", text)
 
     def test_town_snd_decodes(self) -> None:
         if not TOWN_SND.exists():

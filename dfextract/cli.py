@@ -21,6 +21,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 from boot import extract_boot, write_boot_scripts
+from catalog import write_catalog
 from container import DFError, MAGIC, read_df_file
 from cst import extract_cst, write_cst_frames, write_cst_scripts
 from flt import write_flt_extract
@@ -35,7 +36,7 @@ DEFAULT_OUT = HERE / "out"
 # Dust file kinds we care about. Titanic-only suffixes are not listed.
 DUST_TYPES = ("boot", "cst", "flt", "mov", "prp", "pup", "set", "snd")
 CONTENT_KINDS = ("scripts", "audio", "frames")
-OPTIONAL_KINDS = ("video",)
+OPTIONAL_KINDS = ("video", "z")
 ALL_KINDS = CONTENT_KINDS + OPTIONAL_KINDS
 
 SUFFIX_TO_TYPE = {
@@ -51,6 +52,19 @@ SUFFIX_TO_TYPE = {
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    kind_flags = any(getattr(args, kind) for kind in ALL_KINDS)
+    if args.catalog and not kind_flags and not args.inputs:
+        if not args.output.is_dir():
+            print(f"No extract at {args.output}", file=sys.stderr)
+            return 2
+        payload = write_catalog(args.output)
+        print(
+            f"Wrote {args.output / 'catalog.json'} "
+            f"({len(payload['files'])} files, {len(payload['line_ids'])} line ids, "
+            f"{len(payload['globals'])} globals)"
+        )
+        return 0
+
     kinds = selected_kinds(args)
     types = selected_types(args)
 
@@ -141,6 +155,15 @@ def main(argv: list[str] | None = None) -> int:
         for path, err in failures:
             print(f"  {path}: {err}")
         return 1
+    try:
+        payload = write_catalog(args.output)
+        print(
+            f"Catalog: {len(payload['files'])} files, "
+            f"{len(payload['line_ids'])} line ids, "
+            f"{len(payload['globals'])} globals"
+        )
+    except OSError as exc:
+        print(f"catalog skipped: {exc}", file=sys.stderr)
     return 0
 
 
@@ -189,6 +212,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "kind flags, runs only the kinds you list.",
     )
     parser.add_argument(
+        "--z",
+        action="store_true",
+        help="Write SET still Z-buffer PNGs under FRAMES/z/. Opt-in: a "
+        "plain `python cli.py` does not write depth planes.",
+    )
+    parser.add_argument(
         "--type",
         dest="types",
         metavar="LIST",
@@ -201,6 +230,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=0,
         metavar="N",
         help="Parallel file workers. 0 = auto (default). 1 = one file at a time.",
+    )
+    parser.add_argument(
+        "--catalog",
+        action="store_true",
+        help="Write catalog.json from an existing dump. Alone (no type/kind "
+        "flags, no inputs) only builds the catalog. After a normal extract "
+        "the catalog is always rewritten.",
     )
     return parser.parse_args(argv)
 
@@ -302,7 +338,8 @@ def extract_file(
             read_df_file(path),
             dest,
             write_scripts="scripts" in kinds,
-            write_frames="frames" in kinds,
+            write_frames="frames" in kinds or "z" in kinds,
+            write_z="z" in kinds,
         )
     if file_type == "flt":
         return write_flt_extract(
@@ -369,8 +406,8 @@ def _extract_cst(path: Path, dest: Path, kinds: tuple[str, ...]) -> dict[str, in
     result: dict[str, int] = {}
     if "scripts" in kinds:
         actors = extract_cst(df)
-        write_cst_scripts(actors, dest)
-        result["scripts"] = len(actors)
+        written = write_cst_scripts(actors, dest, df)
+        result["scripts"] = len(written)
     if "frames" in kinds:
         result["frames"] = write_cst_frames(df, dest)
     return result

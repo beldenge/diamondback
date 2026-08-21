@@ -819,8 +819,9 @@ Fade down.
 - `walktostar` async vs blocking; `actorxyz` units.
 - Save file layout (`savegame` / `opengame`).
 - `pluginfx("checkmove", …)` encoding inside CHECKERS.DLL (scripts already parse the returned string).
-- UI chrome bitmaps for `cursor ("touch")` etc.
-- Mouth/`animLogic` visemes on PUP lines.
+- UI chrome besides cursors (bevel / inventory layout). Cursors:
+  `dustdecompile/out/rsrc/cursors/{touch,arrow,watch,…}.png`.
+- How `animLogic` (now in `texts.csv`) maps to jaw/mouth frames.
 
 ## 6. Every Dust opcode
 

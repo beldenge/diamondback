@@ -40,9 +40,10 @@ out/plugins.json
 out/report.md
 out/handbook.md      # agent rulebook (also copied to docs/handbook.md)
 out/handbook.json
+out/rsrc/            # cursors, Win32 menu, string tables, CLUTs
 ```
 
-Flags only narrow: `--inventory`, `--opcodes`, `--plugins`, `--handbook`.
+Flags only narrow: `--inventory`, `--opcodes`, `--plugins`, `--handbook`, `--rsrc`.
 `-o DIR` sets the output folder. Pass a `WIN31/DUST` directory or a
 specific EXE/DLL to override the default install path.
 

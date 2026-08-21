@@ -13,9 +13,15 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from container import DFError, DFFile
-from image import ImageError, Palette, decode_indexed_image, find_palette, write_indexed_png
-from pup import EXTRACTOR_BANNER
-from script import binary_script_to_text, pascal_string
+from image import (
+    ImageError,
+    Palette,
+    decode_indexed_image,
+    find_palette,
+    write_indexed_png,
+    write_z_png,
+)
+from script import decode_and_write_script, pascal_string
 
 DIRS = {1: "N", 2: "S", 3: "E", 4: "W"}
 
@@ -75,6 +81,7 @@ def write_set_extract(
     *,
     write_scripts: bool = True,
     write_frames: bool = False,
+    write_z: bool = False,
 ) -> dict[str, int]:
     out_dir.mkdir(parents=True, exist_ok=True)
     scenes, waypoints, transitions = extract_set_metadata(df)
@@ -105,7 +112,9 @@ def write_set_extract(
     if write_scripts:
         counts["scripts"] = _write_set_scripts(df, scenes, out_dir)
     if write_frames:
-        counts["frames"] = _write_set_frames(df, transitions, out_dir)
+        counts["frames"] = _write_set_frames(
+            df, transitions, out_dir, write_z=write_z
+        )
     return {key: value for key, value in counts.items() if value}
 
 
@@ -218,11 +227,8 @@ def _read_framelist(df: DFFile, container_id: int) -> list[SetTransition]:
 def _write_set_scripts(df: DFFile, scenes: list[SetScene], out_dir: Path) -> int:
     written = 0
     if len(df.containers) > 1 and looks_like_script(df.containers[1].data):
-        text = binary_script_to_text(df.containers[1].data)
-        (out_dir / "Boot Script.txt").write_text(
-            EXTRACTOR_BANNER + text, encoding="utf-8", newline="\n"
-        )
-        written += 1
+        if decode_and_write_script(out_dir / "Boot Script.txt", df.containers[1].data):
+            written += 1
     for scene in scenes:
         idx = scene.script_container
         if idx < 0 or idx >= len(df.containers):
@@ -230,14 +236,9 @@ def _write_set_scripts(df: DFFile, scenes: list[SetScene], out_dir: Path) -> int
         data = df.containers[idx].data
         if not looks_like_script(data):
             continue
-        text = binary_script_to_text(data)
-        if len(text) <= 1:
-            continue
         safe = scene.name.replace("/", "_") or f"scene_{scene.x}_{scene.y}"
-        (out_dir / f"{safe}.txt").write_text(
-            EXTRACTOR_BANNER + text, encoding="utf-8", newline="\n"
-        )
-        written += 1
+        if decode_and_write_script(out_dir / f"{safe}.txt", data):
+            written += 1
     return written
 
 
@@ -263,6 +264,7 @@ def _write_one_strip(
     blobs: tuple[bytes | None, ...],
     frame_dir: Path,
     palette: Palette,
+    write_z: bool = False,
 ) -> int:
     # Each filmstrip is a delta sequence. Do not reuse another strip's
     # framebuffer: adjacent records can share a container (O7→N7 walk
@@ -277,19 +279,21 @@ def _write_one_strip(
             continue
         dest = frame_dir / strip_frame_name(frame0, offset)
         try:
-            image = decode_indexed_image(data, prior)
+            image = decode_indexed_image(data, prior, decode_z=write_z)
         except ImageError:
             prior = None
             prior_size = None
             continue
         if prior_size is not None and prior_size != (image.width, image.height):
             try:
-                image = decode_indexed_image(data, None)
+                image = decode_indexed_image(data, None, decode_z=write_z)
             except ImageError:
                 prior = None
                 prior_size = None
                 continue
         write_indexed_png(dest, image, palette)
+        if write_z:
+            write_z_png(frame_dir / "z" / strip_frame_name(frame0, offset), image)
         prior = image.pixels
         prior_size = (image.width, image.height)
         written += 1
@@ -297,13 +301,21 @@ def _write_one_strip(
 
 
 def _write_one_strip_job(
-    item: tuple[int, tuple[bytes | None, ...], str, list[tuple[int, int, int]]],
+    item: tuple[int, tuple[bytes | None, ...], str, list[tuple[int, int, int]], bool],
 ) -> int:
-    frame0, blobs, dest_s, colors = item
-    return _write_one_strip(frame0, blobs, Path(dest_s), Palette(colors=list(colors)))
+    frame0, blobs, dest_s, colors, write_z = item
+    return _write_one_strip(
+        frame0, blobs, Path(dest_s), Palette(colors=list(colors)), write_z=write_z
+    )
 
 
-def _write_set_frames(df: DFFile, transitions: list[SetTransition], out_dir: Path) -> int:
+def _write_set_frames(
+    df: DFFile,
+    transitions: list[SetTransition],
+    out_dir: Path,
+    *,
+    write_z: bool = False,
+) -> int:
     palette = find_palette(df.containers[0].data)
     if palette is None:
         return 0
@@ -315,11 +327,14 @@ def _write_set_frames(df: DFFile, transitions: list[SetTransition], out_dir: Pat
         workers = min(4, os.cpu_count() or 1, len(strips))
     if workers <= 1:
         return sum(
-            _write_one_strip(frame0, blobs, frame_dir, palette) for frame0, blobs in strips
+            _write_one_strip(frame0, blobs, frame_dir, palette, write_z=write_z)
+            for frame0, blobs in strips
         )
     dest_s = str(frame_dir)
     colors = list(palette.colors)
-    payloads = [(frame0, blobs, dest_s, colors) for frame0, blobs in strips]
+    payloads = [
+        (frame0, blobs, dest_s, colors, write_z) for frame0, blobs in strips
+    ]
     written = 0
     chunk = max(1, len(payloads) // (workers * 4))
     with ProcessPoolExecutor(max_workers=workers) as pool:

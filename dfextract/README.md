@@ -191,6 +191,8 @@ python cli.py
 python cli.py --scripts
 python cli.py --audio --frames
 python cli.py --type mov --video
+python cli.py --type set --z
+python cli.py --catalog
 python cli.py --type pup,set
 python cli.py --scripts --type pup path\to\JENIX.PUP
 python cli.py path\to\DUSTCD -o D:\tmp\dust-out
@@ -199,7 +201,8 @@ python cli.py path\to\DUSTCD -o D:\tmp\dust-out
 | Argument | Effect |
 |---|---|
 | *(none)* | All types, all content kinds, from `sources/dust.dbgl` |
-| `--scripts` / `--audio` / `--frames` / `--video` | Only those kinds (any one of them turns the others off). `--video` is opt-in (not in the default dump) and needs `ffmpeg` on PATH or `pip install imageio-ffmpeg`. It encodes each MOV that has stills to `movie.mp4` (intros, overlays, inspectables), not SET walks. |
+| `--scripts` / `--audio` / `--frames` / `--video` / `--z` | Only those kinds (any one of them turns the others off). `--video` is opt-in (ffmpeg) and muxes MOV stills to `movie.mp4`. `--z` is opt-in and writes SET depth PNGs under `FRAMES/z/`. `--scripts` also writes a JSON token AST next to each `.txt` (Dust names) and `animLogic` on PUP `texts.csv`. |
+| `--catalog` | Alone: rebuild `out/catalog.json` from an existing dump (file graph, line ids, globals). A normal extract always rewrites it. |
 | `--type pup,set,flt,prp,mov,cst,snd,boot` | Only those file types |
 | paths | Only these files or directories |
 | `-o DIR` | Output directory (default: `out/` next to `cli.py`) |

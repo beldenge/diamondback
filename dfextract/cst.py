@@ -5,13 +5,20 @@ Layout follows DFET DFcst.h.
 
 from __future__ import annotations
 
+import json
 import struct
 from dataclasses import dataclass
 from pathlib import Path
 
 from container import DFError, DFFile
-from pup import EXTRACTOR_BANNER
-from script import binary_script_to_text, pascal_string
+from script import (
+    binary_script_to_text,
+    decode_and_write_script,
+    pascal_string,
+    tokenize_script,
+    write_script_files,
+)
+from set import looks_like_script
 
 
 @dataclass
@@ -21,6 +28,7 @@ class CastActor:
     script_container: int
     set_count: int
     script: str
+    tokens: list
 
 
 def extract_cst(df: DFFile) -> list[CastActor]:
@@ -55,7 +63,8 @@ def extract_cst(df: DFFile) -> list[CastActor]:
         set_count = struct.unpack_from("<i", logic, 0x5A)[0]
         if script_index < 0 or script_index >= len(df.containers):
             raise DFError(f"{df.path}: actor {name!r} script container {script_index} out of range")
-        text = binary_script_to_text(df.containers[script_index].data)
+        data = df.containers[script_index].data
+        text = binary_script_to_text(data)
         if len(text) <= 1:
             continue
         actors.append(
@@ -65,24 +74,37 @@ def extract_cst(df: DFFile) -> list[CastActor]:
                 script_container=script_index,
                 set_count=set_count,
                 script=text,
+                tokens=tokenize_script(data),
             )
         )
     return actors
 
 
-def write_cst_scripts(actors: list[CastActor], out_dir: Path) -> list[Path]:
+def write_cst_scripts(
+    actors: list[CastActor], out_dir: Path, df: DFFile | None = None
+) -> list[Path]:
     written: list[Path] = []
     for actor in actors:
         folder = out_dir / actor.name
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / "Script.txt"
-        path.write_text(EXTRACTOR_BANNER + actor.script, encoding="utf-8", newline="\n")
+        write_script_files(path, actor.script, actor.tokens)
         written.append(path)
+    if df is not None:
+        used = {actor.script_container for actor in actors}
+        extra = 0
+        for index, container in enumerate(df.containers):
+            if index in used or not looks_like_script(container.data):
+                continue
+            name = "Cast.txt" if extra == 0 else f"Cast_{index}.txt"
+            if decode_and_write_script(out_dir / name, container.data):
+                written.append(out_dir / name)
+                extra += 1
     return written
 
 
 def write_cst_frames(df: DFFile, out_dir: Path) -> int:
-    from image import ImageError, cst_palette, decode_trans_sprite, write_png
+    from image import ImageError, cst_palette, decode_trans_sprite, sprite_record, write_png
 
     if not df.containers:
         raise DFError(f"{df.path}: CST has no containers")
@@ -93,6 +115,7 @@ def write_cst_frames(df: DFFile, out_dir: Path) -> int:
     count = struct.unpack_from("<i", header, 0x938)[0]
     palette = cst_palette(header)
     written = 0
+    actors: dict[str, dict[str, list]] = {}
     cursor = 0x93C
     for _ in range(count):
         logic_index = struct.unpack_from("<i", header, cursor)[0]
@@ -132,5 +155,18 @@ def write_cst_frames(df: DFFile, out_dir: Path) -> int:
                 except ImageError:
                     continue
                 write_png(folder / f"frame_{frame_id}.png", sprite)
+                rel = f"{actor_name}/{set_name}/frame_{frame_id}.png"
+                poses = actors.setdefault(actor_name, {})
+                poses.setdefault(set_name, []).append(
+                    sprite_record(
+                        sprite,
+                        rel,
+                        extra={"id": frame_id, "index": frame_i},
+                    )
+                )
                 written += 1
+    (out_dir / "sprites.json").write_text(
+        json.dumps({"screen": [512, 384], "actors": actors}, indent=2) + "\n",
+        encoding="utf-8",
+    )
     return written

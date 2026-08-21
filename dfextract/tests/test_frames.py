@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -33,6 +34,8 @@ class TestFrames(unittest.TestCase):
         self.assertEqual((sprite.width, sprite.height), (512, 264))
         self.assertEqual(len(sprite.rgba), 512 * 264 * 4)
         self.assertGreater(sum(1 for byte in sprite.rgba if byte), 1000)
+        self.assertEqual(sprite.pos_x, 0)
+        self.assertEqual(sprite.pos_y, 60)
 
     def test_write_bolivar_frame_count(self) -> None:
         if not BOLIVAR.exists():
@@ -42,6 +45,15 @@ class TestFrames(unittest.TestCase):
             written = write_pup_frames(read_df_file(BOLIVAR), dest)
             background = dest / "FRAMES" / "Background" / "frame_4.png"
             self.assertTrue(background.exists())
+            sidecar = dest / "FRAMES" / "sprites.json"
+            self.assertTrue(sidecar.exists())
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+            self.assertIn("Background", payload["layers"])
+            self.assertEqual(payload["layers"]["Background"][0]["y"], 60)
+            self.assertEqual(payload["still"], [512, 264])
+            rest = payload.get("rest") or {}
+            if rest:
+                self.assertEqual(rest["Background"], [256, 132])
         self.assertEqual(written, 58)
 
     def test_extra_jenix_stand_writes(self) -> None:

@@ -358,3 +358,35 @@ SCRIPT_COMMANDS: dict[int, str] = {
     12103: 'walkonframes',
     24011: 'wipeup',
 }
+
+# Same token id, Dust DF.EXE name. Pretty-print still uses SCRIPT_COMMANDS
+# (Titanic 4.0) so existing dump greps keep working. JSON ASTs use Dust names.
+DUST_NAME_OVERRIDES: dict[int, str] = {
+    12007: "makeball",
+    12012: "stopball",
+    12037: "floorscript",
+    12066: "sendtofloor",
+    16011: "currentdir",
+    16034: "actorhitbox",
+    16047: "pauseball",
+    20011: "isball",
+    20017: "setwidth",
+    20018: "setheight",
+    20021: "rowcoltoscene",
+    20022: "scenefloor",
+    20023: "scenerow",
+    20024: "scenecol",
+    20067: "findfile",
+    20082: "cacheinfo",
+    20090: "sendtofloorfx",
+    20100: "scenebuild",
+    20101: "indextoball",
+    20104: "countballs",
+}
+
+
+def dust_opcode_name(cmd: int) -> str:
+    if cmd in DUST_NAME_OVERRIDES:
+        return DUST_NAME_OVERRIDES[cmd]
+    return SCRIPT_COMMANDS.get(cmd, f"cmd_{cmd}")
+

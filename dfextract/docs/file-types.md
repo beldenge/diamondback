@@ -32,15 +32,22 @@ i16 count                         @ 2158
 record[count]                     @ 2160
   each record is 312 bytes:
     i32 unknown
-    i16 unknown, i16 unknown
+    i16 unknown, i16 durationTicks  # 82-byte viseme frames; tick/60 = seconds
     i32 audioLocation             # container index of the WAV
-    i32 animLogic
+    i32 animLogic                  # container index of the 82-byte viseme track
     i32 unknown, i32 unknown
     Pascal text in a 256-byte field   # @ record+24
     Pascal ident in a 32-byte field   # @ record+280
 ```
 
 `JENIX.PUP`: 35 lines, first ident `jenix.2` = `They're yours!`.
+
+`animLogic` is not a jaw-frame id. It is a **container of lip-sync
+keyframes**: `len / 82` records, `durationTicks` records (the i16 at
+record+4). Each record is 82 bytes / 41 i16s: tick at +0 (60 Hz), then
+11 layer slots starting at +16 (3×i16 each, first = index into that
+face table, `-1` = hide). Last tick / 60 equals the WAV length.
+Written as `AUDIO/visemes.json`.
 
 ### Container 2 — script directory
 

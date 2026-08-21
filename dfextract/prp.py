@@ -17,11 +17,11 @@ from image import (
     decode_indexed_image,
     decode_trans_sprite,
     find_palette,
+    sprite_record,
     write_indexed_png,
     write_png,
 )
-from pup import EXTRACTOR_BANNER
-from script import binary_script_to_text, pascal_string
+from script import binary_script_to_text, decode_and_write_script, pascal_string
 from set import looks_like_script
 
 
@@ -67,10 +67,8 @@ def _write_scripts(df: DFFile, out_dir: Path) -> int:
         first = text.split("\n", 1)[0].strip()
         name = first.replace("code ", "").replace("()", "").strip() or f"script_{index}"
         safe = "".join(ch if ch.isalnum() or ch in "._- " else "_" for ch in name)
-        (out_dir / f"{safe}_{index}.txt").write_text(
-            EXTRACTOR_BANNER + text, encoding="utf-8", newline="\n"
-        )
-        written += 1
+        if decode_and_write_script(out_dir / f"{safe}_{index}.txt", container.data):
+            written += 1
     return written
 
 
@@ -124,23 +122,24 @@ def parse_prp_catalog(df: DFFile) -> list[PropFrame]:
     return catalog
 
 
-def _write_one_frame(df: DFFile, container_id: int, dest: Path, palette) -> bool:
+def _write_one_frame(df: DFFile, container_id: int, dest: Path, palette) -> dict | None:
     if container_id < 0 or container_id >= len(df.containers):
-        return False
+        return None
     data = df.containers[container_id].data
     if len(data) < 16:
-        return False
+        return None
     height, width = struct.unpack_from("<hh", data, 0)
     try:
         if 1 <= height <= 256 and 1 <= width <= 256 and len(data) < 20_000:
-            write_png(dest, decode_trans_sprite(data, palette))
-            return True
+            sprite = decode_trans_sprite(data, palette)
+            write_png(dest, sprite)
+            return sprite_record(sprite, dest.name)
         if len(data) >= 64:
             write_indexed_png(dest, decode_indexed_image(data), palette)
-            return True
+            return {"w": width, "h": height}
     except ImageError:
-        return False
-    return False
+        return None
+    return None
 
 
 def _write_frames(df: DFFile, out_dir: Path) -> int:
@@ -159,24 +158,26 @@ def _write_frames(df: DFFile, out_dir: Path) -> int:
             / item.state
             / f"{item.index_in_state:02d}_c{item.container}.png"
         )
-        if _write_one_frame(df, item.container, dest, palette):
+        meta = _write_one_frame(df, item.container, dest, palette)
+        if meta is not None:
             written += 1
             named.add(item.container)
-            manifest.append(
-                {
-                    "group": item.group,
-                    "state": item.state,
-                    "index": item.index_in_state,
-                    "container": item.container,
-                    "path": str(dest.relative_to(out_dir)).replace("\\", "/"),
-                }
-            )
+            rec = {
+                "group": item.group,
+                "state": item.state,
+                "index": item.index_in_state,
+                "container": item.container,
+                "path": str(dest.relative_to(out_dir)).replace("\\", "/"),
+            }
+            rec.update(meta)
+            rec["path"] = str(dest.relative_to(out_dir)).replace("\\", "/")
+            manifest.append(rec)
     # Anything the table did not name still gets a loose dump.
     for index, container in enumerate(df.containers[1:], start=1):
         if index in named or len(container.data) < 16:
             continue
         dest = out_dir / "FRAMES" / "_unnamed" / f"frame_{index}.png"
-        if _write_one_frame(df, index, dest, palette):
+        if _write_one_frame(df, index, dest, palette) is not None:
             written += 1
     (out_dir / "props.json").write_text(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8"

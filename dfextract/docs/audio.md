@@ -16,7 +16,11 @@ An audio container starts with signature `00 00 01 00` (`i32` at 0 =
 | 36 | i32 | Uncompressed PCM size in bytes |
 | 44 | i32 | Offset from the **start of the container** to compressed samples |
 
-Mono only. We write a plain PCM WAV (no DFET LIST/INFO chunk).
+Mono only. We write a plain PCM WAV (no DFET LIST/INFO chunk). Speech
+lines are typically **8-bit, 11025 Hz**. The play client must decode
+that PCM itself (`src/play/speech.ts`); browsers often will not play
+these files through `<audio>` or `decodeAudioData` (Firefox reports
+playing with `currentTime` stuck at 0). See [`src/play/README.md`](../../src/play/README.md).
 
 Detection used for MOV clips: signature `0x00010000` and
 `8000 <= hertz <= 48000`. SET stills start with height/width

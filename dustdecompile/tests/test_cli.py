@@ -22,7 +22,10 @@ SKIP = "Dust install not under sources/dust.dbgl"
 class TestCliFlags(unittest.TestCase):
     def test_no_flags_means_all_kinds(self) -> None:
         args = parse_args([])
-        self.assertEqual(selected_kinds(args), ("inventory", "opcodes", "plugins", "handbook"))
+        self.assertEqual(
+            selected_kinds(args),
+            ("inventory", "opcodes", "plugins", "handbook", "rsrc"),
+        )
 
     def test_kind_flag_narrows(self) -> None:
         args = parse_args(["--opcodes"])
