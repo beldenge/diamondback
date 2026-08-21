@@ -141,7 +141,7 @@ Primary packs: `_INVEN` (carryable items), `_HOUSE` (doors, town dressing), `_CH
 |---|---|
 | `FRAMES/frame_<n>.png` | Cutscene, overlay, or inspectable still. `<n>` is container index (gaps are audio / scene headers). Composited onto the prior framebuffer; PNG `PLTE` is **that scene’s** palette (`+0x3E`). |
 | `movie.mp4` | **Only with `--video`** (not a default `python cli.py`). H.264 + AAC at **60 fps**, stills duplicated per MOVPLAY hold. Group A on `record+32` (cross-scene A held so the previous line can finish); group B sequential playlist. Intros, overlays (`DOG1`, …), inspectables, `INFO/` previews. Mixed 384/264 letterboxed; odd sizes padded even. |
-| `timeline.json` | When the v1 80-byte table parses and `--video` or `--frames` ran. `tick_hz` 60, per-still `hold_ticks` / `start_tick`, clips with `channel` (`A1`… / `B`). |
+| `timeline.json` | When the v1 80-byte table parses and `--video` or `--frames` ran. `tick_hz` 60, per-still `hold_ticks` / `start_tick`, clips with `channel` (`A1`… / `B`). `python movplay.py <this folder>` uses it with `FRAMES/` + `AUDIO/` (no mp4). |
 | `AUDIO/clip_<n>.wav` | Voice / SFX in that movie, same index space. Sidecars from `--audio`; `--video` also mixes them into `movie.mp4`. |
 | `script_<n>.txt` | Rare; only if a container is a `code` script |
 

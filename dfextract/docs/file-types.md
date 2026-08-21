@@ -299,7 +299,9 @@ of picture (was 176 s at a flat 14 fps). SALUP stairs **1.73 s**.
 `DOG1` / `DOG2` overlays are ~1 s (same table, not `playmovie` reels).
 
 Sidecar WAVs go under `AUDIO/` with `--audio`. `--video` is **opt-in**
-(`python cli.py` does not mux). With `--video`, every Dust v1 MOV that
+(`python cli.py` does not mux). To watch without an mp4:
+`python movplay.py out/MOV/_INTRO` (uses `FRAMES/` + `AUDIO/` +
+`timeline.json`). With `--video`, every Dust v1 MOV that
 has stills gets `movie.mp4` + `timeline.json`: intros, day-change,
 spotmovie overlays (`DOG1`, `APOTHPIG`, …), `INFO/` attract reels, and
 INVEN inspectables. Mixed 512×384 / 512×264 (TIPRE) is letterboxed;

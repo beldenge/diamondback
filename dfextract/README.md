@@ -76,7 +76,7 @@ On macOS / Linux, `ls` those same paths. If either file is missing, the
 extract will fail with `No Dust game data found.` Put a DOSBox / CD copy
 of Dust in that layout (or pass the folder as an argument; see Flags).
 
-### 3. Install Pillow and run
+### 3. Install dependencies and run
 
 From the **repo root**:
 
@@ -107,8 +107,8 @@ python cli.py
 ```
 
 A venv is optional. `python -m pip install -r requirements.txt` into
-your user site-packages also works; the only runtime dependency is
-Pillow.
+your user site-packages also works (Pillow for extract, pygame-ce for
+`movplay.py`; still `import pygame`).
 
 No flags means **scripts + audio + frames** for all types, from the Dust
 tree above. **`--video` is opt-in** (ffmpeg; not in a default run).
@@ -165,6 +165,20 @@ Safe to delete: `out/`. The remake does not load it.
 
 Do **not** delete `sources/dust.dbgl/` (the game) or the Python files
 in this directory.
+
+---
+
+## MOVPLAY (no ffmpeg)
+
+Default extract writes `FRAMES/`, `AUDIO/`, and `timeline.json` — enough
+for a MOVPLAY-style player without muxing `movie.mp4`.
+
+```
+python movplay.py out/MOV/_DOG1
+python movplay.py out/MOV/_INTRO --scale 2
+```
+
+Esc or Q quits. Space pauses. `--scale 1` is native 512×264.
 
 ---
 

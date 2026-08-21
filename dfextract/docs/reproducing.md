@@ -9,7 +9,7 @@ This page is the inventory, flags, tests, and expected scale.
 
 - Windows, macOS, or Linux
 - Python 3.11+ (3.14 was used here) — install steps in the README
-- Pillow (`pip install -r dfextract/requirements.txt`)
+- Python deps (`pip install -r dfextract/requirements.txt`: Pillow, pygame-ce)
 - The Dust CD / DOSBox install already in this repo:
 
 ```
