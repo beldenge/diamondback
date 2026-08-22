@@ -411,6 +411,7 @@ def _extract_cst(path: Path, dest: Path, kinds: tuple[str, ...]) -> dict[str, in
         result["scripts"] = len(written)
     if "frames" in kinds:
         result["frames"] = write_cst_frames(df, dest)
+    result["timing"] = write_cst_timing(df, dest)
     return result
 
 

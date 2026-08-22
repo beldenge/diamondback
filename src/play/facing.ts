@@ -122,6 +122,17 @@ export function walkFrame<T>(
   return frames[pose * perDir + (octant % perDir)];
 }
 
+/** CST setInfo +0x2e table for this `actorpose` name (walk, drink, lowwalk, …). */
+export function timingForPose(
+  tables: Record<string, number[]> | undefined,
+  pose: string,
+): number[] {
+  if (!tables) {
+    return [];
+  }
+  return tables[pose] ?? tables[pose.toLowerCase()] ?? [];
+}
+
 /** CST setInfo +0x2e is 1-based pose ids, length at +0x70. One slot per engine tick. */
 export function poseFromTable(table: number[] | undefined, step: number, poses: number): number {
   const n = Math.max(1, poses);

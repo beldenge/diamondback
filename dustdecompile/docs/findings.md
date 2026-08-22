@@ -565,24 +565,23 @@ pass.
 
 ## 7b. Walk (speed, route, pose)
 
-Same `DF.EXE`. Do not use `speed * 24`, BFS on camera tiles, or one
-CST cycle per 256-unit tile.
+Same `DF.EXE`, every CST actor and every SET. Do not use `speed * 24`,
+BFS on camera tiles, or one CST cycle per 256-unit tile.
 
 | Site | What it is |
 |---|---|
 | `0x410820` | `walktostar`. Parse `"x,y,z"` (`0x423ef0`) → beeline. Else star lookup, then `0x424000` for a named pair. |
 | `0x424000` | If dest/current stars are the two names on a 50-byte waypoint record and +0x18 ≠ 0, load that SET container (`0x424400`). Reverse (`0x424470`) when going slot B→A. `resume` is `0x424160` + nearest-point splice `0x424250`. |
-| Path container | `i32 count` @0, total length @4, points @16 as `{i16 x,y,z,seg}`. Leroy pair is container **262**: (2656,2720) … (1664,3476) … (1740,3536), length **1795**. |
+| Path container | `i32 count` @0, total length @4, points @16 as `{i16 x,y,z,seg}`. TOWN/NITE: 12 pairs (Leroy **262**, blood **260**, …). Interiors that authored a path: BANK, HOTLOWER, HOTUPPER, JAIL, LIVERY, MAYUPPER, SALLOWER, SALUPPER, STORE, TARGET. |
 | `0x40fe00` | Walk-job pump (16 × 0x52 records at `0x449570`). `forceupdate` (`0x433740`) is one pump. |
 | `0x410b80` | One job tick. Turn while record+4 ≥ 0 (`0x412100`, circle `0xFF`, min step 1). Then `acc +=` SET-actor speed word; lerp along the path (`0x411f50`) or the 3D beeline (`isqrt` `0x40b160`). |
 | `0x438210` | `timeGetTime`; `*3/50` → 60 Hz **counter**. |
 | `0x40e1d2` | Frame loop: draw CST (`0x415040`), then wait until the counter advanced by **`framerate`**. Boot `framerate (3)` → **20 Hz** game frames, not 60 Hz pumps. |
-| `0x4154c0` | CST sprite pick on that draw. `actor+0x24` indexes setInfo **+0x2e** (length **+0x70**). Leroy walk: 16 slots `[1,1,2,2,…,8,8]`. |
+| `0x4154c0` | CST sprite pick on that draw. `actor+0x24` indexes **that pose’s** setInfo **+0x2e** (length **+0x70**). GANG 8-pose walk: 16 slots `[1,1,2,2,…,8,8]`. EXTRA pig/chicken walk: `[1,1,2,2]`. Stand is length 1. |
 
-Town `stdspeed` is **3** (`Cast.txt`) → **3 world units per 20 Hz game frame** (60 units/s), not per 60 Hz rAF. `actorturn` **7** deg-units per game frame. Scripts wait with `while iswalk { forceupdate }`.
+`stdactor` copies `stdspeed` / `stdturn` of `actorset(who)`: town **3 / 7**, hotlower and sallower **4 / 8**, else **5 / 10** (GANG `Cast.txt`). Mine extra `stdspeed` is **4**. That many world units / deg-units per **20 Hz** game frame. Scripts wait with `while iswalk { forceupdate }`.
 
-Play: `paths.json` + `timing.json`. Leftover: face dest before the
-first translate (record+4); resume snap.
+Play: `SET/_<PLACE>/paths.json` + `CST/_<CAST>/timing.json` for gang, extra, target, mine. Leftover: face dest before the first translate (record+4); resume snap.
 
 ---
 

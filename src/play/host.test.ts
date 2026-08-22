@@ -82,7 +82,9 @@ describe("actor walk wait", () => {
     actor.x = 1740;
     actor.y = 3536;
     actor.speed = 3;
-    actor.walkTiming = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8];
+    actor.poseTiming = {
+      walk: [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8],
+    };
     actor.walkSprites = Array.from({ length: 64 }, (_, i) => ({
       path: `w${i}`,
       x: 0,
@@ -91,6 +93,7 @@ describe("actor walk wait", () => {
       h: 1,
     }));
     host.startWalk(actor, 1664, 3712, 0);
+    expect(actor.walkTiming).toEqual([1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8]);
     host.advanceActorsOnce();
     expect(actor.walking).toBe(true);
     expect(actor.walkStep).toBe(1);

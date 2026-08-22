@@ -23,7 +23,7 @@ How tokens decode: [scripts.md](scripts.md).
 | `PUP/**/AUDIO/texts.csv` + `*.wav` | Line id → spoken text + audio. Text is **Mac Roman** (apostrophe 0xD5), not latin-1. |
 | `SET/**/scenes.json` | Walkable vs blocked tiles, which script is attached |
 | `SET/**/waypoints.json` | Named stand / walk-to points (256 units per tile in `DF.EXE`). **Both** 50-byte slots — `town.leroy1` is slot B of `town.leroy2` at (1740, 3536), not a guessed xyz. |
-| `SET/**/paths.json` | Authored `walktostar` polylines from waypoint +0x18. Leroy container 262. |
+| `SET/**/paths.json` | Authored `walktostar` polylines from waypoint +0x18 (every SET; `[]` if none). TOWN/NITE 12 pairs; several interiors have 1–3. |
 | `SET/**/transitions.json` | Which 6 stills play for a step/turn |
 | `SET|MOV|FLT|CST|PUP|PRP` PNGs | What that view / sprite looked like (MOV stills composited; per-scene palette) |
 | `MOV/**/movie.mp4` + `timeline.json` | **`--video` only.** MOVPLAY holds, A/B mixer, palettes. Close to original; not a capture. |

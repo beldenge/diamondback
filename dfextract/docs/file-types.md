@@ -197,8 +197,9 @@ record[count]                     @ 28
 +0x18 sits after name A’s 16-byte field (before slot B xyz). Non-zero
 is a SET container: `i32 count` @0, `i32` total length @4, then
 `count` points at +16 of `{i16 x, y, z, seg}` (8 bytes). `DF.EXE`
-`0x424000` loads that polyline for named `walktostar`; reverse when
-going B→A. Extract: `paths.json`.
+`0x424000` loads that polyline for named `walktostar` (any actor);
+reverse when going B→A. Extract: `SET/_<PLACE>/paths.json` (empty list
+if the SET has no pairs).
 
 Empty slot B has Pascal length 0. Small maps (APOTH) leave every B
 empty. TOWN/NITE pack pairs: `town.leroy2` / `town.leroy1` (1740, 3536)

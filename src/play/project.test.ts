@@ -28,6 +28,7 @@ function actor(x: number, y: number): ActorState {
     degTarget: 0,
     walkStep: 0,
     walkAcc: 0,
+    poseTiming: {},
     walkTiming: [],
     zclip: 32,
     standSprites: [],

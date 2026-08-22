@@ -61,6 +61,15 @@ class TestKnownTypes(unittest.TestCase):
         timing = extract_cst_timing(read_df_file(gang))
         self.assertEqual(timing["Leroy"]["walk"], [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8])
         self.assertEqual(timing["Leroy"]["stand"], [1])
+        self.assertEqual(timing["Help"]["walk"][:4], [1, 1, 2, 2])
+
+    def test_extra_pig_walk_timing(self) -> None:
+        extra = DUST / "DUSTCD" / "DATA" / "EXTRA.CST"
+        if not extra.exists():
+            self.skipTest("EXTRA.CST not present")
+        timing = extract_cst_timing(read_df_file(extra))
+        self.assertEqual(timing["pig"]["walk"], [1, 1, 2, 2])
+        self.assertEqual(timing["chicken1"]["walk"], [1, 1, 2, 2])
 
     def test_town_snd_decodes(self) -> None:
         if not TOWN_SND.exists():

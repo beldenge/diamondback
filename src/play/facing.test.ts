@@ -21,6 +21,7 @@ import {
   visibleOctant,
   gameFrameSec,
   poseFromTable,
+  timingForPose,
   walkFrame,
   worldToStill,
 } from "./facing";
@@ -53,6 +54,7 @@ function actor(x: number, y: number, deg = 0): ActorState {
     degTarget: 0,
     walkStep: 0,
     walkAcc: 0,
+    poseTiming: {},
     walkTiming: [],
     zclip: 32,
     standSprites: [],
@@ -123,6 +125,16 @@ describe("actordeg octants", () => {
     expect(poseFromTable(table, 2, 8)).toBe(1);
     expect(poseFromTable(table, 15, 8)).toBe(7);
     expect(poseFromTable(table, 16, 8)).toBe(0);
+  });
+
+  it("uses each CST pose table, including extra 2-pose walks", () => {
+    const pig = [1, 1, 2, 2];
+    expect(poseFromTable(pig, 0, 2)).toBe(0);
+    expect(poseFromTable(pig, 2, 2)).toBe(1);
+    const tables = { walk: pig, stand: [1] };
+    expect(timingForPose(tables, "walk")).toEqual(pig);
+    expect(timingForPose(tables, "stand")).toEqual([1]);
+    expect(timingForPose(tables, "drink")).toEqual([]);
   });
 
   it("stores 8 facings per walk pose, not 8 poses per facing", () => {

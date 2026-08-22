@@ -60,6 +60,22 @@ describe("SET star paths", () => {
     expect(path).toEqual([{ x: 1760, y: 3034, z: 0 }]);
   });
 
+  it("follows town.blood1→blood2 from extracted NITE paths", () => {
+    const rel = resolve("dfextract/out/SET/_NITE/paths.json");
+    if (!existsSync(rel)) {
+      return;
+    }
+    const paths = JSON.parse(readFileSync(rel, "utf8")) as StarPath[];
+    const hops = routeToStar(paths, "town.blood1", "town.blood2", 2436, 1132, {
+      x: 2482,
+      y: 1670,
+      z: 0,
+    });
+    expect(hops.at(-1)).toEqual({ x: 2482, y: 1670, z: 0 });
+    expect(hops.length).toBeGreaterThan(3);
+    expect(hops[0].y).toBeLessThan(1132);
+  });
+
   it("matches extracted NITE paths.json", () => {
     const rel = resolve("dfextract/out/SET/_NITE/paths.json");
     if (!existsSync(rel)) {

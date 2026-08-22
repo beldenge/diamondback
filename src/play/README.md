@@ -67,20 +67,28 @@ sprite. `actorstar` copies that xyz. Do not invent a nearby xyz if a
 name looks missing — 50-byte records hold two stars; `town.leroy1` is
 slot B of `town.leroy2`.
 
-Named `walktostar` (Leroy `walkout` → `town.leroy2` at the range) does
-**not** beeline and does **not** BFS camera tiles. `DF.EXE` `0x424000`
-loads the SET polyline in the waypoint record’s +0x18 container
-(`town.leroy2` / `town.leroy1` → container **262**). Points run A→B
-(range → sign); walkout reverses them. First hop from the sign is
-**(1664, 3476)**, then **(1632, 3388)** north along x=1632 — not N7’s
-center (1664, 3456) and not a due-west edge snap at y=3536. Extract:
-`SET/_NITE/paths.json`. Explicit `x,y,z` strings stay a beeline (town
-talk). Hops use `calcdeg` to the next vertex. `currentdeg + 128` is
-only the talk beeline. `actorspeed` is world units per **game frame**
-(town `stdspeed` **3**). Boot `framerate (3)` waits 3 ticks of the 60 Hz
-`timeGetTime` counter (`0x40e1d2`) → **20 Hz**, so 60 units/s, not 180.
-Walk poses use CST setInfo +0x2e (Leroy **16** slots, two frames per
-pose) on that same 20 Hz draw, not one cycle per 256-unit tile.
+Named `walktostar` does **not** beeline and does **not** BFS camera
+tiles. `DF.EXE` `0x424000` loads the SET polyline in the waypoint
+record’s +0x18 container for **that star pair** (any actor, any SET).
+Points run A→B; going B→A reverses them. Extract: `SET/_<PLACE>/paths.json`
+(TOWN/NITE have 12 pairs; interiors that authored a path have 1–3).
+Explicit `"x,y,z"` strings stay a beeline (town `walktopuppet`). Hops
+use `calcdeg` to the next vertex. `currentdeg + 128` is only the talk
+beeline.
+
+Worked example — Leroy `walkout` → `town.leroy2`: pair container **262**,
+range (2656, 2720) → … → (1664, 3476) → sign (1740, 3536). Walkout
+reverses; first hop from the sign is **(1664, 3476)**, then
+**(1632, 3388)** north along x=1632.
+
+`actorspeed` is world units per **game frame** (`stdactor` copies
+`stdspeed` of the actor’s set: town **3**, hotlower/sallower **4**, else
+**5**; mine extra **4**). Boot `framerate (3)` waits 3 ticks of the 60 Hz
+`timeGetTime` counter (`0x40e1d2`) → **20 Hz**. Town 3 → 60 units/s, not
+180. Walk poses use **that actor’s** CST setInfo +0x2e table
+(`CST/_<CAST>/timing.json`) on the same 20 Hz draw. GANG 8-pose walks
+are 16 slots (two frames per pose). EXTRA pigs/chickens are 4 slots
+`[1,1,2,2]`. Do not invent a Leroy-only clock.
 
 CST sprites: native frames are ~200px with hotspot (256, 192) on the 384
 stage — that is 1:1 **on the camera plane**. `stdscale("town")` is **1450**
@@ -189,10 +197,11 @@ the picket fence is Z=3, so his body does not show through it; gaps in
 the fence (Z≥5) can still leak slivers. `python cli.py --type set --z`
 writes `FRAMES/z/` without rewriting color stills.
 
-Walk poses advance on the **20 Hz game frame** from CST setInfo +0x2e
-(Leroy 16 slots: two frames per pose → 0.8 s cycle). Not distance, not
-a 60 Hz treadmill. Drink is still the 8×4 CST strip, one pose every 6
-script frames (`toidle` waits 25), held on the last pose.
+Walk poses advance on the **20 Hz game frame** from that actor’s CST
+setInfo +0x2e table (`timing.json`, keyed by `actorpose`). GANG 8-pose
+walks: 16 slots, 0.8 s cycle. Not distance, not a 60 Hz treadmill.
+Drink is still the 8×4 CST strip, one pose every 6 script frames
+(`toidle` waits 25), held on the last pose.
 
 The actor layer **is** the still (top 264 of the 384 stage), `overflow:
 hidden`, under the HUD. Town sprites never paint into the dashboard.

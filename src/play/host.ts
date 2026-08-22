@@ -14,6 +14,7 @@ import {
   DRINK_HOLD_FRAMES,
   gameFrameSec,
   playerWorldPoint,
+  timingForPose,
   worldToStill,
   wrapDeg,
 } from "./facing";
@@ -49,12 +50,14 @@ export interface ActorState {
   destX: number;
   destY: number;
   destZ: number;
-  /** Remaining SET-road waypoints after the current `dest*` (named `walktostar`). */
+  /** Remaining SET polyline hops after the current `dest*` (named `walktostar`). */
   route: RoutePoint[];
   degTarget: number;
   walkStep: number;
   walkAcc: number;
-  /** CST setInfo +0x2e table for the current walk strip (1-based pose ids). */
+  /** CST setInfo +0x2e tables keyed by pose name (`walk`, `drink`, …). */
+  poseTiming: Record<string, number[]>;
+  /** Active +0x2e table for `actor.pose` (1-based pose ids). */
   walkTiming: number[];
   zclip: number;
   standSprites: SpritePlace[];
@@ -428,6 +431,7 @@ export class DustHost implements OpcodeHost {
             actor.pose = next;
             actor.walkStep = 0;
             actor.walkAcc = 0;
+            actor.walkTiming = timingForPose(actor.poseTiming, next);
           }
         });
       case "actorowner":
@@ -651,6 +655,10 @@ export class DustHost implements OpcodeHost {
     actor.destZ = z;
     actor.walking = true;
     actor.pose = "walk";
+    const walkTable = timingForPose(actor.poseTiming, "walk");
+    if (walkTable.length) {
+      actor.walkTiming = walkTable;
+    }
     if (!continueCycle) {
       actor.walkStep = 0;
       actor.walkAcc = 0;
@@ -931,6 +939,7 @@ export class DustHost implements OpcodeHost {
         degTarget: 0,
         walkStep: 0,
         walkAcc: 0,
+        poseTiming: {},
         walkTiming: [],
         zclip: 32,
         standSprites: [],
@@ -1053,20 +1062,32 @@ export class DustHost implements OpcodeHost {
   }
 
   async loadGangSprites(): Promise<void> {
+    await this.loadCastSprites("CST/_GANG");
+  }
+
+  /** Sprites + CST +0x2e pose tables for one cast (gang, extra, target, mine). */
+  async loadCastSprites(dir: string): Promise<void> {
     const data = await fetchJson<{
       actors?: Record<string, Record<string, SpritePlace[]>>;
-    }>(extractUrl("CST/_GANG/sprites.json")).catch(() => null);
-    this.gangSprites = data?.actors ?? {};
+    }>(extractUrl(`${dir}/sprites.json`)).catch(() => null);
+    const actors = data?.actors ?? {};
+    if (dir === "CST/_GANG") {
+      this.gangSprites = actors;
+    }
     const timing = await fetchJson<Record<string, Record<string, number[]>>>(
-      extractUrl("CST/_GANG/timing.json"),
+      extractUrl(`${dir}/timing.json`),
     ).catch(() => ({} as Record<string, Record<string, number[]>>));
-    for (const [name, poses] of Object.entries(this.gangSprites)) {
+    const cast = dir.replace(/^CST\/_/, "").toLowerCase();
+    for (const [name, poses] of Object.entries(actors)) {
       const actor = this.namedActor(name);
-      actor.spriteRoot = "CST/_GANG";
+      actor.cast = cast;
+      actor.spriteRoot = dir;
       actor.standSprites = poses.stand ?? [];
-      actor.walkSprites = poses.walk ?? [];
+      actor.walkSprites = poses.walk ?? poses.lowwalk ?? [];
       actor.drinkSprites = poses.drink ?? [];
-      actor.walkTiming = timing[name]?.walk ?? timing[name.toLowerCase()]?.walk ?? [];
+      const tables = timing[name] ?? timing[name.toLowerCase()] ?? {};
+      actor.poseTiming = tables;
+      actor.walkTiming = timingForPose(tables, actor.pose || "walk");
     }
   }
 
@@ -1125,6 +1146,7 @@ export class DustHost implements OpcodeHost {
       extractUrl("catalog.json"),
     ).catch(() => null);
     const dir = catalog?.files?.[name.toLowerCase()]?.dir ?? prefix;
+    await this.loadCastSprites(dir);
     const listing = await this.listActorFolders(dir);
     for (const actor of listing) {
       try {
@@ -1155,6 +1177,13 @@ export class DustHost implements OpcodeHost {
         "Jenix", "dog", "pig", "cow", "horse1", "chicken1", "bird1",
         "Kid", "bounty1", "kidgang1", "shaman", "birdcage",
       ],
+      "CST/_TARGET": [
+        "birdtarg", "bottle1targ", "can1targ", "can2targ", "can3targ",
+        "chicken1targ", "chickexplode", "dummytarg", "gilatarg", "pigtarg",
+        "target1", "target2", "target3", "target4", "target5", "target6",
+        "target7", "towertarg", "vanetarg", "water1", "water2", "water3",
+      ],
+      "CST/_MINE": ["skeleton"],
     };
     return known[dir] ?? [];
   }
@@ -1325,6 +1354,7 @@ export class DustHost implements OpcodeHost {
       leroy.standSprites = poses.stand ?? [];
       leroy.walkSprites = poses.walk ?? [];
       leroy.drinkSprites = poses.drink ?? [];
+      leroy.walkTiming = timingForPose(leroy.poseTiming, "stand");
     }
     leroy.standUrl = extractUrl("CST/_GANG/Leroy/stand/frame_68.png");
     // CST/_GANG/Leroy/Script.txt setupactor("sign") → actorstar, stdactor,

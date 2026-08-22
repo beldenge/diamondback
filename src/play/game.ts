@@ -291,6 +291,7 @@ export class PlayGame implements WorldView {
       this.syncHud();
       await Promise.all([
         this.host.loadGangSprites(),
+        this.host.loadCastSprites("CST/_EXTRA"),
         this.host.loadWaypoints("_NITE"),
         this.loadTalkScripts(),
       ]);
