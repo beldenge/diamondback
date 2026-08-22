@@ -61,42 +61,54 @@ Talk approach is `walktopuppet`: in town he walks to `playerxyz` facing
 that vector (straight-on toward the camera), then `turntodeg (currentdeg
 + 128)`. Scripts `stoploop` for the walk. Do not spin during the walk.
 
+A **star** is a named SET pin (`waypoints.json`, 255 units/tile), not a
+sprite. `actorstar` copies that xyz. Do not invent a nearby xyz if a
+name looks missing — 50-byte records hold two stars; `town.leroy1` is
+slot B of `town.leroy2`.
+
 Named `walktostar` (Leroy `walkout` → `town.leroy2` at the range) does
 **not** beeline. Dust scripts never call `walkonroad` / `walkonpath`;
-DF.EXE does that inside `walktostar` on the SET walk graph (52 camera
-tiles). Play BFS those streets, then the star — main street north from
-N7, east along y=10 to K11. Explicit `x,y,z` strings stay a beeline
-(town talk). Road hops use `calcdeg` to the next tile, even if that
-center is the player’s tile (L7 moonwalk). `currentdeg + 128` is only
-the talk beeline. Draw if the still projection lands on-screen, up to
-~5 tiles ahead — a 520-unit sphere hid him from K7 looking east. A
-cross-street body (K7 north vs the east road) is not in that photo.
+`DF.EXE` does that inside `walktostar` on the SET walk graph (52 camera
+tiles). **Authored:** those streets and the dest pin (2656, 2720) at
+K11. **Remake:** BFS hop count, then the star. First snap is onto a
+walk *edge* (sign → N7–O7 street at y=3536), not N7’s center — that
+center is northwest of the sign and read as a cemetery cut once X was
+a pinhole. Explicit `x,y,z` strings stay a beeline (town talk). Road
+hops use `calcdeg` to the next tile, even if that center is the
+player’s tile (L7 moonwalk). `currentdeg + 128` is only the talk
+beeline. Do not freeze screen XY on an in-place turn (O7 east planted
+him in the desert photo).
 
 CST sprites: native frames are ~200px with hotspot (256, 192) on the 384
 stage — that is 1:1 **on the camera plane**. `stdscale("town")` is **1450**
 (`CST/_GANG/Cast.txt`). Leroy at the sign is **`actorscale (me, 1100)`**
 after `stdactor` (`CST/_GANG/Leroy/Script.txt`). Indoor sets use 2400–5800.
 
-Day-1 stand is `setupactor("sign")` → `actorstar (me, "town.leroy1")`.
-That star is **(1740, 3536)** in `SET/_TOWN/waypoints.json` (second half of
-the 50-byte `town.leroy2` record). `town.leroy2` (2656, 2720) is the
-range. Do not invent a nearby xyz if a name looks missing — re-read slot B.
-CST in-world blit uses the same hotspot as PUP: header `pos_x`/`pos_y` are
-top-left when the hotspot is (256, 192). Scale that offset by the still
-scale; do not `translate(-50%, -100%)` on the bbox. ¾ frames are not
-centered on the hotspot.
+Day-1 stand is `setupactor("sign")` → `actorstar (me, "town.leroy1")` at
+**(1740, 3536)** (82 east, 162 north of O7’s tile center).
+`town.leroy2` (2656, 2720) is the range. CST in-world blit uses the same
+hotspot as PUP: header `pos_x`/`pos_y` are top-left when the hotspot is
+(256, 192). Scale that offset by the still scale; do not
+`translate(-50%, -100%)` on the bbox. ¾ frames are not centered on the
+hotspot.
 
 Screen **X** is a pinhole: `256 + 256 * right / forward` (focal = still
-half-width). **Y and scale** use `256/(256+forward)`. Using 1/z for X
-put Leroy on the O7 east fence; he is 162 off-axis and only 82 forward
-(`|right| > forward` is outside a 90° still) and the original does not
-draw him there. Horizon Y is 128; the near plane is **248** (mid Z=3
-band). Still-bottom 264 sat the sign hotspot in Z=4 while actor Z is 5,
-so SET Z clipped his feet. Camera is the tile center
-(`x*255+128`). During a SET walk or turn, lerp that camera through the
+half-width; `DF.EXE` `TRIG1`/`TRIG2` are 256-step sin/cos × 16384, same
+`actordeg` circle). **Y and scale** use `256/(256+forward)`. Using 1/z
+for X put Leroy on the O7 east fence; he is 162 off-axis and only 82
+forward (`|right| > forward` is outside a 90° still) and the original
+does not draw him there. Horizon Y is 128; the near plane is **248**
+(mid Z=3 band). Still-bottom 264 sat the sign hotspot in Z=4 while
+actor Z is 5, so SET Z clipped his feet. Camera is the tile center
+(`x*255+128`). `cameraxyz` (one tile behind) is only for idle facing,
+not placement. During a SET walk or turn, lerp that camera through the
 5 motion frames. Do not scan the Z plane for Y — O8 N’s fence has no
 ground pixels at Leroy’s depth in that column. Do not nudge a star or a
 character.
+
+O7 north original still-space midline was **x≈352**; pinhole lands
+**~386** (overshoot right, accepted). 1/z X was **~306** (too left).
+Do not lerp a second “corridor” yaw to hide the east jump.
 
 Distance: Dust never computes scale in scripts. DFET says DF.EXE uses the
 SET Z plane; the EXE imports `BitBlt` / `WinGBitBlt`, not `StretchBlt`.

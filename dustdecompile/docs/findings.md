@@ -531,14 +531,22 @@ Do not pretend these are done:
   theme loops the list after the last entry is not pinned.
 - `singlesound` / `dualsound` / `multiplesound` **VM** handlers (game
   SND, not MOV reels). Reel mixing is the A-slot + B-playlist path in §7.
-- `walktostar` blocking vs async; `actorxyz` units.
+- `walktostar` hop algorithm (blocking vs async is script-side
+  `while iswalk { forceupdate }`). Named dest follows the SET camera-tile
+  graph; Dust never calls `walkonroad`. Play BFS + walk-edge snap is a
+  remake stand-in. `actorxyz` units match SET stars (255/tile) and
+  scripts that divide by 256.
 - Save blob format. Filter string is `Saved games (.RTD)!*.rtd`. No
   `.rtd` in this install.
 - Mouth/`animLogic` visemes: integer is now in `texts.csv`; how it
   indexes jaw/mouth frames is still unproven (not a PUP container id).
 - Bevel / inventory chrome layout (cursors **are** dumped: `python -m
   dustdecompile --rsrc` → `out/rsrc/cursors/`). Script `cursor("touch")`
-  maps to `CURS.TOUCH`.
+  maps to `CURS.TOUCH`. RCDATA `TRIG1` / `TRIG2` are 256 int16s,
+  `16384 * sin/cos(2π i / 256)` — `actordeg` / `calcvect`, not FOV.
+- Exact sprite dest-rect in `DF.EXE` (world xyz → 512×264). Play uses
+  pinhole X `256 + 256 * right / forward` and 1/z for Y/scale; O7 east
+  hiding Leroy matches the original, O7 north still overshoots right.
 - Z-buffer **use** at runtime is in play: CST pixels draw when
   `actorZ <= stillZ` (DFET: smaller is closer). Actor Z is
   `round(nearZ / persp)` from the still’s bottom-row Z (3 on the south

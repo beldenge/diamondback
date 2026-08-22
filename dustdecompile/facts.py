@@ -393,10 +393,11 @@ OPCODES: list[dict] = [
         "args": "actor, star expression",
         "confidence": "proven-scripts",
         "notes": [
+            "A star is a named SET pin, not a sprite.",
             "Jenix refuse-money: actorstar (\"JENIX\", \"town.extra\" @ numtostring (random (3))).",
             "@ is string concat. town.extra + \"0\"/\"1\"/\"2\" indexes EXTRA CST extras.",
             "Waypoint units in SET JSON are 255 per tile — star names live in waypoints.json.",
-            "50-byte SET records hold two stars. town.leroy1 is slot B of town.leroy2 at (1740, 3536).",
+            "50-byte SET records hold two stars. town.leroy1 is slot B of town.leroy2 at (1740, 3536). town.leroy2 (2656, 2720) is the range.",
         ],
     },
     {
@@ -410,10 +411,15 @@ OPCODES: list[dict] = [
     {
         "name": "walktostar",
         "id": 12006,
-        "summary": "Walk an actor to a named star.",
-        "args": "see call sites",
-        "blocking": "unknown (async vs wait)",
-        "confidence": "unknown",
+        "summary": "Walk an actor to a named star, or beeline to an x,y,z string.",
+        "args": "actor, star name or \"x,y,z\"",
+        "blocking": "async walk; scripts wait with while iswalk { forceupdate }",
+        "confidence": "proven-scripts",
+        "notes": [
+            "Named dest: Dust never calls walkonroad; DF.EXE does that inside walktostar on the SET 52-tile walk graph.",
+            "Play BFS those streets, then the star. First snap is a walk edge, not nearest tile center (town.leroy1 rounds to N7).",
+            "Hop algorithm in the EXE is not decompiled. Explicit x,y,z (town walktopuppet) is a beeline.",
+        ],
     },
     {
         "name": "path",

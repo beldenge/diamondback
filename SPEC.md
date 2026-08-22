@@ -173,8 +173,11 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 | 2026-08-21 | PUP paint order is Body then Head (beard is on the Head). Body-over-Head left a static beard ring that did not turn. |
 | 2026-08-21 | Dialog chrome: full-width black speech bar over the still; five `butbevel` slots replace the HUD (not overlays above it). |
 | 2026-08-21 | Choice boxes are HOUSE `butbevel` + GDI Arial, not OS buttons. Labels left-aligned. Hole fill is the rim’s `(111,56,38)`. |
-| 2026-08-21 | CST town sprites blit from the header hotspot (256, 192), not bbox feet/center. World X is the same 1/z as scale. |
+| 2026-08-21 | CST town sprites blit from the header hotspot (256, 192), not bbox feet/center. Screen **X** is a pinhole (`256 + 256 * right / forward`); **Y and scale** are `256/(256+forward)`. |
 | 2026-08-21 | PUP text is Mac Roman (apostrophe 0xD5). `forceupdate` is the only actor clock during script walks. Town approach faces `currentdeg+128`. |
 | 2026-08-21 | CST town sprites: `stdscale(town)=1450`, Leroy sign `actorscale 1100`, 1/z as `256/(256+forward)`. Native ~200px is camera-plane 1:1. Actor layer is the still, under the HUD. |
 | 2026-08-21 | SET 50-byte waypoints hold two stars. `town.leroy1` is slot B of `town.leroy2` at (1740, 3536). Do not invent star xyz. |
 | 2026-08-21 | Leroy idle/drink/pivot is `leroyidle` via `makeloop`, not a remake fidget. Talk walk faces `playerxyz` (`walktopuppet`). |
+| 2026-08-21 | O7 east does not show the south-gate actor (`\|right\| > forward`). 1/z X had planted him on the fence. Near plane **248** keeps the sign hotspot in Z=5 so SET Z does not clip his feet. |
+| 2026-08-21 | Named `walktostar` uses the SET 52-tile walk graph (Dust never calls `walkonroad`). Play BFS, then the star; first snap is a walk edge, not N7’s center. Dest `town.leroy2` (2656, 2720) is authored; hop algorithm is remake. |
+| 2026-08-21 | Play **C** hides the black speech bar (audio/visemes keep going). |

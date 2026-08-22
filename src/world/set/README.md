@@ -27,7 +27,9 @@ plays a 6-container filmstrip, then you stand on another pose.
 
 The 225-cell `scenes.json` table is **not** the walkable graph. Many
 cells are blocked or never filmed. `cameraTiles` is the set of nodes
-that appear as a framelist `from` or `to`.
+that appear as a framelist `from` or `to`. Play-mode `walktostar`
+(Leroy to the range) BFS those same 52 tiles; see
+[`src/play/README.md`](../../play/README.md).
 
 ---
 

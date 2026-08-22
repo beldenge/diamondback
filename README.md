@@ -34,6 +34,7 @@ Open http://localhost:5173 — Vite serves stills from `dfextract/out/` at `/ext
 | Click left / right / top of the picture | Turn or walk |
 | Click a door, then walk forward | Open (if allowed) and go inside |
 | Click a nearby person (play mode) | Talk (puppet + choices) |
+| **C** (play mode) | Hide / show the black speech bar (audio keeps going) |
 
 `?clock=1|2|3` — morning / afternoon / night (sandbox).
 

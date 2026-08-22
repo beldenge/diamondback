@@ -497,8 +497,8 @@ Place an actor at a named star/waypoint.
 - **Calls in dump:** 308  arities [1, 2]
 - Jenix refuse-money: actorstar ("JENIX", "town.extra" @ numtostring (random (3))).
 - @ is string concat. town.extra + "0"/"1"/"2" indexes EXTRA CST extras.
-- Waypoint units in SET JSON are 255 per tile — star names live in waypoints.json.
-- 50-byte SET records hold two stars. `town.leroy1` is slot B of `town.leroy2` at (1740, 3536).
+- A star is a named SET pin, not a sprite. Waypoint units in SET JSON are 255 per tile — star names live in waypoints.json.
+- 50-byte SET records hold two stars. `town.leroy1` is slot B of `town.leroy2` at (1740, 3536). `town.leroy2` (2656, 2720) is the range.
 - Cast `walktopuppet` in town walks to `playerxyz` facing that vector, then `turntodeg (currentdeg + 128)`.
 - Example: `actorstar (me, "maydine.cage")`  (CST/_EXTRA/birdcage/Script.txt:29)
 - Example: `actorstar (me, "town.chick1")`  (CST/_EXTRA/chicken1/Script.txt:31)
@@ -520,10 +520,12 @@ Actor position. Field band — likely get/set.
 
 Walk an actor to a named star.
 
-- **Confidence:** unknown
-- **Args:** see call sites
-- **Blocks:** unknown (async vs wait)
+- **Confidence:** proven-scripts
+- **Args:** actor, star name **or** `"x,y,z"` string
+- **Blocks:** async walk; Dust waits with `while iswalk { forceupdate }`
 - **Calls in dump:** 66  arities [2]
+- Named dest: Dust never calls `walkonroad`; `DF.EXE` does that inside `walktostar` on the SET 52-tile walk graph. Play BFS those streets, then the star. First snap is a walk edge, not nearest tile center (`town.leroy1` rounds to N7). Hop algorithm in the EXE is not decompiled.
+- Explicit `"x,y,z"` (town `walktopuppet`) is a beeline.
 - Example: `walktostar (name, numtostring (x) @ "," @ numtostring (y) @ "," @ numtostring (z))`  (CST/_EXTRA/bird1/Script.txt:234)
 - Example: `walktostar (me, where)`  (CST/_EXTRA/birdcage/Script.txt:20)
 - Example: `walktostar (me, "birdstar2")`  (CST/_TARGET/birdtarg/Script.txt:5)
@@ -825,7 +827,7 @@ Fade down.
 
 - Exact `delay (n)` units; SET walk fps (~24) is from play, not DF.EXE. `framerate (3)` with `hasattention` is 60/3 script Hz (inferred).
 - MOV reel timing / audio cues (see dfextract reconstruction-gaps §4a).
-- `walktostar` async vs blocking; `actorxyz` units.
+- `walktostar` hop algorithm in `DF.EXE` (scripts wait with `while iswalk { forceupdate }`; named dest uses the SET walk graph). `actorxyz` is SET units (255/tile; scripts often `/ 256`).
 - Save file layout (`savegame` / `opengame`).
 - `pluginfx("checkmove", …)` encoding inside CHECKERS.DLL (scripts already parse the returned string).
 - UI chrome besides cursors (bevel / inventory layout). Cursors:
