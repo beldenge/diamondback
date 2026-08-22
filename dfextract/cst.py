@@ -109,12 +109,18 @@ def detect_contact_shadows(
     """Palette indices that are a foot-blob, not boots or clothes.
 
     Stand frames put the photographed shadow in the bottom quarter. A
-    dark index with ≥80% of its pixels there is that matte (GANG 131 =
-    25,17,17 on Leroy/Jones/…). Do not apply this to PUP faces.
+    dark maroon index (8 ≤ max(rgb) ≤ 50) with ≥80% of its pixels there
+    is that matte (GANG 131 = 25,17,17 on Leroy/Jones/…). Skip unused
+    black — Help's robe is index 0. Do not apply this to PUP faces.
     """
     from collections import Counter
 
-    from image import ImageError, decode_trans_indices
+    from image import (
+        CONTACT_SHADOW_MAX,
+        CONTACT_SHADOW_MIN,
+        ImageError,
+        decode_trans_indices,
+    )
 
     total: Counter[int] = Counter()
     bottom: Counter[int] = Counter()
@@ -144,7 +150,8 @@ def detect_contact_shadows(
         if bottom[index] / count < 0.8:
             continue
         red, green, blue = palette.colors[index]
-        if max(red, green, blue) > 50:
+        luma = max(red, green, blue)
+        if luma > CONTACT_SHADOW_MAX or luma < CONTACT_SHADOW_MIN:
             continue
         shadows.add(index)
     return frozenset(shadows)

@@ -19,18 +19,41 @@ export class ScriptIndex {
   }
 
   lookup(objectKeys: string[], name: string): Proc | undefined {
+    return this.lookupAll(objectKeys, name)[0];
+  }
+
+  lookupAll(objectKeys: string[], name: string): Proc[] {
     const want = name.toLowerCase();
+    const out: Proc[] = [];
     for (const key of objectKeys) {
       const hit = this.byKey.get(key)?.get(want);
       if (hit) {
-        return hit.proc;
+        out.push(hit.proc);
       }
     }
-    return undefined;
+    return out;
+  }
+
+  removePrefix(prefix: string): void {
+    for (const key of [...this.byKey.keys()]) {
+      if (key === prefix || key.startsWith(prefix)) {
+        this.byKey.delete(key);
+      }
+    }
   }
 
   has(objectKey: string): boolean {
     return this.byKey.has(objectKey);
+  }
+
+  copyKey(from: string, to: string): void {
+    const bag = this.byKey.get(from);
+    if (!bag) {
+      return;
+    }
+    for (const { proc, file } of bag.values()) {
+      this.add(to, proc, file);
+    }
   }
 }
 

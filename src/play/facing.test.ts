@@ -12,6 +12,7 @@ import {
   cameraFromPose,
   cameraWorldPoint,
   degDelta,
+  filmstripCamera,
   lerpViewCamera,
   degToOctant,
   dirToDeg,
@@ -58,6 +59,7 @@ function actor(x: number, y: number, deg = 0): ActorState {
     walkTiming: [],
     zclip: 32,
     standSprites: [],
+    sprites: {},
     walkSprites: [],
     drinkSprites: [],
     spriteRoot: "",
@@ -219,6 +221,46 @@ describe("worldToStill", () => {
     const mid = lerpViewCamera(o7n, o7e, 0.5);
     expect(mid.deg).toBeGreaterThan(64);
     expect(mid.deg).toBeLessThan(128);
+  });
+
+  it("keeps the start camera for in-place turns so props do not slide", () => {
+    const n7e = { x: 6, y: 13, facing: "E" as const };
+    const n7s = { x: 6, y: 13, facing: "S" as const };
+    expect(filmstripCamera(n7e, n7s, 0.5)).toEqual(cameraFromPose(n7e));
+    const jug = actor(1730, 3476);
+    const start = worldToStill(jug, filmstripCamera(n7e, n7s, 0));
+    const end = worldToStill(jug, filmstripCamera(n7e, n7s, 1));
+    expect(start?.x ?? null).toBe(end?.x ?? null);
+    expect(start?.y ?? null).toBe(end?.y ?? null);
+  });
+
+  it("keeps the N7 jug on the still with 1/z Y", () => {
+    const jug = actor(1730, 3476);
+    const o7n = { x: 6, y: 14, facing: "N" as const };
+    const n7s = { x: 6, y: 13, facing: "S" as const };
+    const n7e = { x: 6, y: 13, facing: "E" as const };
+    const atGate = worldToStill(jug, o7n);
+    expect(atGate).not.toBeNull();
+    expect(atGate!.x).toBeCloseTo(324, 0);
+    expect(atGate!.y).toBeGreaterThan(180);
+    expect(atGate!.y).toBeLessThan(220);
+    const south = worldToStill(jug, n7s);
+    expect(south).not.toBeNull();
+    expect(south!.y).toBeGreaterThan(200);
+    expect(south!.y).toBeLessThanOrEqual(264);
+    const east = worldToStill(jug, n7e);
+    expect(east).not.toBeNull();
+    expect(east!.y).toBeGreaterThan(180);
+    expect(east!.y).toBeLessThanOrEqual(264);
+  });
+
+  it("still lerps camera XY on a forward walk", () => {
+    const o7n = { x: 6, y: 14, facing: "N" as const };
+    const n7n = { x: 6, y: 13, facing: "N" as const };
+    const mid = filmstripCamera(o7n, n7n, 0.5);
+    expect(mid.y).toBeLessThan(cameraFromPose(o7n).y);
+    expect(mid.y).toBeGreaterThan(cameraFromPose(n7n).y);
+    expect(mid.deg).toBe(dirToDeg("N"));
   });
 
   it("does not plant the south-gate actor on the O7 east still", () => {

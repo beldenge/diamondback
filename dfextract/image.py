@@ -83,7 +83,11 @@ class Sprite:
 
 # CST foot mattes are a dark maroon (GANG index 131 = 25,17,17). Dust
 # painted them as contact shadows; opaque RGB looks like studio dirt.
+# Pure black (index 0, max(rgb) < MIN) is unused or clothing — Help's
+# robe is (0,0,0). Treating it as a matte makes the coat see-through.
 CONTACT_SHADOW_ALPHA = 120
+CONTACT_SHADOW_MIN = 8
+CONTACT_SHADOW_MAX = 50
 TRANSPARENT_INDEX = 255
 
 
@@ -198,10 +202,10 @@ def colorize_sprite(
         if index == TRANSPARENT_INDEX:
             continue
         dest = i * 4
-        if index in shadows:
-            if i in foot:
-                pixels[dest : dest + 4] = bytes((0, 0, 0, CONTACT_SHADOW_ALPHA))
-            # Isolated specks of the matte on the body are leftover chroma.
+        # Foot-blob only. The same index on the body is clothes (Help's
+        # dark folds), not leftover chroma — keep those pixels opaque.
+        if index in shadows and i in foot:
+            pixels[dest : dest + 4] = bytes((0, 0, 0, CONTACT_SHADOW_ALPHA))
             continue
         red, green, blue, alpha = palette.rgba(index)
         pixels[dest] = red

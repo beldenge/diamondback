@@ -21,6 +21,8 @@ export interface Frame {
 export interface OpcodeHost {
   call(name: string, args: Value[], ctx: VM): Promise<Value>;
   lookup?(name: string, ctx: VM): Proc | undefined;
+  /** Procs in inheritance order (scene → set, actor → cast). `passcode` tries the next. */
+  lookupChain?(name: string, ctx: VM): Proc[];
   log?(message: string): void;
 }
 
@@ -70,6 +72,7 @@ export class VM {
   me = "";
   target = "";
   lastResult: Value = 0;
+  lastFlow: Flow = "next";
   unimplemented = new Set<string>();
 
   constructor(readonly host: OpcodeHost) {}
@@ -258,11 +261,27 @@ export class VM {
     for (const arg of args) {
       values.push(await this.evalExpr(arg));
     }
-    const proc = this.host.lookup?.(name, this);
-    if (proc) {
+    const chain = this.host.lookupChain?.(name, this);
+    const procs =
+      chain && chain.length
+        ? chain
+        : (() => {
+            const one = this.host.lookup?.(name, this);
+            return one ? [one] : [];
+          })();
+    for (const proc of procs) {
       const result = await this.runProc(proc, values);
-      return result.value;
+      this.lastFlow = result.flow;
+      if (result.flow !== "passcode") {
+        this.lastResult = result.value;
+        return result.value;
+      }
     }
+    if (procs.length) {
+      this.lastFlow = "passcode";
+      return 0;
+    }
+    this.lastFlow = "next";
     return this.host.call(name, values, this);
   }
 

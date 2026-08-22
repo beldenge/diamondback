@@ -12,6 +12,10 @@ describe("mainpanel Mac rects", () => {
     expect(hitMacRect(MAINPANEL_BUTTONS, 450, 320)?.name).toBe("self");
   });
 
+  it("hits the skull as the menu, not the map or portrait", () => {
+    expect(hitMacRect(MAINPANEL_BUTTONS, 256, 330)?.name).toBe("horn");
+  });
+
   it("misses the stills above the bar", () => {
     expect(hitMacRect(MAINPANEL_BUTTONS, 256, 100)).toBeUndefined();
   });

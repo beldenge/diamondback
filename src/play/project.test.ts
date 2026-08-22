@@ -32,6 +32,7 @@ function actor(x: number, y: number): ActorState {
     walkTiming: [],
     zclip: 32,
     standSprites: [],
+    sprites: {},
     walkSprites: [],
     drinkSprites: [],
     spriteRoot: "",

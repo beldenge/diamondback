@@ -98,7 +98,7 @@ Puppet folder names (39): `_BLOOD`, `_BOLIVAR`, `_BUICK`, `_COBB`, `_DEAD`, `_DE
 | `Cast.txt` | Cast library: `initactors`, `runpuppet`, `walktopuppet`, `stdactor`, `stdscale` (town **1450**, interiors 2400–5800), `hotdist` (town **384**) |
 | `timing.json` | CST setInfo +0x2e pose tables per actor per `actorpose` (GANG 8-pose walk = 16 slots; EXTRA pig walk = 4) |
 | `sprites.json` | Per-actor stand/walk placement (`x,y,w,h`) on the 512×384 stage |
-| `<Actor>/<anim>/frame_<id>.png` | Body sprites. Foot blobs are contact shadows (translucent black), not maroon studio dirt. |
+| `<Actor>/<anim>/frame_<id>.png` | Body sprites. Foot blobs are contact shadows (translucent black), not maroon studio dirt. Black clothing (Help's robe) stays opaque. |
 
 `_EXTRA` = animals / Jenix beggar / bounty / kidgang. `_GANG` = named townspeople. `_TARGET` = shooting-gallery marks. `_MINE` = mine extras.
 

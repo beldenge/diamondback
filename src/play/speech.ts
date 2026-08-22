@@ -58,6 +58,62 @@ export class VoiceBank {
     await Promise.all([...new Set(urls.filter(Boolean))].map((url) => this.fetchRaw(url)));
   }
 
+  /** Seconds of a preloaded WAV, or 0. */
+  bufferDuration(url: string): number {
+    if (!url) {
+      return 0;
+    }
+    this.engage();
+    const raw = this.raw.get(url);
+    if (!raw) {
+      return 0;
+    }
+    return this.decodeRaw(url, raw)?.duration ?? 0;
+  }
+
+  /** One-shot world/UI WAV. Does not stop speech or set the viseme clock. */
+  async playFx(url: string, volume = 0.8, loop = false): Promise<() => void> {
+    this.engage();
+    const raw = this.raw.get(url) ?? (await this.fetchRaw(url));
+    const ctx = this.ctx;
+    if (!raw || !ctx) {
+      return () => undefined;
+    }
+    const buffer = this.decodeRaw(url, raw);
+    if (!buffer) {
+      return () => undefined;
+    }
+    const gain = ctx.createGain();
+    gain.gain.value = Math.max(0, Math.min(1, volume));
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = loop;
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    const stop = (): void => {
+      try {
+        source.stop();
+      } catch {
+        /* already stopped */
+      }
+      try {
+        source.disconnect();
+        gain.disconnect();
+      } catch {
+        /* already disconnected */
+      }
+    };
+    try {
+      if (ctx.state !== "running") {
+        await ctx.resume();
+      }
+      source.start();
+    } catch {
+      return () => undefined;
+    }
+    return stop;
+  }
+
   async play(url: string): Promise<number> {
     const raw = this.raw.get(url) ?? (await this.fetchRaw(url));
     const duration = raw ? wavDurationSec(raw) : 0;

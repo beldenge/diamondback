@@ -1,9 +1,9 @@
 import type { Proc } from "../vm/ast";
-import { num, str, VM, type OpcodeHost, type Value } from "../vm/runtime";
+import { num, str, VM, type OpcodeHost, type Point, type Value } from "../vm/runtime";
 import { extractUrl } from "../world/set/extract";
 import type { Dir, SetGraph, WalkerPose } from "../world/set/types";
 import { loadSetGraph, parseDir, sceneByName, tileKey, WORLD_TOWN } from "../world/set/graph";
-import { routeToStar, type RoutePoint, type StarPath } from "../world/set/path";
+import { routeToStar, TILE_SPAN, type RoutePoint, type StarPath } from "../world/set/path";
 import {
   calcDeg,
   calcVect,
@@ -22,6 +22,21 @@ import type { ViewCamera } from "./facing";
 import { ScriptIndex, loadScriptJson } from "./scripts";
 import { asCenter, type PuppetSheet, type PuppetUi, type SpritePlace, type VisemeLine } from "./ui";
 import { voices } from "./speech";
+import {
+  HOUSE_GROUPS,
+  INVEN_GROUPS,
+  propScriptRels,
+  shopScriptRels,
+} from "./propCatalog";
+import {
+  clipUrl,
+  fallbackTimeline,
+  frameUrl,
+  isIntroMovie,
+  movieFolder,
+  type MovieTimeline,
+} from "./movies";
+import { isTownGridSize, parseScriptScene, scriptSceneName } from "./sceneName";
 
 export interface Waypoint {
   x: number;
@@ -63,8 +78,30 @@ export interface ActorState {
   standSprites: SpritePlace[];
   walkSprites: SpritePlace[];
   drinkSprites: SpritePlace[];
+  sprites: Record<string, SpritePlace[]>;
   spriteRoot: string;
   standUrl?: string;
+}
+
+export interface PropState {
+  name: string;
+  shop: string;
+  visible: boolean;
+  owner: string;
+  view: string;
+  set: string;
+  star: string;
+  x: number;
+  y: number;
+  z: number;
+  scale: number;
+  deg: number;
+  value: number;
+  speed: number;
+  zclip: number;
+  sprites: Record<string, SpritePlace[]>;
+  spriteRoot: string;
+  ball?: { vx: number; vy: number; vz: number; remaining: number };
 }
 
 interface ScriptLoop {
@@ -86,7 +123,19 @@ export interface WorldView {
   refreshActors(): void;
   /** Camera during a SET filmstrip; defaults to the standing pose. */
   viewCamera?(): ViewCamera;
+  playMovie?(
+    frames: { url: string; holdSec: number }[],
+    clips: { url: string; startSec: number; channel?: string }[],
+  ): Promise<void>;
 }
+
+/** Scene dumps that actually contain scripts (not every cell in the 225 table). */
+const TOWN_SCENE_FILES = [
+  "Scene A7", "Scene B11", "Scene C5", "Scene C12", "Scene D7", "Scene D8",
+  "Scene D10", "Scene E4", "Scene E12", "Scene F11", "Scene G4", "Scene G5",
+  "Scene G6", "Scene G8", "Scene G9", "Scene G10", "Scene G12", "Scene G14",
+  "Scene H11", "Scene J6", "Scene J9", "Scene K11",
+];
 
 const SET_FILE: Record<string, string> = {
   "town.set": "_TOWN",
@@ -129,7 +178,7 @@ const SET_FILE: Record<string, string> = {
 export class DustHost implements OpcodeHost {
   readonly index = new ScriptIndex();
   readonly actors = new Map<string, ActorState>();
-  readonly props = new Map<string, { owner: string; visible: boolean }>();
+  readonly props = new Map<string, PropState>();
   waypoints = new Map<string, Waypoint>();
   paths: StarPath[] = [];
   currentSet = "none";
@@ -154,7 +203,8 @@ export class DustHost implements OpcodeHost {
   >();
   private bevels: { id: number; label: string }[] = [];
   framerateValue = 3;
-  /** `random (n)` → `floor(rng() * n)`. Tests pin idle drink vs pivot. */
+  /** `random (n)` → `1..n`. Dust switches and `town.extra` @ numtostring use 1-based
+   * (`scream1..3`, `extra1..3`, pig `findscene` 1..6). */
   rng = Math.random;
   frameCounter = 0;
   /** Nested `forceupdate` count. Game tick must not also step actors. */
@@ -169,9 +219,20 @@ export class DustHost implements OpcodeHost {
   currentVoice = "none";
   currentTheme = "none";
   cursorName = "arrow";
+  pointer: Point = { kind: "point", x: 256, y: 132, z: 0 };
+  /** Last `hittest` kind (`actor` / `prop` / `scene` / `flat` / `none`). */
+  hitKind = "none";
+  /** True when the last click was consumed (actor/prop/handled scene). */
+  clickAbsorbed = false;
+  stillDown = false;
+  private currentFlatName = "none";
   private trackFolder = "_UNILIB";
-  private bed: HTMLAudioElement | null = null;
+  private bedStop: (() => void) | null = null;
   private pendingBed: string | null = null;
+  private loopSounds = new Map<string, () => void>();
+  private soundVolumes = new Map<string, number>();
+  private shopSprites = new Map<string, Record<string, Record<string, SpritePlace[]>>>();
+  private loadedScriptFiles = new Set<string>();
   private puppetSheet: PuppetSheet | null = null;
   private gangSprites: Record<string, Record<string, SpritePlace[]>> = {};
 
@@ -181,26 +242,34 @@ export class DustHost implements OpcodeHost {
     return this.index.lookup(this.lookupKeys(ctx), name);
   }
 
-  private lookupKeys(ctx: VM): string[] {
+  lookupChain(name: string, ctx: VM): Proc[] {
+    return this.index.lookupAll(this.lookupKeys(ctx), name);
+  }
+
+  lookupKeys(ctx: VM): string[] {
     const keys: string[] = [];
     const me = (ctx.me || "").toLowerCase();
     if (ctx.object === "actor" && me) {
       keys.push(`actor:${me}`);
       const actor = this.actors.get(me);
-      if (actor) {
-        keys.push(`cast:${actor.cast}`);
-      }
+      keys.push(`cast:${actor?.cast || "gang"}`);
     } else if (ctx.object === "cast" && me) {
       keys.push(`cast:${me}`);
     } else if (ctx.object === "shop" && me) {
       keys.push(`shop:${me}`);
+    } else if (ctx.object === "prop" && me) {
+      keys.push(`prop:${me}`);
+      const prop = this.props.get(me);
+      if (prop?.shop) {
+        keys.push(`shop:${prop.shop}`);
+      }
     } else if (ctx.object === "puppet") {
       if (me) {
         keys.push(`puppet:${me}`);
       }
       keys.push("puppet:boot script");
     } else if (ctx.object === "scene" && me) {
-      keys.push(`scene:${me}`);
+      keys.push(`scene:${me.toLowerCase()}`);
       keys.push("set");
     } else if (ctx.object === "set") {
       keys.push("set");
@@ -211,7 +280,6 @@ export class DustHost implements OpcodeHost {
     } else if (ctx.object === "flat" && me) {
       keys.push(`flat:${me}`);
     }
-    keys.push("stage", "boot");
     return keys;
   }
 
@@ -236,9 +304,21 @@ export class DustHost implements OpcodeHost {
       case "flushevents":
       case "closetrackfile":
       case "halttheme":
+        this.stopBed();
+        this.currentTheme = "none";
+        return 0;
       case "haltsound":
+        this.stopLoopSounds();
+        return 0;
       case "haltvoice":
+        this.currentVoice = "none";
+        voices.stop();
+        return 0;
       case "stopball":
+        for (const prop of this.props.values()) {
+          prop.ball = undefined;
+        }
+        return 0;
       case "pausewalk":
       case "pauseball":
       case "mixclut":
@@ -252,9 +332,151 @@ export class DustHost implements OpcodeHost {
         this.cursorName = "watch";
         return 0;
       case "path":
+        return 0;
+      case "result":
+        return ctx.lastResult;
+      case "sqrt":
+        return Math.sqrt(Math.max(0, num(args[0])));
+      case "abs":
+        return Math.abs(num(args[0]));
+      case "pointx":
+        return asPoint(args[0] ?? this.pointer).x;
+      case "pointy":
+        return asPoint(args[0] ?? this.pointer).y;
+      case "mouse":
+        return this.pointer;
+      case "stilldown":
+        return this.stillDown;
+      case "makepoint":
+        return {
+          kind: "point",
+          x: num(args[0]),
+          y: num(args[1]),
+          z: num(args[2]),
+        };
+      case "pointinset": {
+        const p = asPoint(args[0] ?? this.pointer);
+        return p.x >= 0 && p.x <= 512 && p.y >= 0 && p.y < 264;
+      }
+      case "pointinstage": {
+        const p = asPoint(args[0] ?? this.pointer);
+        return p.x >= 0 && p.x <= 512 && p.y >= 0 && p.y <= 384;
+      }
+      case "pointinactor": {
+        const actor = this.actors.get(str(args[0]).toLowerCase());
+        const p = asPoint(args[1] ?? this.pointer);
+        return actor?.visible ? this.pointHitsSprite(actor, p) : false;
+      }
+      case "pointinprop": {
+        const prop = this.props.get(str(args[0]).toLowerCase());
+        const p = asPoint(args[1] ?? this.pointer);
+        return prop?.visible ? this.pointHitsProp(prop, p) : false;
+      }
+      case "hittest": {
+        const name = this.hitTest(asPoint(args[0] ?? this.pointer));
+        ctx.lastResult = this.hitKind;
+        return name;
+      }
       case "propview":
+        return this.propField(ctx, args, "view", (prop, value) => {
+          prop.view = str(value);
+        });
       case "propxy":
+        return this.propXy(ctx, args);
       case "propxyz":
+        return this.propXyz(ctx, args);
+      case "propstar":
+        return this.setPropStar(ctx, args);
+      case "propset":
+        return this.propField(ctx, args, "set", (prop, value) => {
+          prop.set = str(value);
+        });
+      case "propscale":
+        return this.propField(ctx, args, "scale", (prop, value) => {
+          prop.scale = num(value);
+        });
+      case "propdeg":
+        return this.propField(ctx, args, "deg", (prop, value) => {
+          prop.deg = wrapDeg(num(value));
+        });
+      case "propvalue":
+        return this.propField(ctx, args, "value", (prop, value) => {
+          prop.value = num(value);
+        });
+      case "propspeed":
+        return this.propField(ctx, args, "speed", (prop, value) => {
+          prop.speed = num(value);
+        });
+      case "propzclip":
+        return this.propField(ctx, args, "zclip", (prop, value) => {
+          prop.zclip = num(value);
+        });
+      case "propdist": {
+        const prop = this.namedProp(str(args[0] ?? ctx.me));
+        if (args.length >= 2) {
+          return 0;
+        }
+        return this.spriteDist(prop);
+      }
+      case "actordist": {
+        const actor = this.namedActor(str(args[0] ?? ctx.me));
+        return this.spriteDist(actor);
+      }
+      case "propscript": {
+        const who = str(args[0] || ctx.me || ctx.target);
+        const hook = ctx.frame()?.procName ?? "";
+        const proc = this.index.lookup([`prop:${who.toLowerCase()}`], hook);
+        if (proc) {
+          await ctx.inObject("prop", who.toLowerCase(), () => ctx.runProc(proc));
+        }
+        return 0;
+      }
+      case "actorinstance":
+        this.instanceActor(str(args[0]), str(args[1]));
+        return 0;
+      case "propinstance":
+        this.instanceProp(str(args[0]), str(args[1]));
+        return 0;
+      case "scenexyz":
+        return this.sceneXyz(str(args[0]), args[1] !== undefined ? num(args[1]) : 4);
+      case "scenerow":
+      case "actorexists": {
+        const pose = this.scenePose(str(args[0]));
+        return pose ? pose.y + 1 : 0;
+      }
+      case "scenecol":
+      case "propexists": {
+        const pose = this.scenePose(str(args[0]));
+        return pose ? pose.x + 1 : 0;
+      }
+      case "wavevolume":
+        return 5;
+      case "themevol":
+        return 0;
+      case "soundvol":
+        this.soundVolumes.set(str(args[0]).toLowerCase(), num(args[1]));
+        return 0;
+      case "soundloop":
+        return this.soundLoop(str(args[0]), args.length < 2 ? true : truthyArg(args[1]));
+      case "makecricket":
+      case "makeball":
+        this.makeBall(str(args[0] ?? ctx.me), args);
+        return 0;
+      case "stopcricket": {
+        const who = str(args[0] ?? ctx.me).toLowerCase();
+        if (who === "all") {
+          for (const prop of this.props.values()) {
+            prop.ball = undefined;
+          }
+        } else {
+          this.namedProp(who).ball = undefined;
+        }
+        return 0;
+      }
+      case "iscricket":
+      case "isball":
+        return this.namedProp(str(args[0] ?? ctx.me)).ball ? 1 : 0;
+      case "actorwarm":
         return 0;
       case "findfile":
       case "fileexists":
@@ -276,16 +498,22 @@ export class DustHost implements OpcodeHost {
       case "currentvoice":
         return this.currentVoice;
       case "currenttheme":
+        if (args.length && this.trackFolder === "_NIGHT") {
+          return "nightwind3";
+        }
+        if (args.length && this.trackFolder === "_TOWN") {
+          return "daymusic5";
+        }
         return this.currentTheme;
       case "currentsound":
         return "none";
       case "voicesound":
-        this.playOneShot(str(args[0]));
+        await this.playVoice(str(args[0]));
         return 0;
       case "singlesound":
       case "dualsound":
       case "multiplesound":
-        this.playOneShot(str(args[0]));
+        await this.playFx(str(args[0]), false);
         return 0;
       case "opentrackfile":
         this.trackFolder = `_${str(args[0]).replace(/\.snd$/i, "").toUpperCase()}`;
@@ -312,8 +540,10 @@ export class DustHost implements OpcodeHost {
       case "pauseloop":
         this.pauseLoop(str(args[0]), str(args[1] ?? "all"), truthyArg(args[2]));
         return 0;
-      case "random":
-        return Math.floor(this.rng() * Math.max(1, num(args[0])));
+      case "random": {
+        const n = Math.max(1, Math.trunc(num(args[0])));
+        return 1 + Math.floor(this.rng() * n);
+      }
       case "numtostring":
         return String(Math.trunc(num(args[0])));
       case "stringtonum":
@@ -321,7 +551,7 @@ export class DustHost implements OpcodeHost {
       case "findword":
         return findWord(str(args[0]), str(args[1]), num(args[2]));
       case "playmovie":
-        this.view?.log(`movie ${str(args[0])}`);
+        await this.playMovie(str(args[0]));
         return 0;
       case "delay":
         await sleep(Math.max(0, num(args[0]) / 60) * 1000);
@@ -365,7 +595,11 @@ export class DustHost implements OpcodeHost {
       case "currentstage":
         return this.index.has("stage") ? "new" : "none";
       case "currentflat":
-        return "none";
+        if (args.length) {
+          this.currentFlatName = str(args[0]).toLowerCase();
+          return this.currentFlatName;
+        }
+        return this.currentFlatName;
       case "currentscene":
         if (args.length) {
           return this.handleScene(str(args[0]));
@@ -383,7 +617,7 @@ export class DustHost implements OpcodeHost {
           }
           return str(args[0]);
         }
-        return String(this.currentDir).toLowerCase();
+        return dirWord(this.currentDir);
       case "setvisible":
       case "stagevisible":
         return true;
@@ -391,7 +625,10 @@ export class DustHost implements OpcodeHost {
         return this.actors.size;
       case "indextoactor": {
         const i = num(args[0]) - 1;
-        return [...this.actors.keys()][i] ?? "";
+        const name = [...this.actors.keys()][i] ?? "";
+        const actor = this.actors.get(name);
+        ctx.lastResult = actor?.cast ?? "";
+        return name;
       }
       case "countprops":
         return this.props.size;
@@ -705,6 +942,7 @@ export class DustHost implements OpcodeHost {
 
   /** One DF game frame: `actorspeed` / `actorturn` / one CST pose-table slot. */
   advanceActorsOnce(): void {
+    this.advanceBalls();
     let moved = false;
     for (const actor of this.actors.values()) {
       if (actor.walking) {
@@ -869,6 +1107,10 @@ export class DustHost implements OpcodeHost {
     for (const loop of due) {
       await ctx.inObject(loop.kind, loop.who, () => ctx.evalCall(loop.proc, []));
     }
+    const balls = this.ballEnds.splice(0);
+    for (const name of balls) {
+      await ctx.inObject("prop", name, () => ctx.evalCall("endball", [{ type: "str", value: "frames" }]));
+    }
   }
 
   /**
@@ -897,17 +1139,52 @@ export class DustHost implements OpcodeHost {
     }
     this.currentScene = lower.startsWith("scene") ? lower : `scene ${lower}`;
     const graph = this.view?.graph;
-    if (graph) {
-      const scene = sceneByName(graph, this.currentScene);
-      if (scene && this.view) {
+    if (graph && this.view) {
+      const pose = this.poseFromSceneName(graph, this.currentScene);
+      if (pose) {
         void this.view.setPose(this.view.world, {
-          x: scene.x,
-          y: scene.y,
+          ...pose,
           facing: parseDir(String(this.currentDir)) ?? this.view.pose.facing,
         });
       }
     }
     return this.currentScene;
+  }
+
+  poseFromSceneName(
+    graph: SetGraph,
+    name: string,
+  ): { x: number; y: number } | undefined {
+    return this.scenePose(name, graph);
+  }
+
+  scenePose(name: string, graph?: SetGraph): { x: number; y: number } | undefined {
+    const g = graph ?? this.view?.graph;
+    const parsed = parseScriptScene(name);
+    if (parsed && (!g || isTownGridSize(g.scenes.size))) {
+      return parsed;
+    }
+    if (!g) {
+      return parsed;
+    }
+    const scene = sceneByName(g, name);
+    if (!scene) {
+      return parsed;
+    }
+    // Town table (x,y) is Pascal (col, row). Script space is the transpose:
+    // `chicken` at table (10, 3) is farm slot d11 (3, 10), between c11 and e11.
+    if (isTownGridSize(g.scenes.size)) {
+      return { x: scene.y, y: scene.x };
+    }
+    return { x: scene.x, y: scene.y };
+  }
+
+  sceneNameForPose(graph: SetGraph, x: number, y: number): string {
+    if (isTownGridSize(graph.scenes.size)) {
+      return scriptSceneName(x, y);
+    }
+    const rec = graph.scenes.get(tileKey(x, y));
+    return rec?.name.toLowerCase() ?? `scene ${String.fromCharCode(97 + y)}${x + 1}`;
   }
 
   namedActor(name: string): ActorState {
@@ -945,6 +1222,7 @@ export class DustHost implements OpcodeHost {
         standSprites: [],
         walkSprites: [],
         drinkSprites: [],
+        sprites: {},
         spriteRoot: "",
       };
       this.actors.set(key, actor);
@@ -952,11 +1230,33 @@ export class DustHost implements OpcodeHost {
     return actor;
   }
 
-  ensureProp(name: string): { owner: string; visible: boolean } {
+  namedProp(name: string): PropState {
+    return this.ensureProp(name);
+  }
+
+  ensureProp(name: string): PropState {
     const key = name.toLowerCase();
     let prop = this.props.get(key);
     if (!prop) {
-      prop = { owner: "none", visible: false };
+      prop = {
+        name: key,
+        shop: "",
+        visible: false,
+        owner: "none",
+        view: "",
+        set: "",
+        star: "",
+        x: 0,
+        y: 0,
+        z: 0,
+        scale: 1450,
+        deg: 0,
+        value: 0,
+        speed: 8,
+        zclip: 0,
+        sprites: {},
+        spriteRoot: "",
+      };
       this.props.set(key, prop);
     }
     return prop;
@@ -1082,6 +1382,7 @@ export class DustHost implements OpcodeHost {
       const actor = this.namedActor(name);
       actor.cast = cast;
       actor.spriteRoot = dir;
+      actor.sprites = poses;
       actor.standSprites = poses.stand ?? [];
       actor.walkSprites = poses.walk ?? poses.lowwalk ?? [];
       actor.drinkSprites = poses.drink ?? [];
@@ -1092,43 +1393,67 @@ export class DustHost implements OpcodeHost {
   }
 
   private async openStage(name: string): Promise<void> {
-    const folder = setFolderFromFile(name) ?? "_NEW";
     const stem = name.replace(/\.flt$/i, "").toUpperCase();
-    const rel = name.toLowerCase().endsWith(".flt")
-      ? `FLT/_${stem}/setcursor _arg_.json`
-      : `FLT/${folder}/setcursor _arg_.json`;
-    try {
-      const procs = await loadScriptJson(rel);
-      for (const proc of procs) {
-        this.index.add("stage", proc, rel);
-      }
-    } catch {
-      const fallback = `FLT/_NEW/setcursor _arg_.json`;
-      const procs = await loadScriptJson(fallback);
-      for (const proc of procs) {
-        this.index.add("stage", proc, fallback);
-      }
+    const folder = `FLT/_${stem}`;
+    const files = [
+      "setcursor _arg_.json",
+      "openflat.json",
+      "death.json",
+      "mousedown _arg_.json",
+    ];
+    for (const file of files) {
+      const rel = `${folder}/${file}`;
+      const key = file.startsWith("openflat")
+        ? "flat:mainpanel"
+        : file.startsWith("death")
+          ? "flat:death"
+          : "stage";
+      await this.addScriptFile(key, rel);
     }
   }
 
   private async openShop(name: string): Promise<void> {
-    const stem = name.replace(/\.prp$/i, "").toUpperCase();
-    const key = `shop:${stem.toLowerCase()}`;
-    const prefix = `PRP/_${stem}`;
-    const files = stem === "INVEN"
-      ? ["setcursor _arg__1.json"]
-      : ["setcursor _arg__1.json"];
-    for (const file of files) {
-      try {
-        const procs = await loadScriptJson(`${prefix}/${file}`);
-        for (const proc of procs) {
-          this.index.add(key, proc, `${prefix}/${file}`);
-        }
-      } catch {
-        /* optional */
+    const stem = name.replace(/\.prp$/i, "").toLowerCase();
+    const shop = stem === "inven" || stem === "house" ? stem : stem;
+    const key = `shop:${shop}`;
+    const groups = shop === "inven" ? INVEN_GROUPS : shop === "house" ? HOUSE_GROUPS : [];
+    for (const rel of shopScriptRels(shop === "inven" ? "inven" : "house")) {
+      await this.addScriptFile(key, rel);
+    }
+    const folder = shop === "inven" ? "PRP/_INVEN" : "PRP/_HOUSE";
+    const sheet = await loadPropSheet(folder);
+    const byGroup: Record<string, Record<string, SpritePlace[]>> = {};
+    for (const rec of sheet) {
+      const group = (rec.group ?? "").toLowerCase();
+      const state = (rec.state ?? "base").toLowerCase();
+      if (!group || !rec.path) {
+        continue;
       }
+      const bag = byGroup[group] ?? (byGroup[group] = {});
+      const frames = bag[state] ?? (bag[state] = []);
+      frames.push({
+        path: rec.path,
+        x: rec.x ?? 0,
+        y: rec.y ?? 0,
+        w: rec.w ?? 0,
+        h: rec.h ?? 0,
+      });
+    }
+    this.shopSprites.set(shop, byGroup);
+    for (const group of groups) {
+      const prop = this.ensureProp(group.name);
+      prop.shop = shop;
+      prop.spriteRoot = folder;
+      prop.sprites = byGroup[group.name.toLowerCase()] ?? {};
+      for (const rel of propScriptRels(group)) {
+        await this.addScriptFile(`prop:${group.name.toLowerCase()}`, rel);
+      }
+      this.pendingOpenProps.push(group.name.toLowerCase());
     }
   }
+
+  private pendingOpenProps: string[] = [];
+  private pendingOpenActors: string[] = [];
 
   private async openCast(name: string): Promise<void> {
     const stem = name.replace(/\.cst$/i, "").toUpperCase();
@@ -1159,6 +1484,7 @@ export class DustHost implements OpcodeHost {
         const state = this.namedActor(actor);
         state.cast = stem.toLowerCase();
         state.standUrl = stand;
+        this.pendingOpenActors.push(actor.toLowerCase());
       } catch {
         /* skip */
       }
@@ -1199,19 +1525,26 @@ export class DustHost implements OpcodeHost {
     this.currentSetFile = name.toLowerCase();
     const graph = await loadSetGraph(folder);
     await this.loadWaypoints(folder);
-    try {
-      const boot = await loadScriptJson(`SET/${folder}/Boot Script.json`);
-      for (const proc of boot) {
-        this.index.add("set", proc, `SET/${folder}/Boot Script.json`);
-      }
-    } catch {
-      /* some sets have no boot */
+    this.index.removePrefix("set");
+    this.index.removePrefix("scene:");
+    await this.addScriptFile("set", `SET/${folder}/Boot Script.json`);
+    await this.addScriptFile("scene:chicken", `SET/${folder}/chicken.json`);
+    const files = isTownGridSize(graph.scenes.size)
+      ? TOWN_SCENE_FILES
+      : [...graph.scenes.values()]
+          .map((scene) => scene.name)
+          .filter((name, i, all) => Boolean(name) && all.indexOf(name) === i);
+    for (const fileName of files) {
+      await this.addScriptFile(
+        `scene:${fileName.toLowerCase()}`,
+        `SET/${folder}/${fileName}.json`,
+      );
     }
     if (this.view) {
       const world = this.currentSet === "town" ? WORLD_TOWN : folder;
       let pose = this.view.pose;
-      const named = sceneByName(graph, this.currentScene);
-      if (named && graph.cameraTiles.has(tileKey(named.x, named.y))) {
+      const named = this.poseFromSceneName(graph, this.currentScene);
+      if (named) {
         pose = {
           x: named.x,
           y: named.y,
@@ -1219,12 +1552,51 @@ export class DustHost implements OpcodeHost {
         };
       }
       await this.view.setPose(world, pose);
+      this.currentScene = this.sceneNameForPose(graph, pose.x, pose.y);
     }
-    const openset = this.index.lookup(["set"], "openset");
-    if (openset && this.view) {
-      /* caller may invoke openset */
+  }
+
+  private async addScriptFile(key: string, rel: string): Promise<void> {
+    const mark = `${key}::${rel}`;
+    if (this.loadedScriptFiles.has(mark)) {
+      return;
     }
-    void graph;
+    try {
+      const procs = await loadScriptJson(rel);
+      for (const proc of procs) {
+        this.index.add(key, proc, rel);
+      }
+      this.loadedScriptFiles.add(mark);
+    } catch {
+      /* missing dump */
+    }
+  }
+
+  /**
+   * Load boot + stage + casts + shops so `boot()` can run. Then fire
+   * `openactor` / `openprop` clones (horse2, table2, …).
+   */
+  async installLibrary(vm: VM): Promise<void> {
+    await this.bootIndex();
+    await this.openStage("new.flt");
+    await this.openCast("gang.cst");
+    await this.openCast("extra.cst");
+    await this.openShop("house.prp");
+    await this.openShop("inven.prp");
+    for (const name of this.pendingOpenActors) {
+      const proc = this.index.lookup([`actor:${name}`], "openactor");
+      if (proc) {
+        await vm.inObject("actor", name, () => vm.runProc(proc));
+      }
+    }
+    this.pendingOpenActors = [];
+    for (const name of this.pendingOpenProps) {
+      const proc = this.index.lookup([`prop:${name}`], "openprop");
+      if (proc) {
+        await vm.inObject("prop", name, () => vm.runProc(proc));
+      }
+    }
+    this.pendingOpenProps = [];
   }
 
   async preloadPuppet(name: string): Promise<void> {
@@ -1371,60 +1743,381 @@ export class DustHost implements OpcodeHost {
   }
 
   private playBed(name: string): void {
+    this.pendingBed = name;
+    this.currentTheme = name;
     const url = this.soundUrl(name);
     this.stopBed();
-    const audio = new Audio(url);
-    audio.loop = true;
-    audio.volume = 0.45;
-    this.bed = audio;
-    this.currentTheme = name;
-    void audio.play().catch(() => {
-      /* first user gesture will retry */
+    void voices.playFx(url, 0.45, true).then((stop) => {
+      this.bedStop = stop;
     });
   }
 
   resumeBed(): void {
-    if (!this.bed && this.pendingBed) {
+    if (!this.bedStop && this.pendingBed) {
       this.playBed(this.pendingBed);
-      return;
-    }
-    if (this.bed && this.bed.paused) {
-      void this.bed.play().catch(() => undefined);
     }
   }
 
   private stopBed(): void {
-    if (!this.bed) {
-      return;
-    }
-    this.bed.pause();
-    this.bed.src = "";
-    this.bed = null;
+    this.bedStop?.();
+    this.bedStop = null;
   }
 
-  private playOneShot(name: string): void {
+  private stopLoopSounds(): void {
+    for (const stop of this.loopSounds.values()) {
+      stop();
+    }
+    this.loopSounds.clear();
+  }
+
+  private async playVoice(name: string): Promise<void> {
     this.currentVoice = name;
-    const audio = new Audio(this.soundUrl(name));
-    audio.volume = 0.8;
-    audio.addEventListener("ended", () => {
-      if (this.currentVoice === name) {
-        this.currentVoice = "none";
-      }
-    });
-    void audio.play().catch(() => {
+    const url = this.soundUrl(name);
+    await voices.play(url);
+    if (this.currentVoice === name) {
       this.currentVoice = "none";
-    });
+    }
+  }
+
+  private async playFx(name: string, loop: boolean): Promise<void> {
+    const url = this.soundUrl(name);
+    const vol = (this.soundVolumes.get(name.toLowerCase()) ?? 160) / 256;
+    const stop = await voices.playFx(url, Math.max(0.15, Math.min(1, vol)), loop);
+    if (loop) {
+      this.loopSounds.get(name.toLowerCase())?.();
+      this.loopSounds.set(name.toLowerCase(), stop);
+    }
+  }
+
+  private soundLoop(name: string, on: boolean): number {
+    const key = name.toLowerCase();
+    if (!on) {
+      this.loopSounds.get(key)?.();
+      this.loopSounds.delete(key);
+      return 0;
+    }
+    if (this.loopSounds.has(key)) {
+      return 1;
+    }
+    void this.playFx(name, true);
+    return 1;
   }
 
   private soundUrl(name: string): string {
     const stem = name.replace(/\.(snd|wav)$/i, "");
+    const lower = stem.toLowerCase();
     if (name.toLowerCase().endsWith(".snd") || name.toLowerCase().includes(".snd")) {
       return extractUrl(`SND/${this.trackFolder}/${stem}.snd.wav`);
     }
     const file = name.toLowerCase().endsWith(".wav") ? name : `${stem}.wav`;
-    return extractUrl(`SND/${this.trackFolder}/${file}`);
+    const unilib = /^(knock|door|inven|gun|hey|hotbell|gate|ricochet|manfalls|pageturn)/.test(lower);
+    const folder = unilib ? "_UNILIB" : this.trackFolder;
+    return extractUrl(`SND/${folder}/${file}`);
+  }
+
+  private hitTest(point: Point): string {
+    this.clickAbsorbed = false;
+    const hits: { kind: "actor" | "prop"; name: string; forward: number }[] = [];
+    const cam = this.view?.viewCamera?.() ?? (this.view ? cameraFromPose(this.view.pose) : null);
+    for (const actor of this.nearbyActors()) {
+      if (!this.pointHitsSprite(actor, point)) {
+        continue;
+      }
+      const still = cam ? worldToStill(actor, cam) : null;
+      hits.push({ kind: "actor", name: actor.name, forward: still?.forward ?? 0 });
+    }
+    for (const prop of this.nearbyProps()) {
+      if (!this.pointHitsProp(prop, point)) {
+        continue;
+      }
+      const hud = prop.view === "large" || prop.view === "panel" || prop.view === "hilite";
+      if (hud && point.y < 264) {
+        continue;
+      }
+      const still = !hud && cam ? worldToStill(prop, cam) : null;
+      hits.push({
+        kind: "prop",
+        name: prop.name,
+        forward: hud ? -1 : (still?.forward ?? 0),
+      });
+    }
+    hits.sort((a, b) => a.forward - b.forward);
+    const top = hits[0];
+    if (top) {
+      this.hitKind = top.kind;
+      this.clickAbsorbed = true;
+      return top.name;
+    }
+    if (point.y >= 0 && point.y < 264 && point.x >= 0 && point.x <= 512) {
+      this.hitKind = "scene";
+      return this.currentScene;
+    }
+    this.hitKind = "none";
+    return "none";
+  }
+
+  nearbyProps(): PropState[] {
+    return [...this.props.values()].filter((prop) => {
+      if (!prop.visible) {
+        return false;
+      }
+      if (prop.view === "large" || prop.view === "panel" || prop.view === "hilite") {
+        return true;
+      }
+      if (prop.set && prop.set !== this.currentSet && prop.set !== "town") {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  private pointHitsSprite(actor: ActorState, point: Point): boolean {
+    const cam = this.view?.viewCamera?.() ?? (this.view ? cameraFromPose(this.view.pose) : null);
+    if (!cam) {
+      return false;
+    }
+    const still = worldToStill(actor, cam);
+    return still !== null && Math.abs(still.x - point.x) < 40 && still.y - point.y < 80 && point.y <= still.y + 10;
+  }
+
+  private pointHitsProp(prop: PropState, point: Point): boolean {
+    if (prop.view === "large" || prop.view === "panel" || prop.view === "hilite") {
+      return Math.abs(prop.x - point.x) < 40 && Math.abs(prop.y - point.y) < 40;
+    }
+    const cam = this.view?.viewCamera?.() ?? (this.view ? cameraFromPose(this.view.pose) : null);
+    if (!cam) {
+      return false;
+    }
+    const still = worldToStill(prop, cam);
+    return still !== null && Math.abs(still.x - point.x) < 36 && Math.abs(still.y - point.y) < 40;
+  }
+
+  private spriteDist(obj: { x: number; y: number; z?: number }): number {
+    const cam = this.view?.viewCamera?.() ?? (this.view ? cameraFromPose(this.view.pose) : null);
+    if (!cam || !this.view) {
+      return 32000;
+    }
+    const still = worldToStill(obj, cam);
+    if (!still) {
+      return 32000;
+    }
+    const p = playerWorldPoint(this.view.pose);
+    return Math.hypot(obj.x - p.x, obj.y - p.y);
+  }
+
+  private sceneXyz(name: string, axis: number): Value {
+    const parsed = this.scenePose(name);
+    const x = parsed ? parsed.x * TILE_SPAN + 128 : 0;
+    const y = parsed ? parsed.y * TILE_SPAN + 128 : 0;
+    if (axis === 1) {
+      return x;
+    }
+    if (axis === 2) {
+      return y;
+    }
+    if (axis === 3) {
+      return 0;
+    }
+    return { kind: "point", x, y, z: 0 };
+  }
+
+  private propField(
+    ctx: VM,
+    args: Value[],
+    field: keyof PropState,
+    set: (prop: PropState, value: Value) => void,
+  ): Value {
+    const prop = this.namedProp(str(args[0] ?? ctx.me));
+    if (args.length >= 2) {
+      set(prop, args[1]);
+      this.view?.refreshActors();
+    }
+    return prop[field] as Value;
+  }
+
+  private propXy(ctx: VM, args: Value[]): Value {
+    const prop = this.namedProp(str(args[0] ?? ctx.me));
+    if (args.length >= 3) {
+      prop.x = num(args[1]);
+      prop.y = num(args[2]);
+      this.view?.refreshActors();
+      return 0;
+    }
+    const axis = num(args[1]);
+    if (axis === 1) {
+      return prop.x;
+    }
+    if (axis === 2) {
+      return prop.y;
+    }
+    return { kind: "point", x: prop.x, y: prop.y, z: 0 };
+  }
+
+  private propXyz(ctx: VM, args: Value[]): Value {
+    const prop = this.namedProp(str(args[0] ?? ctx.me));
+    if (args.length >= 4) {
+      prop.x = num(args[1]);
+      prop.y = num(args[2]);
+      prop.z = num(args[3]);
+      this.view?.refreshActors();
+      return 0;
+    }
+    const axis = num(args[1]);
+    if (axis === 1) {
+      return prop.x;
+    }
+    if (axis === 2) {
+      return prop.y;
+    }
+    if (axis === 3) {
+      return prop.z;
+    }
+    return { kind: "point", x: prop.x, y: prop.y, z: prop.z };
+  }
+
+  private setPropStar(ctx: VM, args: Value[]): Value {
+    const prop = this.namedProp(str(args[0] ?? ctx.me));
+    if (args.length < 2) {
+      return prop.star;
+    }
+    const star = str(args[1]);
+    prop.star = star;
+    const point = this.starPoint(star);
+    if (point) {
+      prop.x = point.x;
+      prop.y = point.y;
+      prop.z = point.z;
+    }
+    this.view?.refreshActors();
+    return star;
+  }
+
+  private instanceActor(from: string, to: string): void {
+    const src = this.namedActor(from);
+    const dest = this.namedActor(to);
+    dest.cast = src.cast;
+    dest.spriteRoot = src.spriteRoot;
+    dest.standSprites = src.standSprites;
+    dest.walkSprites = src.walkSprites;
+    dest.drinkSprites = src.drinkSprites;
+    dest.sprites = src.sprites;
+    dest.poseTiming = src.poseTiming;
+    dest.scale = src.scale;
+    dest.speed = src.speed;
+    dest.turnSpeed = src.turnSpeed;
+    dest.zclip = src.zclip;
+    this.index.copyKey(`actor:${from.toLowerCase()}`, `actor:${to.toLowerCase()}`);
+  }
+
+  private instanceProp(from: string, to: string): void {
+    const src = this.namedProp(from);
+    const dest = this.namedProp(to);
+    dest.shop = src.shop;
+    dest.spriteRoot = src.spriteRoot;
+    dest.sprites = src.sprites;
+    dest.scale = src.scale;
+    dest.speed = src.speed;
+    dest.zclip = src.zclip;
+    this.index.copyKey(`prop:${from.toLowerCase()}`, `prop:${to.toLowerCase()}`);
+  }
+
+  private makeBall(who: string, args: Value[]): void {
+    const prop = this.namedProp(who);
+    prop.ball = {
+      vx: num(args[1]),
+      vy: num(args[2]),
+      vz: num(args[3]),
+      remaining: Math.max(1, num(args[6] ?? args[5] ?? 40)),
+    };
+  }
+
+  private advanceBalls(): void {
+    const done: string[] = [];
+    for (const prop of this.props.values()) {
+      const ball = prop.ball;
+      if (!ball) {
+        continue;
+      }
+      prop.x += ball.vx;
+      prop.y += ball.vy;
+      prop.z += ball.vz;
+      ball.remaining -= 1;
+      if (ball.remaining <= 0) {
+        prop.ball = undefined;
+        done.push(prop.name);
+      }
+    }
+    if (done.length) {
+      this.ballEnds.push(...done);
+      this.view?.refreshActors();
+    }
+  }
+
+  private readonly ballEnds: string[] = [];
+
+  async onArrive(ctx: VM): Promise<void> {
+    if (this.view) {
+      this.currentScene = this.sceneNameForPose(this.view.graph, this.view.pose.x, this.view.pose.y);
+      this.currentDir = this.view.pose.facing;
+    }
+    this.noticeCamera();
+    await ctx.inObject("scene", this.currentScene, () => ctx.evalCall("openscene", []));
+    if (ctx.lastFlow === "passcode") {
+      await ctx.inObject("set", "", () => ctx.evalCall("openscene", []));
+    }
+  }
+
+  async onLeave(ctx: VM): Promise<void> {
+    await ctx.inObject("scene", this.currentScene, () => ctx.evalCall("closescene", []));
+  }
+
+  async dispatchKey(ctx: VM, arg: string): Promise<void> {
+    await ctx.inObject("boot", "", () =>
+      ctx.evalCall("keydown", [{ type: "str", value: arg }]),
+    );
+  }
+
+  async dispatchMouse(ctx: VM, point: Point): Promise<boolean> {
+    this.pointer = point;
+    this.clickAbsorbed = false;
+    this.hitKind = "none";
+    const proc = this.index.lookup(["boot"], "mousedown");
+    if (proc) {
+      const result = await ctx.inObject("boot", "", () => ctx.runProc(proc, [point]));
+      if (this.hitKind === "actor" || this.hitKind === "prop" || result.flow === "exitcode") {
+        this.clickAbsorbed = true;
+      }
+    }
+    return this.clickAbsorbed;
+  }
+
+  private async playMovie(name: string): Promise<void> {
+    if (this.skipMovies && isIntroMovie(name)) {
+      this.view?.log(`skip ${name}`);
+      return;
+    }
+    const folder = movieFolder(name);
+    const timeline = await fetchJson<MovieTimeline>(extractUrl(`${folder}/timeline.json`)).catch(
+      () => fallbackTimeline(8),
+    );
+    const hz = timeline.tick_hz || 60;
+    const frames = timeline.frames.map((frame) => ({
+      url: frameUrl(folder, frame.container),
+      holdSec: Math.max(1, frame.hold_ticks || 0) / hz,
+    }));
+    const clips = (timeline.clips ?? []).map((clip) => ({
+      url: clipUrl(folder, clip.container),
+      startSec: clip.start_tick / hz,
+      channel: clip.channel,
+    }));
+    if (this.view?.playMovie && frames.length) {
+      await this.view.playMovie(frames, clips);
+    } else {
+      this.view?.log(`movie ${name}`);
+    }
   }
 }
+
 
 export function puppetFolder(stem: string): string {
   const name = stem.replace(/\.pup$/i, "").toUpperCase();
@@ -1478,6 +2171,36 @@ function setFolderFromFile(name: string): string | undefined {
   return SET_FILE[name.toLowerCase()];
 }
 
+const DIR_WORD: Record<string, string> = {
+  N: "north",
+  S: "south",
+  E: "east",
+  W: "west",
+};
+
+export function dirWord(dir: Dir | string): string {
+  const upper = String(dir).toUpperCase();
+  if (DIR_WORD[upper]) {
+    return DIR_WORD[upper]!;
+  }
+  const parsed = parseDir(dir);
+  return parsed ? DIR_WORD[parsed]! : String(dir).toLowerCase();
+}
+
+async function loadPropSheet(folder: string): Promise<
+  { group?: string; state?: string; path?: string; x?: number; y?: number; w?: number; h?: number }[]
+> {
+  const sidecar = await fetchJson<{
+    props?: { group?: string; state?: string; path?: string; x?: number; y?: number; w?: number; h?: number }[];
+  }>(extractUrl(`${folder}/sprites.json`)).catch(() => null);
+  if (sidecar?.props?.length) {
+    return sidecar.props;
+  }
+  return fetchJson<
+    { group?: string; state?: string; path?: string; x?: number; y?: number; w?: number; h?: number }[]
+  >(extractUrl(`${folder}/props.json`)).catch(() => []);
+}
+
 function truthyArg(value: Value): boolean {
   return value !== 0 && value !== false && value !== "" && value !== undefined;
 }
@@ -1488,11 +2211,11 @@ function calcDist(a: Value, b: Value): number {
   return Math.hypot(pa.x - pb.x, pa.y - pb.y);
 }
 
-function asPoint(value: Value): { x: number; y: number; z: number } {
+function asPoint(value: Value): Point {
   if (value && typeof value === "object" && value.kind === "point") {
     return value;
   }
-  return { x: 0, y: 0, z: 0 };
+  return { kind: "point", x: 0, y: 0, z: 0 };
 }
 
 function xyzAxis(args: Value[], x: number, y: number): Value {
@@ -1536,7 +2259,9 @@ async function waitGameFrame(framerate: number): Promise<void> {
   const t0 = performance.now();
   await nextFrame();
   const left = ms - (performance.now() - t0);
-  const inVitest = typeof process !== "undefined" && Boolean(process.env?.VITEST);
+  const inVitest = Boolean(
+    (globalThis as { process?: { env?: { VITEST?: string } } }).process?.env?.VITEST,
+  );
   if (!inVitest && left > 1) {
     await sleep(left);
   }

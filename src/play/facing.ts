@@ -268,15 +268,29 @@ export interface ViewCamera {
   deg: number;
 }
 
+/**
+ * SET +26 (town/nite 62). DF.EXE `0x40dcd0` Y is
+ * `132 − 310*(objZ − camZ)/forward`. Play does **not** use that for
+ * placement: it drops the N7 jug off the still and walks actors down
+ * the photographed ground. Keep it here as the traced value.
+ */
+export const CAMERA_HEIGHT = 62;
+
+/** Mac dest-rect half-height. DF.EXE `0x40d279`. */
+export const STILL_CENTER_Y = STILL_HEIGHT / 2;
+
 export function cameraFromPose(pose: { x: number; y: number; facing: string }): ViewCamera {
   const feet = playerWorldPoint(pose);
   return { x: feet.x, y: feet.y, deg: dirToDeg(pose.facing as Dir) };
 }
 
 /**
- * SET filmstrips are 5 motion frames then dest HQ. Lerp the camera
- * through that so sprites don't sit on the start pose until a snap —
- * a right turn at O7 looked like he jumped onto the O8 road.
+ * SET filmstrips are 5 motion frames then dest HQ. DF.EXE `0x40dd90`
+ * walks `index*64` along the facing axis and turns `index*16` look-deg
+ * (then setback on that heading). Play still lerps **XY** on forward
+ * walks so sprites ride the strip. In-place turns keep the **start**
+ * camera: a 90° pinhole yaw on 1/z Y skates every ground sprite, and
+ * the filmed pan is not that swing.
  */
 export function lerpViewCamera(
   from: { x: number; y: number; facing: string },
@@ -293,24 +307,31 @@ export function lerpViewCamera(
   };
 }
 
+export function filmstripCamera(
+  from: { x: number; y: number; facing: string },
+  to: { x: number; y: number; facing: string },
+  t: number,
+): ViewCamera {
+  if (from.x === to.x && from.y === to.y) {
+    return cameraFromPose(from);
+  }
+  return lerpViewCamera(from, to, t);
+}
+
 /**
- * Project a world-space actor onto the 512×264 still.
- * `x,y` is the **hotspot** (ground point), not the PNG bbox.
+ * Project a world point onto the 512×264 still.
  *
- * **X** is DF.EXE `0x40dcd0`: rotate by TRIG sin/cos / 16384, then
- * `centerX + focal * right / forward` with focal **310**. The lens is
- * set back `CAMERA_SETBACK` along the view from the tile-center feet
- * (`0x40e081`). O7 N + `town.leroy1` → still-x **354**, matching the
- * original midline (~353). A 90° pinhole from the feet (focal 256,
- * tile 255) was 386 — too far right. 1/z X was ~306 — too far left.
+ * **X** is DF.EXE `0x40dcd0` (CST `0x415213` and PRP `0x428173`):
+ *   x = 256 + 310 * right / forward
+ * after yaw-rotate (TRIG/16384) with lens set back SET +24 (64).
  *
- * **Y and scale** still use 1/z from the *feet* forward so size and
- * ground Y stay in the SET Z=5 band (y=194–209). Engine Y is
- * `132 + camZ * 310 / forward` (town camZ = SET +26 = 62) which puts
- * the hotspot in Z=4 and clips feet; do not switch Y to that.
+ * **Y** is 1/z from the feet (`stillGroundY`), same as scale, so the
+ * hotspot stays in the SET Z band of the photograph. Engine Y
+ * (`132 − 310*(objZ−camZ)/forward`, camZ=62) is traced and unused:
+ * it hid the N7 jug and walked Leroy down the still.
  */
 export function worldToStill(
-  actor: ActorState,
+  actor: { x: number; y: number; z?: number },
   view: { x: number; y: number; facing: string } | ViewCamera,
 ): { x: number; y: number; forward: number } | null {
   const cam: ViewCamera =
@@ -324,12 +345,9 @@ export function worldToStill(
   const dy = actor.y - (cam.y + back.y);
   const forward = dx * f.x + dy * f.y;
   const right = dx * -f.y + dy * f.x;
-  // DF.EXE `cmp bx, 0x600` after setback (6×256).
   if (forward > TILE_SPAN * 6) {
     return null;
   }
-  // `walktopuppet` dest is the camera plane. Pinhole X is undefined at
-  // forward=0; keep a near-plane blit only if he's on-axis at your feet.
   if (forward <= 0) {
     if (forward < -16 || Math.abs(right) > 48) {
       return null;
@@ -360,6 +378,10 @@ export function actorSprite(
   cameraDeg: number,
 ): ActorState["standSprites"][number] | undefined {
   const oct = visibleOctant(actor.deg, cameraDeg);
+  const extra = actor.sprites?.[actor.pose];
+  if (extra?.length && actor.pose !== "walk" && actor.pose !== "drink" && actor.pose !== "stand") {
+    return extra.length >= 8 ? pickCyclic(extra, oct) : extra[0];
+  }
   if (actor.pose === "walk") {
     return (
       walkFrame(actor.walkSprites, oct, actor.walkStep, 8, actor.walkTiming) ??

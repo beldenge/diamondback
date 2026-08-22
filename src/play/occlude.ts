@@ -41,6 +41,50 @@ export function spriteOverZ(actorZ: number, stillZ: number): boolean {
   return actorZ <= stillZ;
 }
 
+/**
+ * How many SET Z planes closer than 1/z the hotspot may pull the
+ * billboard (Help’s Z=5 robe on Z=4 dirt). A building in front of a
+ * far actor is many planes closer — keep `computed` so the wall wins.
+ */
+export const GROUND_Z_SLACK = 1;
+
+/**
+ * Pin the billboard to the still Z under the hotspot only when that
+ * pixel is the ground he stands on. Unconditional `min(computed, feet)`
+ * put Leroy at the facade’s Z when his hotspot landed on a building
+ * toward the range, so he drew through every wall.
+ */
+export function actorBlitZ(
+  computed: number,
+  zPlane: Uint8Array | null,
+  hx: number,
+  hy: number,
+  width = STILL_WIDTH,
+  height = STILL_HEIGHT,
+): number {
+  if (!zPlane || zPlane.length < width * height) {
+    return computed;
+  }
+  const x = Math.round(hx);
+  const y = Math.round(hy);
+  if (x < 0 || x >= width || y < 0 || y >= height) {
+    return computed;
+  }
+  const feet = zPlane[y * width + x];
+  if (feet <= 0 || feet >= Z_SKY) {
+    return computed;
+  }
+  if (computed - feet > GROUND_Z_SLACK) {
+    return computed;
+  }
+  return Math.min(computed, feet);
+}
+
+/** Painter’s algorithm: farther still-forward first, nearer last (on top). */
+export function paintFarToNear<T extends { forward: number }>(items: T[]): T[] {
+  return [...items].sort((a, b) => b.forward - a.forward);
+}
+
 export interface SpriteBits {
   data: Uint8ClampedArray;
   w: number;
@@ -78,17 +122,27 @@ export function blitSpriteZ(
     for (let x = x0; x < x1; x++) {
       const srcX = Math.min(sprite.w - 1, Math.max(0, Math.floor((x - dx) * inv)));
       const si = (srcY * sprite.w + srcX) * 4;
-      const a = sprite.data[si + 3];
-      if (a < 8) {
+      const r = sprite.data[si];
+      const g = sprite.data[si + 1];
+      const b = sprite.data[si + 2];
+      let a = sprite.data[si + 3];
+      if (a === 0) {
         continue;
+      }
+      // Contact shadow is translucent black. Everything else is clothes —
+      // Help's robe is (0,0,0). Canvas premultiply must not punch it.
+      if (!(r === 0 && g === 0 && b === 0 && a < 255)) {
+        a = 255;
+      } else if (a < 8) {
+        a = 255;
       }
       if (zPlane && !spriteOverZ(actorZ, zPlane[row + x])) {
         continue;
       }
       const di = (row + x) * 4;
-      dest[di] = sprite.data[si];
-      dest[di + 1] = sprite.data[si + 1];
-      dest[di + 2] = sprite.data[si + 2];
+      dest[di] = r;
+      dest[di + 1] = g;
+      dest[di + 2] = b;
       dest[di + 3] = a;
       pick[row + x] = pickId;
     }
@@ -106,5 +160,22 @@ export function zPlaneFromImageData(image: ImageData): Uint8Array {
 }
 
 export function spriteBitsFromImageData(image: ImageData): SpriteBits {
-  return { data: image.data, w: image.width, h: image.height };
+  const data = new Uint8ClampedArray(image.data);
+  for (let i = 0; i < data.length; i += 4) {
+    const a = data[i + 3];
+    if (a === 0) {
+      continue;
+    }
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    if (r === 0 && g === 0 && b === 0 && a < 255) {
+      if (a < 8) {
+        data[i + 3] = 255;
+      }
+      continue;
+    }
+    data[i + 3] = 255;
+  }
+  return { data, w: image.width, h: image.height };
 }

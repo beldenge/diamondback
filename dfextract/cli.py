@@ -23,7 +23,7 @@ if str(HERE) not in sys.path:
 from boot import extract_boot, write_boot_scripts
 from catalog import write_catalog
 from container import DFError, MAGIC, read_df_file
-from cst import extract_cst, write_cst_frames, write_cst_scripts
+from cst import extract_cst, write_cst_frames, write_cst_scripts, write_cst_timing
 from flt import write_flt_extract
 from mov import find_ffmpeg, write_mov_extract
 from prp import write_prp_extract

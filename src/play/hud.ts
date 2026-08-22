@@ -10,11 +10,11 @@ export interface MacRect {
   name: string;
 }
 
-/** NEW.FLT container 4 — mainpanel HUD hits (proven Mac Rect). */
+/** HUD chrome hits in 512×384 stage pixels. Map / skull-menu / portrait. */
 export const MAINPANEL_BUTTONS: MacRect[] = [
-  { name: "map", top: 291, left: 39, bottom: 357, right: 125 },
-  { name: "horn", top: 275, left: 149, bottom: 375, right: 251 },
-  { name: "self", top: 268, left: 395, bottom: 379, right: 507 },
+  { name: "map", top: 280, left: 24, bottom: 372, right: 128 },
+  { name: "horn", top: 268, left: 145, bottom: 384, right: 372 },
+  { name: "self", top: 264, left: 390, bottom: 384, right: 512 },
 ];
 
 /** NEW.FLT container 10 — avatar / inventory. */
@@ -48,10 +48,19 @@ export function stageFromHudClick(
   };
 }
 
+export interface FlatItem {
+  url: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export class FlatOverlay {
   readonly root: HTMLDivElement;
   private readonly img: HTMLImageElement;
   private readonly cash: HTMLDivElement;
+  private readonly itemsEl: HTMLDivElement;
   private kind: string | null = null;
   onClose: (() => void) | null = null;
 
@@ -64,7 +73,9 @@ export class FlatOverlay {
     this.img.draggable = false;
     this.cash = document.createElement("div");
     this.cash.id = "play-flat-cash";
-    this.root.append(this.img, this.cash);
+    this.itemsEl = document.createElement("div");
+    this.itemsEl.id = "play-flat-items";
+    this.root.append(this.img, this.itemsEl, this.cash);
     this.root.addEventListener("click", (event) => this.onClick(event));
   }
 
@@ -72,7 +83,7 @@ export class FlatOverlay {
     return this.kind !== null;
   }
 
-  show(kind: "map" | "avatar" | "score", cash = 0): void {
+  show(kind: "map" | "avatar" | "score", cash = 0, items: FlatItem[] = []): void {
     const url = FLAT_STILL[kind];
     if (!url) {
       return;
@@ -82,10 +93,27 @@ export class FlatOverlay {
     this.root.hidden = false;
     this.cash.hidden = kind !== "avatar";
     this.cash.textContent = kind === "avatar" ? `$${cash}` : "";
+    this.setItems(kind === "avatar" ? items : []);
+  }
+
+  setItems(items: FlatItem[]): void {
+    this.itemsEl.replaceChildren();
+    for (const item of items) {
+      const img = document.createElement("img");
+      img.alt = "";
+      img.draggable = false;
+      img.src = item.url;
+      img.style.left = `${(item.x / STAGE_WIDTH) * 100}%`;
+      img.style.top = `${(item.y / STAGE_HEIGHT) * 100}%`;
+      img.style.width = `${(item.w / STAGE_WIDTH) * 100}%`;
+      img.style.height = `${(item.h / STAGE_HEIGHT) * 100}%`;
+      this.itemsEl.append(img);
+    }
   }
 
   close(): void {
     this.kind = null;
+    this.setItems([]);
     this.root.hidden = true;
     this.onClose?.();
   }

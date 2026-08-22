@@ -1,13 +1,62 @@
 # Play mode (`/?mode=play`)
 
 How the remake runs Day 1 night: original HUD under the stills, CST actors,
-and PUP talking-heads driven by extracted scripts. Extract formats live in
+PUP talking-heads, world props, night FX, and spot-movies, all driven by
+extracted DreamFactory scripts (boot → `advanceday` → SET/CST/PRP). Extract formats live in
 [`dfextract/docs/`](../../dfextract/docs/). This file is the **playback**
 book so we do not re-debug speech, visemes, the Firefox audio delay, or
 CST world→still X.
 
 Town sandbox (`/`) stays an unlocked stills walker:
 [`src/world/set/README.md`](../world/set/README.md).
+
+---
+
+## First evening (boot → scripts)
+
+Play mode runs extracted `boot()` then stage `advanceday()`. That is
+Day 1 night (`clock = 3`, `$5`, `nite.set`, script scene `g15` =
+filmed **O7** north). Do not hand-place Leroy or unlock doors — CST
+`initactors`, PRP `initprops`, and SET scene `lock*` procs are the
+gates.
+
+Town **script** names are column-letter + row (`scene g12` = filmed L7
+jail). SET Pascal names in `scenes.json` are the transpose (`Scene L7`).
+`currentscene("scene g15")` must not `sceneByName` Pascal G15 at (14,6).
+Code: [`sceneName.ts`](sceneName.ts).
+
+| Kind | Day 1 night |
+|---|---|
+| People | Leroy at the sign. Help after the dog. Jones after Help’s ring. Hotel: Fear + Laurel. Saloon: Gus, Oona, Isao, Trotter. |
+| Animals | Dog on the street. Pig. Horses / cow if `random` says so. No chickens (day-only). |
+| Ground items | Jug at `town.jug` (after Leroy walks off). Bone at `town.bone` (Help’s day1 script). |
+| Sky / extras | `shootingstar` (night). Tumbleweeds are **day** (`clock != 3`). |
+| Ambience | `night.snd` + looping `town.snd`. `nightfxs`: saloon bed, chin chime, then owl / coyote / cricket. |
+| Click movies | South-gate rules / firearms (`nitewarn` / `nitefire`), shop signs, `dog1` / `dog2`, item inspects. Intros skipped unless `?intro`. `dog1.mov` is a 59-tick overlay whose table stamps the same 0.88 s growl twice 100 ms apart; playing both in one pass stacks. Play two sequential passes (lunge + one growl, then again). |
+| Locked | Jail, chin (until `phase >= 2`), bank, apoth, store, doctor, stage. Hotel + saloon open. |
+
+`currentview()` / `currentdir()` return `north`/`south`/`east`/`west`
+(scripts compare those words; a raw `N` never matches). After a walk,
+`currentscene` stays on the script name (`g12`), not Pascal `l7`.
+
+`random (n)` is **1..n** (Dust `findscene`, `scream1..3`, `town.extra1..3`).
+The night pig stays in the day-1 farm (`b11`–`c12` / `chicken`=`d11` / `e11`–`e12`).
+`chicken` in the SET table is (10, 3); script space transposes that to (3, 10)
+so `adjscene` can walk the pen instead of falling through to the player tile.
+
+World sprites paint far-to-near (Leroy in front of the dog/jug). The
+held item (`#play-hand`) is a canvas stamped from decoded sprite bits
+(so a new item is not the previous bitmap stretched to the new size).
+It hides during puppet UI and inventory. Inventory places owned INVEN
+props via `moveyoself` on the avatar flat.
+
+HUD chrome (map / skull menu / portrait) is hit-tested before script
+`mousedown`, so a held jug at (316, 320) cannot steal those clicks.
+
+Clicks go through boot `mousedown` → `hittest` (actor / prop / scene).
+Empty still still uses the remake 22%/48% walk bands (Dust used chrome
+outside 0–512). `passcode` from a scene proc falls through to the SET
+keydown (walk), not to `new.flt`’s options `mousedown`.
 
 ---
 
@@ -61,6 +110,11 @@ still animates.
 Talk approach is `walktopuppet`: in town he walks to `playerxyz` facing
 that vector (straight-on toward the camera), then `turntodeg (currentdeg
 + 128)`. Scripts `stoploop` for the walk. Do not spin during the walk.
+Dust’s VM is single-threaded: `cursor ("watch")` then `while iswalk {
+forceupdate }` — no nested mousedown/keydown, no player SET walk, no HUD
+map/inven. Play sets `talking` for that blocking script so our async
+`forceupdate` cannot let clicks through. SET filmstrips use `busy`, not
+`talking`, so standing idle still runs when *you* walk.
 
 A **star** is a named SET pin (`waypoints.json`, 256 units/tile in the EXE), not a
 sprite. `actorstar` copies that xyz. Do not invent a nearby xyz if a
@@ -104,8 +158,8 @@ hotspot is (256, 192). Scale that offset by the still scale; do not
 hotspot.
 
 World → still (X vs Y, three cameras, dead ends): **World → still**
-below. During a SET walk or turn, lerp the feet through the 5 motion
-frames.
+below. During a SET walk, lerp the feet through the 5 motion frames.
+In-place turns keep the start camera.
 
 ### World → still (do not re-debug)
 
@@ -120,13 +174,34 @@ There are **three** cameras. Do not collapse them.
 
 | Name | World point | Used for |
 |---|---|---|
-| Feet / `playerxyz` | `tile * 256 + 128` | Scripts, walk dest, **Y and scale** 1/z, actor Z |
-| Draw lens | feet minus `calcvect(facing, 64)` | **Screen X only** |
+| Feet / `playerxyz` | `tile * 256 + 128` | Scripts, walk dest, scale 1/z, actor Z |
+| Draw lens | feet minus `calcvect(facing, 64)` | **Screen X** (`0x40dcd0`) |
 | `cameraxyz` | one **full tile** behind the feet | Idle `calcdeg` only. Not placement. |
 
-`DF.EXE` `0x40dcd0`: rotate `(actor − lens)` by TRIG sin/cos ÷ 16384,
-then `256 + 310 * right / forward`. Focal **310** is `mov …, 0x136` at
-`0x40d255`, not 256 (90° on 512) and not 192 (half of 384).
+Play **X** is DF.EXE `0x40dcd0` (CST **and** PRP, sites `0x415213` /
+`0x428173`): rotate `(obj − lens)` by TRIG/16384, then
+`x = 256 + 310 * right / forward`. Focal **310** (`0x136` at
+`0x40d255`).
+
+Play **Y** is 1/z from the feet (`stillGroundY`), same as scale, so the
+hotspot stays in the SET Z=5 band of the photograph. The EXE also
+computes pinhole Y `132 − 310*(objZ−camZ)/forward` (camZ = SET +26 =
+**62** outdoor). That is traced at `0x40dcd0` and **not** used: it hid
+the N7 jug and walked Leroy down the still.
+
+SET filmstrip camera is `0x40dd90`: walk `index*64` along the axis;
+turn `index*16` look-deg then setback. Play lerps XY on forward walks
+and **keeps the start camera on in-place turns**. A 90° pinhole yaw on
+1/z Y skates every ground sprite. The N7 dest-snap is still open.
+
+`town.jug` is star **(1730, 3476)** (66 east, 20 south of N7 feet).
+Engine Y facing south is off the still (~360); 1/z Y stays on it
+(~239). Facing codes **1=N 2=S 3=E 4=W** (`DF.EXE` `0x40eae0`). EXE
+sprite Z is `(forward − zclip − setback + 128) >> 6` (O7 N Leroy **4**);
+play uses 1/z from camera-feet Z then at most one plane closer for dirt
+under the hotspot. Full BSS / dest-rect / leftovers:
+[`dustdecompile/docs/findings.md`](../../dustdecompile/docs/findings.md)
+§7a.
 
 **Oracle** (spawn O7 N, `town.leroy1` = 1740, 3536):
 
@@ -177,10 +252,12 @@ Z overlay. Prefer the EXE + SET over the patent when they disagree.
 | 1/z X: `256 + 256*right/(256+forward)` | Same math as a **full-tile** setback. **~306**. Too far left; plants him on the O7 east fence. `ours.png` in `screenshots/` is this era. |
 | Focal 192 (half of 384) | Attractive (353.2 with 255-tiles and no setback) and **wrong**. EXE says `0x136`. |
 | Patent setback 128 / height 72 | Dust’s SET +24 is 64; town +26 is 62. Target +26 is 72 (patent default). |
-| Engine Y `132 + 62*310/forward` | Hotspot in Z=4; SET Z clips feet. Keep 1/z Y from the **feet** (near plane **248**) so O7 N stays in Z=5 (y=194–209). |
+| Engine pinhole Y for placement | Traced at `0x40dcd0`. Hides the N7 jug (hotspot below the still) and walks Leroy down the photographed ground. Play Y stays 1/z / SET Z. |
 | Nudge `town.leroy1` | Authored (1740, 3536). The error was the camera, not the star. |
 | Use `cameraxyz` (one tile back) for blit | That vector is idle facing. Draw lens is 64, not 256. |
 | Fit FOV to one screenshot and freeze it | X is the EXE. If another actor looks off, check tile 256 / focal 310 / setback 64 before inventing a new model. |
+| Lerp 90° yaw on in-place SET turns | EXE `0x40dd90` does `index*16`. On play’s 1/z Y that skates every ground sprite. Keep the start camera until dest HQ. |
+| Blend near props toward 1/z X | One-off. PRP uses the same `0x40dcd0` as CST. |
 
 Distance: Dust never computes scale in scripts. DFET says DF.EXE uses the
 SET Z plane; the EXE imports `BitBlt` / `WinGBitBlt`, not `StretchBlt`.
@@ -192,9 +269,15 @@ still canvas CSS height / 264 so window resize does not change his size
 relative to the street.
 
 Actors are blitted onto a 512×264 canvas with the SET Z plane: a pixel
-draws when `actorZ <= stillZ` (DFET: smaller Z is closer). From O8 N
-the picket fence is Z=3, so his body does not show through it; gaps in
-the fence (Z≥5) can still leak slivers. `python cli.py --type set --z`
+draws when `actorZ <= stillZ` (DFET: smaller Z is closer). Actor Z is
+1/z from the camera-feet plane, then pulled at most **one** SET Z step
+closer if the hotspot sits on dirt (Help Z=5 on Z=4). Do not
+unconditionally `min` with the hotspot — a far Leroy whose hotspot
+lands on a building becomes Z=3 and draws through every wall. Clothing
+pixels are forced opaque; only the translucent-black foot pancake stays
+alpha 120 (canvas premultiply punched Help’s black robe). From O8 N
+the picket fence is Z=3, so his body does not show through it; gaps
+in the fence (Z≥5) can still leak slivers. `python cli.py --type set --z`
 writes `FRAMES/z/` without rewriting color stills.
 
 Walk poses advance on the **20 Hz game frame** from that actor’s CST
@@ -207,13 +290,14 @@ The actor layer **is** the still (top 264 of the 384 stage), `overflow:
 hidden`, under the HUD. Town sprites never paint into the dashboard.
 
 The brown pancake under feet is a **contact shadow**, not studio dirt.
-Detect **per actor** from stand frames: a dark palette index (`max(rgb) ≤
-50`) with ≥80% of its pixels in the bottom quarter. GANG Leroy/Jones/Marie
-use index **131** RGB `(25, 17, 17)`; Todd/Oona/Watson use **132**. Flood-
-fill from the bottom edge; isolated specks of that matte on the body are
-keyed fully transparent. Write the blob as translucent black (`alpha`
-120). Do not add a CSS `drop-shadow` on top. PUP talking-heads do not use
-this. Re-dump: `python cli.py --type cst --frames`.
+Detect **per actor** from stand frames: a dark maroon index (`8 ≤
+max(rgb) ≤ 50`) with ≥80% of its pixels in the bottom quarter. Skip
+unused/black — Help's robe is index 0 and must stay opaque. GANG
+Leroy/Jones/Marie use index **131** RGB `(25, 17, 17)`; Todd/Oona/Watson
+use **132**. Flood-fill from the bottom edge; write the blob as
+translucent black (`alpha` 120). Same-index pixels on the body stay
+opaque (clothing, not chroma). Do not add a CSS `drop-shadow` on top.
+PUP talking-heads do not use this. Re-dump: `python cli.py --type cst --frames`.
 
 `cursor ("watch")` is only for the walk-to-talk wait (`walktopuppet`). Once
 `openpuppetfile` is up, the talking-head uses **arrow** (choices use

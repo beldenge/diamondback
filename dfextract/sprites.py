@@ -82,6 +82,10 @@ def main() -> int:
     if house.exists():
         n = house_sidecar(house, OUT / "PRP" / "_HOUSE")
         print(f"PRP HOUSE sprites.json ({n} props)")
+    inven = DUST / "DATA" / "INVEN.PRP"
+    if inven.exists():
+        n = house_sidecar(inven, OUT / "PRP" / "_INVEN")
+        print(f"PRP INVEN sprites.json ({n} props)")
     return 0
 
 

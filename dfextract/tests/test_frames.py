@@ -101,6 +101,56 @@ class TestFrames(unittest.TestCase):
         self.assertEqual(maroon, 0)
         self.assertEqual(cheek, 0)
 
+    def test_help_robe_is_opaque(self) -> None:
+        """Help's changshan is index 0 black. That is clothes, not a matte."""
+        if not GANG.exists():
+            self.skipTest("GANG.CST not present")
+        df = read_df_file(GANG)
+        palette = cst_palette(df.containers[0].data)
+        # stand frames 112–113 — same slice write_cst_frames uses
+        shadows = detect_contact_shadows(df, palette, [112, 113])
+        self.assertNotIn(0, shadows)
+        self.assertIn(131, shadows)
+        sprite = decode_trans_sprite(df.containers[112].data, palette, shadows)
+        opaque = 0
+        shadow = 0
+        for i in range(0, len(sprite.rgba), 4):
+            red, green, blue, alpha = sprite.rgba[i : i + 4]
+            if alpha == 0:
+                continue
+            if (
+                red == 0
+                and green == 0
+                and blue == 0
+                and alpha == CONTACT_SHADOW_ALPHA
+            ):
+                shadow += 1
+            elif alpha == 255:
+                opaque += 1
+        self.assertGreater(opaque, 3600)
+        self.assertGreater(shadow, 20)
+        self.assertLess(shadow, 200)
+        # Waist/robe stays solid — the old key made the lower coat alpha 120.
+        mid = sprite.height // 2
+        row = sprite.rgba[mid * sprite.width * 4 : (mid + 1) * sprite.width * 4]
+        ghost = 0
+        for i in range(0, len(row), 4):
+            if row[i + 3] == CONTACT_SHADOW_ALPHA:
+                ghost += 1
+            elif 0 < row[i + 3] < 255:
+                ghost += 1
+        self.assertEqual(ghost, 0)
+        lower = (sprite.height * 3) // 4
+        coat = sprite.rgba[lower * sprite.width * 4 : (lower + 1) * sprite.width * 4]
+        coat_opaque = 0
+        coat_shadow = 0
+        for i in range(0, len(coat), 4):
+            if coat[i + 3] == 255:
+                coat_opaque += 1
+            elif coat[i + 3] == CONTACT_SHADOW_ALPHA:
+                coat_shadow += 1
+        self.assertGreater(coat_opaque, coat_shadow)
+
     def test_extra_jenix_stand_writes(self) -> None:
         if not EXTRA.exists():
             self.skipTest("EXTRA.CST not present")

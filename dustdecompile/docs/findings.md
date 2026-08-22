@@ -34,7 +34,7 @@ the same behaviour:
 | Plugin ABI | `LoadLibrary` + one export `PlugProc` + verb string (`checkmove`) |
 | Checkers AI hook | `pluginfx("checkmove", board, lookahead, mode)` → comma-separated moves |
 | Travel / movies | `spotmovie` / `gototown` / `gotointerior` / `advanceday` are **game scripts** in `new.flt`, wrapping `playmovie` / `opensetfile` |
-| CST world → still X | Focal 310, tile 256, lens setback 64 (§7a). O7 N Leroy still-x 354 |
+| CST/PRP world → still X | Focal 310, tile 256, lens setback 64 (§7a). O7 N Leroy still-x 354. Engine Y is the same `0x40dcd0`; play does not use it for placement |
 
 Scripts remain the storyboard (what Jenix says). The EXEs + this parse
 are the rulebook (what those verbs *do*).
@@ -528,13 +528,19 @@ Capstone on `.text` (not Ghidra). Addresses are VAs, image base
 
 | Site | What it is |
 |---|---|
-| `0x40dcd0` | World → screen. `esi` point `{x,y,z}` at `+2/+4/+6`. Subtract camera `0x460978/97a/97c`. Rotate by `[0x4494b8]` / `[0x4494d0]` (TRIG sin/cos, 16384). `sar 14`. If forward ≤ 0, return. Else `imul` both axes by focal `[0x460958]`, `idiv` forward. Store `y` at out+0 (negated + `[0x46095a]`), `x` at out+2 (`+ [0x46095c]`). Returns forward in `ax`. |
-| `0x40d255` / `0x40d488` | `mov word [0x460958], 0x136` — focal **310**. View centers are half of `[0x460950]`×`[0x460952]` (512×384 stage; still is 512×264). |
+| `0x40dcd0` | World → screen. First `ret` at `0x40dd48` is **forward ≤ 0** (`test esi,esi / jg 0x40dd49`). X/Y math is the continuation. Point `{x,y,z}` at `esi+2/+4/+6`. Subtract camera `0x460978/97a/97c`. Rotate by `[0x4494b8]` / `[0x4494d0]` (TRIG sin/cos, 16384). `cdq; and edx, 0x3fff; add; sar 14` (toward 0). Else `imul` both axes by focal `[0x460958]`, `idiv` forward. Store `y` at out+0 (`centerY − up*focal/forward`), `x` at out+2 (`centerX + right*focal/forward`). Returns lens-forward in `ax`. |
+| `0x40d255` / `0x40d488` | `mov word [0x460958], 0x136` — focal **310**. View centers are half of `[0x460950]`×`[0x460952]` (512×384 stage; still is 512×264 → centerY **132**). |
+| `0x40dd90` | SET filmstrip camera. `0x4493dc` is the motion index (`-1` idle; `0..4` during the strip). Adds `[0x4494b0]` (**frame0** container, not a pose table) and `0x40e550` **loads that still**. Feet = current tile `*256+128`. Walk (`[0x460962] == [0x460968]`): look-deg stays cardinal, XY `+= index*64` along the axis (`shl 8 / sar 2`). Turn: XY stays, look-deg `+= index*16` (`shl 6 / sar 2`, 0..64 = 90°). Then `0x40e081` setback on that heading. After index hits 5, dest tile/facing is copied and index set to `-1`. |
 | `0x40ddac` | `shl ax, 8; add ax, 0x80` — feet = `tile * 256 + 128`. Not 255. |
-| `0x40e640` / `0x40e670` | `calcvect`: `TRIG[deg & 255] * dist / 16384`. |
-| `0x40e081` / `0x40e08e` | `camX/Y -= calcvect(facing, [0x46094c])` — draw-lens setback. |
-| `0x415213` | CST draw calls `0x40dcd0`. Then `forward - actor+0x4c - [0x46094c] + 128`; skip if `> 0x600` (6×256). |
-| `0x411d50` | `calcdeg` / atan2 on the 256-circle (0=S, 64=E, 128=N, 192=W). `0xC0` here is **west**, not focal 192. |
+| `0x40e640` / `0x40e670` | `calcvect`: `TRIG[deg & 255] * dist / 16384`. 640 = sin table `[0x44953c]`, 670 = cos `[0x4493d4]`. Setback: `camX -= sin*sb`, `camY -= cos*sb`. |
+| `0x40e081` / `0x40e08e` | `camX/Y -= calcvect(look-deg, [0x46094c])` — draw-lens setback. |
+| `0x40e720` | Wrapper: PRP draw `0x427fa0` then CST `0x415040`. Called with the filmstrip still already loaded. Sprites reproject every motion frame. |
+| `0x40eae0` | Apply walk/turn command → dest pose. Arg `1` left, `2` right, `3` forward, `4` back. Facing codes **1=N, 2=S, 3=E, 4=W** (spawn +52 and framelist `dir_*`). Left from N writes dest facing **4**. |
+| `0x415170` | CST per-actor. `actor+0x12 == 0` is a **2D** path (no `0x40dcd0`; uses `actor+0x18` as a deg). Non-zero is world projection. Record stride **0x9e**. |
+| `0x415213` | World path calls `0x40dcd0`. Then `bx = forward - actor+0x4c - setback + 128`; clamp `< 0` to 0; skip if `> 0x600` (6×256) or scale divisor `< 0x20`. `sar bx, 6` is the 24-level sprite Z (patent US5729669). O7 N Leroy lens-forward 240, zclip 32: `(240-32-64+128)>>6 = 4`. |
+| `0x415271` | Dest size: `actorscale * sprite_field / 1000`, then `idiv` by `[esp+0x12]`. Dest Mac Rect at out+0x10: top/left = projected hotspot minus scaled header hotspot. Clip `0x40ab50`. **Leftover:** what `[esp+0x12]` is (skip if `< 32`). |
+| `0x427fa0` / `0x4280d0` | PRP draw / per-prop helper. Clone of CST (`prop+0x4e` zclip, `prop+0x2c` scale). Record stride **0xa4**. Same `0x40dcd0`. |
+| `0x411d50` / `0x411d20` | `calcdeg` / atan2 on the 256-circle (0=S, 64=E, 128=N, 192=W). CST helper mixes that with look-deg for the sprite octant. `0xC0` here is **west**, not focal 192. |
 
 SET container 0 (every Dust map we dumped):
 
@@ -543,23 +549,59 @@ SET container 0 (every Dust map we dumped):
 | +24 | 64 | Draw-lens setback (constant on all SETs) |
 | +26 | 62 (town/nite); 72 (target); 90–260 interiors | Camera Z / height |
 | +42 / +44 | 512×264 | Still size |
-| +48 / +50 / +52 | 6, 14, 1 | Spawn tile + facing (O7 N) |
+| +48 / +50 / +52 | 6, 14, 1 | Spawn tile + facing (O7 N). Facing **1=N 2=S 3=E 4=W** (`0x40eae0`) |
 | +60 | 32 (town); 64/128 interiors | Default `actorzclip` |
+
+BSS words the projector and filmstrip actually touch (this build):
+
+| VA | Role |
+|---|---|
+| `0x46094c` / `0x46094e` | setback (SET +24) / camZ (SET +26) |
+| `0x460958` / `5a` / `5c` | focal 310 / centerY 132 / centerX 256 |
+| `0x46095e` / `960` / `962` | current tile X, Y, facing (1–4) |
+| `0x460964` / `966` / `968` | dest tile X, Y, facing |
+| `0x46096a` | look-deg 0–255 (after the walk/turn step, before setback) |
+| `0x460978` / `97a` / `97c` | draw-lens X, Y, Z (tile center, then setback) |
+| `0x4493dc` | filmstrip index (`-1` idle) |
+| `0x4494b0` | SET `frame0` container for the current strip |
+| `0x4494b8` / `0x4494d0` | current sin/cos for `0x40dcd0` |
+
+SET framelist records are **28 bytes**. The six shorts at +12 are a
+duplicate of from/to pose, not extra camera xyz. `0x40e550` indexes
+stills as `frame0 + index`.
 
 **Not traced:** no `mov [0x46094c], 64` in `.text`. Play copies SET +24
 into that slot because the engine *reads* `[0x46094c]` as setback, every
 SET has 64 there, and 64 + focal 310 + 256-tiles puts O7 N Leroy at
-still-x **354** (original midline **353**).
+still-x **354** (original midline **353**). Walk-table look-deg writes
+(`0x40de2f` stores `0xC0` on facing-1 = 0) are **not** reconciled with
+`0x40eae0`’s 1=N; do not treat those stores as proven north=west.
+Turn jump table at `0x40e128` steps `index*16` but the per-facing start
+deg is not mapped to shortest-path ±64.
 
 Patents (web search “Cyberflix DreamFactory projection”, not a known
-number): US5644694 production camera (256-unit cells, set-back lens,
-height 72); US5729669 24-level Z sprites. Dust’s setback is **64**, not
-the patent’s 128. Prefer EXE + SET.
+number): [US5644694](https://patents.google.com/patent/US5644694A)
+production camera (256-unit cells, 5 frames / 4 equal steps, set-back
+lens, height **72**); [US5729669](https://patents.google.com/patent/US5729669A)
+24-level Z sprites. Dust’s setback is **64**, town camZ **62**. Prefer
+EXE + SET.
 
-Play uses this X. Y and scale stay 1/z from the **feet** so the hotspot
-stays in SET Z=5. Engine Y `viewH/2 + camZ * 310 / forward` puts town
-Leroy in Z=4 and clips feet — do not switch Y to that without a new Z
-pass.
+### Play vs this EXE (do not collapse)
+
+| Piece | `DF.EXE` | Play |
+|---|---|---|
+| Screen X | `0x40dcd0` pinhole | same |
+| Screen Y | `0x40dcd0` pinhole | 1/z `stillGroundY` from the **feet** (SET Z=5 at O7 N). Engine Y hid `town.jug` at N7 and walked Leroy down the still |
+| Scale | `0x415271` leftover | 1/z from the feet |
+| Sprite Z | `(forward − zclip − setback + 128) >> 6` | `round(nearZ / persp)`, then at most **one** SET plane closer if the hotspot is dirt (`GROUND_Z_SLACK`). Unconditional `min(hotspot Z)` punched Leroy through range-road buildings |
+| Filmstrip walk | `index*64` along the axis | lerp camera XY over the 5 motion frames |
+| Filmstrip turn | `index*16` look-deg + setback | **start** camera until dest HQ. 90° pinhole on 1/z Y skates every ground sprite |
+| Draw order | PRP then CST, both reproject every frame | far-to-near among world sprites; still Z vs sprite is per pixel |
+
+`town.jug` is SET star **(1730, 3476)** — 66 east / 20 south of N7 feet
+`(1664, 3456)`. Engine Y facing south is ~360 (off the 264 still). 1/z Y
+is ~239 (on the still). Do not one-off that item; CST and PRP share
+`0x40dcd0`.
 
 ---
 
@@ -576,7 +618,7 @@ BFS on camera tiles, or one CST cycle per 256-unit tile.
 | `0x40fe00` | Walk-job pump (16 × 0x52 records at `0x449570`). `forceupdate` (`0x433740`) is one pump. |
 | `0x410b80` | One job tick. Turn while record+4 ≥ 0 (`0x412100`, circle `0xFF`, min step 1). Then `acc +=` SET-actor speed word; lerp along the path (`0x411f50`) or the 3D beeline (`isqrt` `0x40b160`). |
 | `0x438210` | `timeGetTime`; `*3/50` → 60 Hz **counter**. |
-| `0x40e1d2` | Frame loop: draw CST (`0x415040`), then wait until the counter advanced by **`framerate`**. Boot `framerate (3)` → **20 Hz** game frames, not 60 Hz pumps. |
+| `0x40e1d2` | Frame loop: draw CST (`0x415040`), then wait until the counter advanced by **`framerate`**. Boot `framerate (3)` → **20 Hz** game frames, not 60 Hz pumps. PRP+CST together are `0x40e720` (§7a). |
 | `0x4154c0` | CST sprite pick on that draw. `actor+0x24` indexes **that pose’s** setInfo **+0x2e** (length **+0x70**). GANG 8-pose walk: 16 slots `[1,1,2,2,…,8,8]`. EXTRA pig/chicken walk: `[1,1,2,2]`. Stand is length 1. |
 
 `stdactor` copies `stdspeed` / `stdturn` of `actorset(who)`: town **3 / 7**, hotlower and sallower **4 / 8**, else **5 / 10** (GANG `Cast.txt`). Mine extra `stdspeed` is **4**. That many world units / deg-units per **20 Hz** game frame. Scripts wait with `while iswalk { forceupdate }`.
@@ -614,14 +656,19 @@ Do not pretend these are done:
   dustdecompile --rsrc` → `out/rsrc/cursors/`). Script `cursor("touch")`
   maps to `CURS.TOUCH`. RCDATA `TRIG1` / `TRIG2` are 256 int16s,
   `16384 * sin/cos(2π i / 256)` — `actordeg` / `calcvect`, not FOV.
-- CST dest-rect **X** is §7a. Leftover: the `mov` that fills
-  `[0x46094c]` from SET +24; engine Y vs play 1/z; sprite scale path
-  at `0x415271` (`actorscale * … / 1000`).
+- CST dest-rect **X and Y** and SET filmstrip camera are §7a.
+  Leftover: the `mov` that fills `[0x46094c]` from SET +24; sprite
+  scale path at `0x415271` (`actorscale * … / 1000`, divisor at
+  `[esp+0x12]`, skip if `< 0x20`); walk-table look-deg vs facing 1=N;
+  turn jump-table start deg (step size `index*16` is proven).
 - Z-buffer **use** at runtime is in play: CST pixels draw when
   `actorZ <= stillZ` (DFET: smaller is closer). Actor Z is
   `round(nearZ / persp)` from the still’s bottom-row Z (3 on the south
-  gate). `actorzclip` is stored (stdactor 32) but not subtracted from
-  the 24-level plane — that would put everyone in front of the O8 fence.
+  gate), then at most one plane closer if the hotspot is dirt. EXE
+  sprite Z is `(forward − zclip − setback + 128) >> 6` (`0x41535c`).
+  `actorzclip` is stored (stdactor 32) but play does not subtract it
+  from the 24-level plane — 32 would punch everyone through the O8
+  fence. Unconditional `min(hotspot Z)` put Leroy through buildings.
 
 ---
 

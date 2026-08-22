@@ -108,7 +108,7 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 - Extractor setup: [`dfextract/README.md`](dfextract/README.md). The remake does not run that tool.
 - npm package / repo name: `diamondback`.
 
-**Next:** Play mode at `/?mode=play` is a Day 1 night slice with original 512×384 chrome (world stills above the HUD bar), CST facing/walk, and PUP talking-heads. Widen opcode coverage, inventory, movies, remaining characters. Town walker at `/` (diamondback.town) stays the sandbox. Do not inpaint remaining still holes.
+**Next:** Play mode at `/?mode=play` runs extracted `boot()` / `advanceday()` for Day 1 night (Leroy, dog, Help, Jones, hotel/saloon casts, jug/bone, night FX, shooting stars, locked shops, spot-movies). Widen remaining interiors (blackjack, rooms, Dell fight, sleep). Town walker at `/` (diamondback.town) stays the sandbox. Do not inpaint remaining still holes.
 
 ## 10. Decision Log
 
@@ -169,7 +169,13 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 | 2026-08-21 | Play mode uses Dust’s 512×384 stage: SET stills 512×264 on top, `FLT/_NEW/frame_3.png` HUD below (not an overlay). CST `actordeg` 0=south, 8 stand / 64 walk frames. Talk runs `walktopuppet`. PUP layers composite from `FRAMES/sprites.json`; jaw cycles while speech plays. Sprite `pos_x`/`pos_y` dumped. |
 | 2026-08-21 | Play speech is Web Audio + `decodePcmWav` (8-bit 11025 Hz). Firefox/Windows ~10s after first `AudioContext.resume()` before output; visemes are wall-clock, not the audio playhead. `<audio>` does not play these WAVs (`currentTime` stays 0). Notes: [`src/play/README.md`](src/play/README.md). |
 | 2026-08-21 | Play puppets are generic: all 11 PUP face tables including hands, skip missing parts, per-PUP `sprites.json` / visemes / `scripts.json`. |
-| 2026-08-21 | CST foot blobs are contact shadows (GANG index 131 maroon → translucent black). Not studio dirt. |
+| 2026-08-21 | CST foot blobs are contact shadows (GANG index 131 maroon → translucent black). Not studio dirt. Skip unused/black (Help robe index 0); body pixels of the matte stay opaque. |
+| 2026-08-22 | `dog1.mov` is a 59-tick overlay. Two A1 cues 100 ms apart stack the same 0.88 s growl; play two sequential passes (one growl each) instead of overlapping. |
+| 2026-08-22 | `walktopuppet` locks clicks, keys, and HUD until the script returns (`cursor ("watch")` + blocking `forceupdate`). Dust does not nest mousedown during that walk. |
+| 2026-08-22 | Documented remaining `DF.EXE` projector/filmstrip traces in [`dustdecompile/docs/findings.md`](dustdecompile/docs/findings.md) §7a (BSS, dest-rect, engine sprite Z `>> 6`, `0x40eae0` facing 1=N, play vs EXE). |
+| 2026-08-22 | Actor Z may pull one SET plane closer for ground under the hotspot (Help). Do not `min` with a foreground wall — that put Leroy through buildings on the range road. |
+| 2026-08-22 | SET filmstrip camera traced at DF.EXE `0x40dd90` (walk `index*64`, turn `index*16`). Play still freezes in-place-turn yaw. Engine pinhole Y hid the N7 jug and walked Leroy down the still — play Y stays 1/z / SET Z. |
+| 2026-08-22 | CST and PRP share DF.EXE `0x40dcd0` for **X**. Engine Y is the same function; play does not use it for placement. |
 | 2026-08-21 | PUP paint order is Body then Head (beard is on the Head). Body-over-Head left a static beard ring that did not turn. |
 | 2026-08-21 | Dialog chrome: full-width black speech bar over the still; five `butbevel` slots replace the HUD (not overlays above it). |
 | 2026-08-21 | Choice boxes are HOUSE `butbevel` + GDI Arial, not OS buttons. Labels left-aligned. Hole fill is the rim’s `(111,56,38)`. |
@@ -181,6 +187,7 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 | 2026-08-21 | O7 east does not show the south-gate actor (`\|right\| > forward`). 1/z X had planted him on the fence. Near plane **248** keeps the sign hotspot in Z=5 so SET Z does not clip his feet. |
 | 2026-08-21 | Named `walktostar` uses the SET 52-tile walk graph (Dust never calls `walkonroad`). Play BFS, then the star; first snap is a walk edge, not N7’s center. Dest `town.leroy2` (2656, 2720) is authored; hop algorithm is remake. |
 | 2026-08-21 | Walk is EXE-backed: `actorspeed` units per 60 Hz tick (town 3), CST pose table at setInfo +0x2e (Leroy 16 slots, two ticks/pose), named `walktostar` follows the SET polyline at waypoint +0x18 (leroy1→2 reverses container 262). Not BFS and not `speed*24`. |
+| 2026-08-22 | Play first evening is the extracted boot, not a Leroy-only slice. Town script names are column-letter (`scene g15` = filmed O7). `passcode` inherits scene→set / actor→cast only — not stage `mousedown`. Night FX, shootingstar, extra animals, PRP items/doors, and spot-movies run from those scripts. Sandbox unlocked doors stay on `/` only. |
 | 2026-08-22 | Walk *rate* is 20 Hz, not 60. `timeGetTime*3/50` is a 60 Hz counter; the frame loop waits `framerate` (boot 3) of those ticks (`0x40e1d2`). `actorspeed` 3 → 60 units/s. Pose table and CST draw share that game frame. |
 | 2026-08-22 | Walk contracts apply to every CST actor and SET: `stdspeed` from `stdactor`, polyline from that SET’s `paths.json`, pose table from that cast’s `timing.json`. Play loads GANG + EXTRA at boot; `opencastfile` loads target/mine. |
 | 2026-08-21 | Play **C** hides the black speech bar (audio/visemes keep going). |

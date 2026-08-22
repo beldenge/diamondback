@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { actorPerspective } from "./facing";
 import {
+  actorBlitZ,
   actorWorldZ,
   blitSpriteZ,
+  paintFarToNear,
   sampleNearZ,
+  spriteBitsFromImageData,
   spriteOverZ,
   STILL_NEAR_Z,
 } from "./occlude";
@@ -34,6 +37,15 @@ describe("SET Z vs actor", () => {
     expect(sampleNearZ(z)).toBe(3);
   });
 
+  it("paints farther sprites first so nearer ones win", () => {
+    const order = paintFarToNear([
+      { name: "leroy", forward: 176 },
+      { name: "jug", forward: 236 },
+      { name: "dog", forward: 964 },
+    ]);
+    expect(order.map((item) => item.name)).toEqual(["dog", "jug", "leroy"]);
+  });
+
   it("skips sprite pixels the still occludes", () => {
     const dest = new Uint8ClampedArray(512 * 264 * 4);
     const pick = new Uint16Array(512 * 264);
@@ -51,5 +63,32 @@ describe("SET Z vs actor", () => {
     expect(pick[10 * 512 + 11]).toBe(1);
     expect(dest[(10 * 512 + 11) * 4]).toBe(0);
     expect(dest[(10 * 512 + 11) * 4 + 1]).toBe(255);
+  });
+
+  it("does not sit behind the still Z under the hotspot", () => {
+    const z = new Uint8Array(512 * 264);
+    z.fill(7);
+    z[200 * 512 + 300] = 4;
+    expect(actorBlitZ(5, z, 300, 200)).toBe(4);
+    expect(actorBlitZ(3, z, 300, 200)).toBe(3);
+  });
+
+  it("does not pull a far actor onto a foreground wall", () => {
+    const z = new Uint8Array(512 * 264);
+    z.fill(3);
+    z[200 * 512 + 300] = 3;
+    expect(actorBlitZ(10, z, 300, 200)).toBe(10);
+    expect(actorBlitZ(5, z, 300, 200)).toBe(5);
+  });
+
+  it("keeps Help-black clothing opaque after a canvas round-trip", () => {
+    const data = new Uint8ClampedArray([
+      0, 0, 0, 255, 0, 0, 0, 4, 0, 0, 0, 120, 75, 87, 37, 180,
+    ]);
+    const bits = spriteBitsFromImageData({ data, width: 4, height: 1 } as ImageData);
+    expect(bits.data[3]).toBe(255);
+    expect(bits.data[7]).toBe(255);
+    expect(bits.data[11]).toBe(120);
+    expect(bits.data[15]).toBe(255);
   });
 });

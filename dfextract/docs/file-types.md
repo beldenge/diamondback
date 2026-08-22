@@ -141,7 +141,7 @@ i16 framelist container           @ 30    # 44 on APOTH
 i16 waypoint container            @ 34    # 43 on APOTH
 i16 grid width, height            @ 38    # TOWN 15×15
 i16 still width, height           @ 42    # 512×264 outdoor
-i16 spawn x, y, facing            @ 48    # TOWN/NITE (6,14,1) = O7 N
+i16 spawn x, y, facing            @ 48    # TOWN/NITE (6,14,1) = O7 N; 1=N 2=S 3=E 4=W (`0x40eae0`)
 i16 default actorzclip            @ 60    # town 32; many interiors 64/128
 palette                           @ ~80
 ```

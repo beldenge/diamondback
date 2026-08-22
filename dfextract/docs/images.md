@@ -76,13 +76,15 @@ Proven: Bolivar `FRAMES/Background/frame_4.png` decodes at 512×264
 and EXTRA writes Jenix `stand/frame_195.png`.
 
 CST in-world bodies include a photographed **contact shadow** under the
-feet. Detect **per actor** from stand frames: a dark index (`max(rgb) ≤
-50`) with ≥80% of its pixels in the bottom quarter. GANG Leroy/Jones use
-index **131** RGB `(25, 17, 17)`; Todd/Oona/Watson use **132**. Flood-fill
-from the bottom edge of the sprite; isolated specks of that matte on the
-body are leftover chroma (fully transparent), not extra shadows. Write the
-connected blob as translucent black (`alpha` 120). Opaque maroon looks like
-studio dirt (same family of mistake as a flat PUP Background fill). PUP
+feet. Detect **per actor** from stand frames: a dark maroon index
+(`8 ≤ max(rgb) ≤ 50`) with ≥80% of its pixels in the bottom quarter.
+Skip unused/black (`max(rgb) < 8`) — Help's robe is palette index 0
+`(0,0,0)` and is clothes, not a matte. GANG Leroy/Jones use index
+**131** RGB `(25, 17, 17)`; Todd/Oona/Watson use **132**. Flood-fill
+from the bottom edge of the sprite; write that blob as translucent
+black (`alpha` 120). Body pixels of the same index stay **opaque**
+(Help's dark folds). Opaque maroon under the feet looks like studio
+dirt (same family of mistake as a flat PUP Background fill). PUP
 talking-heads do not use this. Re-dump: `python cli.py --type cst --frames`.
 
 `pos_x` / `pos_y` are the top-left of the sprite on the **512×384**
