@@ -41,8 +41,9 @@ describe("worldToStill", () => {
     const pose = { x: 6, y: 14, facing: "N" as const };
     const at = worldToStill(actor(1740, 3536), pose);
     expect(at).not.toBeNull();
-    expect(at!.x).toBeGreaterThan(320);
-    expect(at!.x).toBeLessThan(420);
+    expect(at!.x).toBeCloseTo(354, 0);
+    expect(at!.x).toBeGreaterThan(340);
+    expect(at!.x).toBeLessThan(370);
     expect(at!.y).toBeGreaterThan(160);
     expect(at!.y).toBeLessThan(250);
   });

@@ -59,7 +59,7 @@ describe("SET road route", () => {
         },
       ],
     );
-    const path = roadRoute(graph, 1658, 3698, 1700, 3600);
+    const path = roadRoute(graph, 1664, 3712, 1700, 3600);
     expect(path).toEqual([{ x: 1700, y: 3600, z: 0 }]);
   });
 });

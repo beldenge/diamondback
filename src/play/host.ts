@@ -673,7 +673,7 @@ export class DustHost implements OpcodeHost {
   /**
    * Town `walktopuppet` walks to `playerxyz`. Face the camera
    * (`currentdeg + 128`) so the approach is straight-on, not the
-   * sub-tile diagonal (Leroy 82 east of O7). Road hops are tile
+   * sub-tile diagonal (Leroy 76 east of O7). Road hops are tile
    * centers — if the player is on that tile, hypot&lt;2 used to fire
    * this too, so he moonwalked past L7. Only the final beeline to
    * the player (empty route) uses the camera.
@@ -681,8 +681,8 @@ export class DustHost implements OpcodeHost {
   private facingForWalk(actor: ActorState, x: number, y: number): number {
     const pose = this.view?.pose;
     if (pose && actor.route.length === 0) {
-      const px = pose.x * 255 + 128;
-      const py = pose.y * 255 + 128;
+      const px = playerWorldPoint(pose).x;
+      const py = playerWorldPoint(pose).y;
       if (Math.hypot(x - px, y - py) < 2) {
         return wrapDeg(dirToDeg(pose.facing) + 128);
       }

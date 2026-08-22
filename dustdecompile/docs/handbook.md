@@ -497,7 +497,7 @@ Place an actor at a named star/waypoint.
 - **Calls in dump:** 308  arities [1, 2]
 - Jenix refuse-money: actorstar ("JENIX", "town.extra" @ numtostring (random (3))).
 - @ is string concat. town.extra + "0"/"1"/"2" indexes EXTRA CST extras.
-- A star is a named SET pin, not a sprite. Waypoint units in SET JSON are 255 per tile — star names live in waypoints.json.
+- A star is a named SET pin, not a sprite. Waypoint records store absolute xy; `DF.EXE` tiles are 256 units (`tile*256+128`). Star names live in waypoints.json.
 - 50-byte SET records hold two stars. `town.leroy1` is slot B of `town.leroy2` at (1740, 3536). `town.leroy2` (2656, 2720) is the range.
 - Cast `walktopuppet` in town walks to `playerxyz` facing that vector, then `turntodeg (currentdeg + 128)`.
 - Example: `actorstar (me, "maydine.cage")`  (CST/_EXTRA/birdcage/Script.txt:29)
@@ -827,7 +827,7 @@ Fade down.
 
 - Exact `delay (n)` units; SET walk fps (~24) is from play, not DF.EXE. `framerate (3)` with `hasattention` is 60/3 script Hz (inferred).
 - MOV reel timing / audio cues (see dfextract reconstruction-gaps §4a).
-- `walktostar` hop algorithm in `DF.EXE` (scripts wait with `while iswalk { forceupdate }`; named dest uses the SET walk graph). `actorxyz` is SET units (255/tile; scripts often `/ 256`).
+- `walktostar` hop algorithm in `DF.EXE` (scripts wait with `while iswalk { forceupdate }`; named dest uses the SET walk graph). `actorxyz` is SET units (256/tile in the EXE; scripts often `/ 256`).
 - Save file layout (`savegame` / `opengame`).
 - `pluginfx("checkmove", …)` encoding inside CHECKERS.DLL (scripts already parse the returned string).
 - UI chrome besides cursors (bevel / inventory layout). Cursors:

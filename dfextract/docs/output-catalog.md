@@ -114,7 +114,7 @@ No scripts. Folder stem matches the `.SND` file (`TOWN.SND` → `_TOWN`).
 | File | What it is |
 |---|---|
 | `scenes.json` | Grid tiles. Fields: `x`, `y`, `interact` (hotspot), `blocked`, `unknown_c`, `unknown_e`, `name` (`Scene A2`), `script_container` |
-| `waypoints.json` | Stand / walk-to points. Fields: `x`, `y` (255 units per tile), `name` (`drugs.watson1`). Both slots of each 50-byte SET record. |
+| `waypoints.json` | Stand / walk-to points. Fields: `x`, `y` (absolute; 256 units per tile in `DF.EXE`), `name` (`drugs.watson1`). Both slots of each 50-byte SET record. |
 | `transitions.json` | One walk/turn filmstrip. Fields: `x_from`, `y_from`, `dir_from`, `x_to`, `y_to`, `dir_to`, `dir_*_name` (`N/S/E/W`), `frame0` (first of 6 stills) |
 | `Boot Script.txt` | Set-level script (cursor defaults, etc.) if present |
 | `<Scene name>.txt` | Per-tile script **only if** that container actually holds a `code` script (blocked tiles are often empty) |

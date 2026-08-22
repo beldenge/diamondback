@@ -19,7 +19,7 @@ plays a 6-container filmstrip, then you stand on another pose.
 |---|---|
 | Grid | 15×15, scenes A1–O15 (225 cells) |
 | Filmed / camera tiles | **52** (from `transitions.json`, not `blocked`) |
-| Coordinate space | +x east, +y south |
+| Coordinate space | +x east, +y south. **256** units/tile in `DF.EXE` (`tile*256+128`). Not 255. CST overlay: [`src/play/README.md`](../../play/README.md) § World → still. |
 | Facings | 1=N, 2=S, 3=E, 4=W |
 | Still size | 512×264 indexed PNG |
 | Day / night | Same graph; `_TOWN` vs `_NITE` stills |
@@ -274,6 +274,6 @@ do not swap (except you entered court at night).
 
 - NPC knock-doors (Sophie, Mazie, Buick, Laurel, Blood) and sign movies
 - NPCs / CST overlays / Z-buffers
-- Free-roam later, on **this** SET graph (255 units/tile), not a second inferred map
+- Free-roam later, on **this** SET graph (256 units/tile), not a second inferred map
 - Exact original frame timing from `DF.EXE`
 - Right-edge codec stripe; Yunni-box MOV decode

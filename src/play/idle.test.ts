@@ -112,10 +112,10 @@ describe("approach walk", () => {
       refreshActors() {},
     };
     const leroy = host.namedActor("leroy");
-    leroy.x = 1658;
-    leroy.y = 12 * 255 + 128;
-    leroy.route = [{ x: 6 * 255 + 128, y: 10 * 255 + 128, z: 0 }];
-    host.startWalk(leroy, 6 * 255 + 128, 11 * 255 + 128, 0);
+    leroy.x = 1664;
+    leroy.y = 12 * 256 + 128;
+    leroy.route = [{ x: 6 * 256 + 128, y: 10 * 256 + 128, z: 0 }];
+    host.startWalk(leroy, 6 * 256 + 128, 11 * 256 + 128, 0);
     expect(leroy.deg).toBe(128);
     expect(visibleOctant(leroy.deg, 128)).toBe(4);
   });
@@ -134,7 +134,7 @@ describe("approach walk", () => {
     const leroy = host.namedActor("leroy");
     leroy.x = 1740;
     leroy.y = 3536;
-    host.startWalk(leroy, 1658, 3698, 0);
+    host.startWalk(leroy, 1664, 3712, 0);
     expect(leroy.pose).toBe("walk");
     expect(leroy.deg).toBe(0);
     expect(visibleOctant(leroy.deg, 128)).toBe(0);

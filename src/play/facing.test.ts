@@ -7,6 +7,8 @@ import {
   ACTOR_SCALE_REF,
   calcDeg,
   calcVect,
+  CAMERA_FOCAL,
+  CAMERA_SETBACK,
   cameraFromPose,
   cameraWorldPoint,
   degDelta,
@@ -21,6 +23,7 @@ import {
   walkStride,
   worldToStill,
 } from "./facing";
+import { TILE_SPAN } from "../world/set/path";
 import { playStageRect, STAGE_HEIGHT, STAGE_WIDTH } from "./stage";
 
 function actor(x: number, y: number, deg = 0): ActorState {
@@ -78,9 +81,9 @@ describe("actordeg octants", () => {
   });
 
   it("points calcdeg at the camera from the south-gate sign", () => {
-    // town.leroy1 in TOWN.SET (1740, 3536); O7 N camera (1658, 3698).
+    // town.leroy1 in TOWN.SET (1740, 3536); O7 N feet (1664, 3712).
     const leroy = { x: 1740, y: 3536 };
-    const camera = { x: 6 * 255 + 128, y: 14 * 255 + 128 };
+    const camera = { x: 6 * TILE_SPAN + 128, y: 14 * TILE_SPAN + 128 };
     const deg = calcDeg(leroy, camera);
     // 82 east of O7 → SSW. Clockwise CST plates: 0 front, 1 slight ¾.
     expect([0, 1]).toContain(visibleOctant(deg, 128));
@@ -94,11 +97,11 @@ describe("actordeg octants", () => {
 
   it("puts cameraxyz one tile behind the feet along the view", () => {
     const o7n = cameraWorldPoint({ x: 6, y: 14, facing: "N" });
-    const feet = { x: 6 * 255 + 128, y: 14 * 255 + 128 };
+    const feet = { x: 6 * TILE_SPAN + 128, y: 14 * TILE_SPAN + 128 };
     expect(o7n.x).toBeCloseTo(feet.x);
     expect(o7n.y).toBeCloseTo(feet.y + 256);
     const o6e = cameraWorldPoint({ x: 5, y: 14, facing: "E" });
-    expect(o6e.x).toBeLessThan(5 * 255 + 128);
+    expect(o6e.x).toBeLessThan(5 * TILE_SPAN + 128);
   });
 
   it("turns the short way across 0", () => {
@@ -131,19 +134,24 @@ describe("worldToStill", () => {
     const pose = { x: 6, y: 14, facing: "N" as const };
     const at = worldToStill(actor(1740, 3536), pose);
     expect(at).not.toBeNull();
-    const right = 1740 - (6 * 255 + 128);
-    expect(at!.x).toBeCloseTo(SPRITE_HOTSPOT_X + (SPRITE_HOTSPOT_X * right) / at!.forward);
-    expect(at!.x).toBeGreaterThan(320);
-    expect(at!.x).toBeLessThan(420);
-    expect(at!.y).toBeCloseTo(stillGroundY(at!.forward));
+    const feetX = 6 * TILE_SPAN + 128;
+    const feetY = 14 * TILE_SPAN + 128;
+    const feetForward = feetY - 3536;
+    const lensY = feetY + CAMERA_SETBACK;
+    const right = 1740 - feetX;
+    const lensForward = lensY - 3536;
+    expect(at!.x).toBeCloseTo(SPRITE_HOTSPOT_X + (CAMERA_FOCAL * right) / lensForward);
+    // Original O7 N midline ≈353 still-px; DF.EXE lands at 354.
+    expect(at!.x).toBeCloseTo(354, 0);
+    expect(at!.y).toBeCloseTo(stillGroundY(feetForward));
     expect(at!.y).toBeGreaterThan(194);
     expect(at!.y).toBeLessThan(210);
   });
 
   it("uses 1/z for Y (scale), matching O7 N Z bands", () => {
-    // Z=5 band is y=194–209; 1/z at forward 162 lands at ~201 (near=248).
-    const y = stillGroundY(162);
-    expect(y).toBeCloseTo(128 + (248 - 128) * actorPerspective(162));
+    // Z=5 band is y=194–209; 1/z at O7 N feet-forward 176 lands at ~199.
+    const y = stillGroundY(176);
+    expect(y).toBeCloseTo(128 + (248 - 128) * actorPerspective(176));
     expect(y).toBeGreaterThan(194);
     expect(y).toBeLessThan(210);
   });
@@ -164,16 +172,16 @@ describe("worldToStill", () => {
   it("keeps someone 4 tiles down the street in view", () => {
     // K7 looking east: Leroy on the range road at K11 (10,10).
     const k7e = { x: 6, y: 10, facing: "E" as const };
-    const at = worldToStill(actor(10 * 255 + 128, 10 * 255 + 128), k7e);
+    const at = worldToStill(actor(10 * TILE_SPAN + 128, 10 * TILE_SPAN + 128), k7e);
     expect(at).not.toBeNull();
     expect(at!.x).toBeCloseTo(SPRITE_HOTSPOT_X);
-    expect(at!.forward).toBeCloseTo(4 * 255);
+    expect(at!.forward).toBeCloseTo(4 * TILE_SPAN);
   });
 
   it("does not plant a cross-street walker in the north still", () => {
     // K7 looking north: same man is to the east, not in that photo.
     const k7n = { x: 6, y: 10, facing: "N" as const };
-    expect(worldToStill(actor(10 * 255 + 128, 10 * 255 + 128), k7n)).toBeNull();
+    expect(worldToStill(actor(10 * TILE_SPAN + 128, 10 * TILE_SPAN + 128), k7n)).toBeNull();
   });
 
   it("lerps look yaw on an O7 right turn but keeps camera XY", () => {
@@ -191,14 +199,14 @@ describe("worldToStill", () => {
   });
 
   it("does not plant the south-gate actor on the O7 east still", () => {
-    // 82 east, 162 north of the camera: |right| > forward looking east.
+    // Off-axis of a 310-focal still (|right| / forward > 256/310).
     const o7e = { x: 6, y: 14, facing: "E" as const };
     expect(worldToStill(actor(1740, 3536), o7e)).toBeNull();
   });
 
   it("keeps feet on the still, not in the HUD band", () => {
     const pose = { x: 6, y: 14, facing: "N" as const };
-    const close = worldToStill(actor(1658, 3698), pose);
+    const close = worldToStill(actor(6 * TILE_SPAN + 128, 14 * TILE_SPAN + 128), pose);
     expect(close).not.toBeNull();
     expect(close!.y).toBeLessThanOrEqual(264);
   });
@@ -210,9 +218,9 @@ describe("actor sprite size", () => {
   });
 
   it("uses Leroy's setupactor 1100 and 1/z in 256-unit tiles", () => {
-    // town.leroy1 (1740, 3536) vs O7 N camera (1658, 3698) → forward 162
-    const h = actorStillHeight(199, 1100, 162);
-    expect(h).toBeCloseTo(199 * (1100 / ACTOR_SCALE_REF) * (256 / (256 + 162)));
+    // town.leroy1 (1740, 3536) vs O7 N feet (1664, 3712) → forward 176
+    const h = actorStillHeight(199, 1100, 176);
+    expect(h).toBeCloseTo(199 * (1100 / ACTOR_SCALE_REF) * (256 / (256 + 176)));
     expect(h).toBeLessThan(100);
     expect(h).toBeGreaterThan(70);
   });

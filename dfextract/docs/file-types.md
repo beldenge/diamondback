@@ -135,10 +135,21 @@ plus header pointers we measured on `APOTH.SET`.
 ```
 i32 signature / version           @ 0 / @ 2
 i32 framelist chunk count         @ 8     # 28 on APOTH (blog was off by 4)
+i16 draw-lens setback             @ 24    # 64 on every Dust SET we dumped
+i16 camera Z / height             @ 26    # town/nite 62; target 72; interiors 90–260
 i16 framelist container           @ 30    # 44 on APOTH
 i16 waypoint container            @ 34    # 43 on APOTH
+i16 grid width, height            @ 38    # TOWN 15×15
+i16 still width, height           @ 42    # 512×264 outdoor
+i16 spawn x, y, facing            @ 48    # TOWN/NITE (6,14,1) = O7 N
+i16 default actorzclip            @ 60    # town 32; many interiors 64/128
 palette                           @ ~80
 ```
+
++24 is the draw-lens setback `DF.EXE` reads at `[0x46094c]` (play:
+`CAMERA_SETBACK`). The `mov` that copies SET→BSS is not traced; do not
+swap in the patent’s 128. World→still:
+[`src/play/README.md`](../../src/play/README.md).
 
 ### Scene grid (end of container 0)
 
@@ -158,7 +169,8 @@ i32 scriptContainer @ 28
 ```
 
 APOTH is a 3×3: A2/B2/C2 walkable, A2/B2/C2 interactable. Matches the
-blog. Tile coordinate space for waypoints is **255×255** per cell.
+blog. Tile coordinate space is **256×256** per cell in `DF.EXE`
+(`tile * 256 + 128`); waypoint records store absolute u16 xy.
 
 Container **1** is the boot script when it starts with `code`.
 

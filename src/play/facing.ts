@@ -1,3 +1,4 @@
+import { TILE_SPAN } from "../world/set/path";
 import { STILL_HEIGHT, STILL_WIDTH, type Dir } from "../world/set/types";
 import type { ActorState } from "./host";
 
@@ -77,16 +78,16 @@ export function calcVect(
   return { x: dist * Math.sin(rad), y: dist * Math.cos(rad) };
 }
 
-/** Player feet: tile center (255/tile + 128), same as `playerxyz`. */
+/** Player feet: tile center (`tile * 256 + 128`), same as `playerxyz`. */
 export function playerWorldPoint(pose: { x: number; y: number }): { x: number; y: number } {
-  return { x: pose.x * 255 + 128, y: pose.y * 255 + 128 };
+  return { x: pose.x * TILE_SPAN + 128, y: pose.y * TILE_SPAN + 128 };
 }
 
 /**
  * Stills camera on the view axis, one tile *behind* the feet.
  * `calcdeg(actor, cameraxyz)` then faces the lens — same idea as
  * `walktopuppet`'s `currentdeg + 128` — instead of the sub-tile
- * diagonal to the tile center (Leroy sits 82 east of O7).
+ * diagonal to the tile center (Leroy sits 76 east of O7).
  */
 export function cameraWorldPoint(pose: {
   x: number;
@@ -129,6 +130,21 @@ export const ACTOR_SCALE_REF = 1450;
 
 /** Scripts treat world xyz as tiles of 256 (`walktopuppet` divides by 256). */
 export const ACTOR_TILE = 256;
+
+/**
+ * DF.EXE world→still (`0x40dcd0`). Focal is hardcoded `0x136` = 310
+ * (`0x40d255` / `0x40d488`). Not 256 (90° on 512) and not 192 (half of 384).
+ * Screen X is `256 + 310 * right / forward`.
+ */
+export const CAMERA_FOCAL = 310;
+
+/**
+ * SET header +24 is 64 on every Dust map (TOWN, NITE, interiors).
+ * After `tile*256+128`, DF.EXE subtracts `calcvect(facing, setback)`
+ * (`0x40e081` / `0x40e08e`, TRIG * dist / 16384). Looking north that
+ * moves the lens south — the patent’s set-back camera, Dust’s distance.
+ */
+export const CAMERA_SETBACK = 64;
 
 /** DFET CST/PUP header: blit top-left so this hotspot lands on the stage point. */
 export const SPRITE_HOTSPOT_X = 256;
@@ -247,12 +263,17 @@ export function lerpViewCamera(
  * Project a world-space actor onto the 512×264 still.
  * `x,y` is the **hotspot** (ground point), not the PNG bbox.
  *
- * **X** is a pinhole: `256 + 256 * right / forward` (focal = still
- * half-width; patent 256 for SGI position tracking). **Y and scale**
- * stay `256/(256+forward)` so size is finite on the camera plane.
- * Using 1/z for X planted O7-east Leroy on the fence (`x≈133`); he is
- * 162 off-axis and only 82 forward — `|right| > forward` is outside a
- * 90° still, and the original does not draw him in that photo.
+ * **X** is DF.EXE `0x40dcd0`: rotate by TRIG sin/cos / 16384, then
+ * `centerX + focal * right / forward` with focal **310**. The lens is
+ * set back `CAMERA_SETBACK` along the view from the tile-center feet
+ * (`0x40e081`). O7 N + `town.leroy1` → still-x **354**, matching the
+ * original midline (~353). A 90° pinhole from the feet (focal 256,
+ * tile 255) was 386 — too far right. 1/z X was ~306 — too far left.
+ *
+ * **Y and scale** still use 1/z from the *feet* forward so size and
+ * ground Y stay in the SET Z=5 band (y=194–209). Engine Y is
+ * `132 + camZ * 310 / forward` (town camZ = SET +26 = 62) which puts
+ * the hotspot in Z=4 and clips feet; do not switch Y to that.
  */
 export function worldToStill(
   actor: ActorState,
@@ -261,12 +282,16 @@ export function worldToStill(
   const cam: ViewCamera =
     "deg" in view ? view : cameraFromPose(view);
   const f = calcVect(cam.deg, 1);
-  const dx = actor.x - cam.x;
-  const dy = actor.y - cam.y;
+  const feetDx = actor.x - cam.x;
+  const feetDy = actor.y - cam.y;
+  const feetForward = feetDx * f.x + feetDy * f.y;
+  const back = calcVect(cam.deg + 128, CAMERA_SETBACK);
+  const dx = actor.x - (cam.x + back.x);
+  const dy = actor.y - (cam.y + back.y);
   const forward = dx * f.x + dy * f.y;
   const right = dx * -f.y + dy * f.x;
-  // Further than ~5 tiles (K7 east → K11).
-  if (forward > 255 * 5) {
+  // DF.EXE `cmp bx, 0x600` after setback (6×256).
+  if (forward > TILE_SPAN * 6) {
     return null;
   }
   // `walktopuppet` dest is the camera plane. Pinhole X is undefined at
@@ -281,14 +306,14 @@ export function worldToStill(
       forward: 0,
     };
   }
-  const x = SPRITE_HOTSPOT_X + (SPRITE_HOTSPOT_X * right) / forward;
+  const x = SPRITE_HOTSPOT_X + (CAMERA_FOCAL * right) / forward;
   if (x < -48 || x > STILL_WIDTH + 48) {
     return null;
   }
   return {
     x,
-    y: Math.min(STILL_HEIGHT, Math.max(0, stillGroundY(forward))),
-    forward,
+    y: Math.min(STILL_HEIGHT, Math.max(0, stillGroundY(Math.max(0, feetForward)))),
+    forward: Math.max(0, feetForward),
   };
 }
 

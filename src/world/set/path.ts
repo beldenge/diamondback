@@ -1,8 +1,8 @@
 import type { SetGraph } from "./types";
 import { tileKey } from "./graph";
 
-/** Same span as `playerxyz`: tile * 255 + 128. */
-export const TILE_SPAN = 255;
+/** Same span as `playerxyz`: tile * 256 + 128. DF.EXE `shl ax,8; add ax,0x80`. */
+export const TILE_SPAN = 256;
 export const TILE_ORIGIN = 128;
 
 export function worldToTile(x: number, y: number): { x: number; y: number } {

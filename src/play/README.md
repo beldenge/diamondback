@@ -3,7 +3,8 @@
 How the remake runs Day 1 night: original HUD under the stills, CST actors,
 and PUP talking-heads driven by extracted scripts. Extract formats live in
 [`dfextract/docs/`](../../dfextract/docs/). This file is the **playback**
-book so we do not re-debug speech, visemes, or the Firefox audio delay.
+book so we do not re-debug speech, visemes, the Firefox audio delay, or
+CST world→still X.
 
 Town sandbox (`/`) stays an unlocked stills walker:
 [`src/world/set/README.md`](../world/set/README.md).
@@ -51,7 +52,7 @@ Idle is Leroy’s script, not a remake fidget. `setupactor("sign")` ends in
 `realdist < hotdist()` (384 in town) `turntodeg` toward `cameraxyz`;
 otherwise `actordeg + 2` (slow pivot). `playerxyz` is the tile center;
 `cameraxyz` is one tile behind the feet on the view axis so `calcdeg`
-faces the lens (O7 N looks south, not the 82-east diagonal). When the
+faces the lens (O7 N looks south, not the 76-east diagonal). When the
 player steps or turns, standing actors’ idle loops fire on the next
 script frame — do not wait a full second, and do not freeze turns during
 a SET walk (`talking` is only `mousedown`). Do not snap deg; `turntodeg`
@@ -61,7 +62,7 @@ Talk approach is `walktopuppet`: in town he walks to `playerxyz` facing
 that vector (straight-on toward the camera), then `turntodeg (currentdeg
 + 128)`. Scripts `stoploop` for the walk. Do not spin during the walk.
 
-A **star** is a named SET pin (`waypoints.json`, 255 units/tile), not a
+A **star** is a named SET pin (`waypoints.json`, 256 units/tile in the EXE), not a
 sprite. `actorstar` copies that xyz. Do not invent a nearby xyz if a
 name looks missing — 50-byte records hold two stars; `town.leroy1` is
 slot B of `town.leroy2`.
@@ -85,30 +86,91 @@ stage — that is 1:1 **on the camera plane**. `stdscale("town")` is **1450**
 after `stdactor` (`CST/_GANG/Leroy/Script.txt`). Indoor sets use 2400–5800.
 
 Day-1 stand is `setupactor("sign")` → `actorstar (me, "town.leroy1")` at
-**(1740, 3536)** (82 east, 162 north of O7’s tile center).
-`town.leroy2` (2656, 2720) is the range. CST in-world blit uses the same
-hotspot as PUP: header `pos_x`/`pos_y` are top-left when the hotspot is
-(256, 192). Scale that offset by the still scale; do not
+**(1740, 3536)** (76 east, 176 north of O7’s tile center in 256-unit
+tiles). `town.leroy2` (2656, 2720) is the range. CST in-world blit uses
+the same hotspot as PUP: header `pos_x`/`pos_y` are top-left when the
+hotspot is (256, 192). Scale that offset by the still scale; do not
 `translate(-50%, -100%)` on the bbox. ¾ frames are not centered on the
 hotspot.
 
-Screen **X** is a pinhole: `256 + 256 * right / forward` (focal = still
-half-width; `DF.EXE` `TRIG1`/`TRIG2` are 256-step sin/cos × 16384, same
-`actordeg` circle). **Y and scale** use `256/(256+forward)`. Using 1/z
-for X put Leroy on the O7 east fence; he is 162 off-axis and only 82
-forward (`|right| > forward` is outside a 90° still) and the original
-does not draw him there. Horizon Y is 128; the near plane is **248**
-(mid Z=3 band). Still-bottom 264 sat the sign hotspot in Z=4 while
-actor Z is 5, so SET Z clipped his feet. Camera is the tile center
-(`x*255+128`). `cameraxyz` (one tile behind) is only for idle facing,
-not placement. During a SET walk or turn, lerp that camera through the
-5 motion frames. Do not scan the Z plane for Y — O8 N’s fence has no
-ground pixels at Leroy’s depth in that column. Do not nudge a star or a
-character.
+World → still (X vs Y, three cameras, dead ends): **World → still**
+below. During a SET walk or turn, lerp the feet through the 5 motion
+frames.
 
-O7 north original still-space midline was **x≈352**; pinhole lands
-**~386** (overshoot right, accepted). 1/z X was **~306** (too left).
-Do not lerp a second “corridor” yaw to hide the east jump.
+### World → still (do not re-debug)
+
+Code: `CAMERA_FOCAL` / `CAMERA_SETBACK` / `TILE_SPAN` in
+[`facing.ts`](facing.ts). Tests pin O7 N + `town.leroy1` at still-x
+**354**. Binary writeup:
+[`dustdecompile/docs/findings.md`](../../dustdecompile/docs/findings.md)
+§7a. SET header fields:
+[`dfextract/docs/file-types.md`](../../dfextract/docs/file-types.md).
+
+There are **three** cameras. Do not collapse them.
+
+| Name | World point | Used for |
+|---|---|---|
+| Feet / `playerxyz` | `tile * 256 + 128` | Scripts, walk dest, **Y and scale** 1/z, actor Z |
+| Draw lens | feet minus `calcvect(facing, 64)` | **Screen X only** |
+| `cameraxyz` | one **full tile** behind the feet | Idle `calcdeg` only. Not placement. |
+
+`DF.EXE` `0x40dcd0`: rotate `(actor − lens)` by TRIG sin/cos ÷ 16384,
+then `256 + 310 * right / forward`. Focal **310** is `mov …, 0x136` at
+`0x40d255`, not 256 (90° on 512) and not 192 (half of 384).
+
+**Oracle** (spawn O7 N, `town.leroy1` = 1740, 3536):
+
+```
+feet     = (6*256+128, 14*256+128) = (1664, 3712)
+lens     = (1664, 3712+64)          = (1664, 3776)   # looking N, +y south
+right    = 76
+forward  = 240
+x        = 256 + 310*76/240         = 354
+```
+
+Original DOSBox still-space midline (shirt ≈ hotspot on the front
+stand plate) measured **353**. Integer `idiv` truncates to 354.
+
+How we measured the screenshots: both are a **3×** 512×384 stage
+(still 1536×792). Original has wood window chrome (still origin 6,10);
+ours was 8,10. Map screenshot pixels through that rect, then
+still-minus-diff the orange shirt in x=300–430, y=90–230. Do not
+compare raw PNG sizes — the two shots are not the same pixel size and
+the original is letterboxed inside a frame.
+
+**Proven from this install’s `DF.EXE` (SHA-1 `54558d7b…`):** tile
+`*256+128` (`0x40ddac`); focal 310; TRIG rotate + pinhole at
+`0x40dcd0`; lens subtracts `calcvect(facing, [0x46094c])` at
+`0x40e081`; depth cap `0x600` = 6×256. **Proven from SET container 0:**
++24 = **64 on every map**; +26 = camera Z (town/nite **62**, target
+**72**, interiors 90–260); +42/+44 = 512×264; +48/+50/+52 = spawn
+`(6,14,1)` = O7 N.
+
+**Inferred, not traced:** nothing in `.text` does `mov [0x46094c], 64`.
+Play treats SET +24 as that word because the engine *reads* it as the
+setback distance, every SET stores 64 there, and 64 is the value that
+makes 310/256 land on 354. Do not replace it with the patent’s half-tile
+**128** or camera height **72**.
+
+Appleton patents (found by searching Cyberflix / DreamFactory
+projection, not by number): [US5644694](https://patents.google.com/patent/US5644694A)
+is the production camera (256-unit cells, set-back lens, height 72);
+[US5729669](https://patents.google.com/patent/US5729669A) is the 24-level
+Z overlay. Prefer the EXE + SET over the patent when they disagree.
+
+#### Dead ends (do not retry)
+
+| Approach | What we saw |
+|---|---|
+| `tile * 255 + 128` | mrxstudios / early docs counted 0–255 as the span. EXE is `shl 8`. O7 feet became (1658, 3698); Leroy 82 east / 162 north. |
+| 90° pinhole, focal 256, camera at feet | `256 + 256*82/162` = **386**. Too far right of original 353. |
+| 1/z X: `256 + 256*right/(256+forward)` | Same math as a **full-tile** setback. **~306**. Too far left; plants him on the O7 east fence. `ours.png` in `screenshots/` is this era. |
+| Focal 192 (half of 384) | Attractive (353.2 with 255-tiles and no setback) and **wrong**. EXE says `0x136`. |
+| Patent setback 128 / height 72 | Dust’s SET +24 is 64; town +26 is 62. Target +26 is 72 (patent default). |
+| Engine Y `132 + 62*310/forward` | Hotspot in Z=4; SET Z clips feet. Keep 1/z Y from the **feet** (near plane **248**) so O7 N stays in Z=5 (y=194–209). |
+| Nudge `town.leroy1` | Authored (1740, 3536). The error was the camera, not the star. |
+| Use `cameraxyz` (one tile back) for blit | That vector is idle facing. Draw lens is 64, not 256. |
+| Fit FOV to one screenshot and freeze it | X is the EXE. If another actor looks off, check tile 256 / focal 310 / setback 64 before inventing a new model. |
 
 Distance: Dust never computes scale in scripts. DFET says DF.EXE uses the
 SET Z plane; the EXE imports `BitBlt` / `WinGBitBlt`, not `StretchBlt`.

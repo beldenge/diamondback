@@ -34,6 +34,7 @@ the same behaviour:
 | Plugin ABI | `LoadLibrary` + one export `PlugProc` + verb string (`checkmove`) |
 | Checkers AI hook | `pluginfx("checkmove", board, lookahead, mode)` → comma-separated moves |
 | Travel / movies | `spotmovie` / `gototown` / `gotointerior` / `advanceday` are **game scripts** in `new.flt`, wrapping `playmovie` / `opensetfile` |
+| CST world → still X | Focal 310, tile 256, lens setback 64 (§7a). O7 N Leroy still-x 354 |
 
 Scripts remain the storyboard (what Jenix says). The EXEs + this parse
 are the rulebook (what those verbs *do*).
@@ -515,6 +516,53 @@ capture.
 
 ---
 
+## 7a. World → still (CST dest-rect, this install)
+
+Playback book (cameras, oracle, dead ends):
+[`src/play/README.md`](../../src/play/README.md) § World → still.
+This install’s `DF.EXE` is SHA-1 `54558d7b47b627e9770932be0afa9efd2fadce00`
+(DreamCatcher’s published hash is a **different** build).
+
+Capstone on `.text` (not Ghidra). Addresses are VAs, image base
+`0x400000`.
+
+| Site | What it is |
+|---|---|
+| `0x40dcd0` | World → screen. `esi` point `{x,y,z}` at `+2/+4/+6`. Subtract camera `0x460978/97a/97c`. Rotate by `[0x4494b8]` / `[0x4494d0]` (TRIG sin/cos, 16384). `sar 14`. If forward ≤ 0, return. Else `imul` both axes by focal `[0x460958]`, `idiv` forward. Store `y` at out+0 (negated + `[0x46095a]`), `x` at out+2 (`+ [0x46095c]`). Returns forward in `ax`. |
+| `0x40d255` / `0x40d488` | `mov word [0x460958], 0x136` — focal **310**. View centers are half of `[0x460950]`×`[0x460952]` (512×384 stage; still is 512×264). |
+| `0x40ddac` | `shl ax, 8; add ax, 0x80` — feet = `tile * 256 + 128`. Not 255. |
+| `0x40e640` / `0x40e670` | `calcvect`: `TRIG[deg & 255] * dist / 16384`. |
+| `0x40e081` / `0x40e08e` | `camX/Y -= calcvect(facing, [0x46094c])` — draw-lens setback. |
+| `0x415213` | CST draw calls `0x40dcd0`. Then `forward - actor+0x4c - [0x46094c] + 128`; skip if `> 0x600` (6×256). |
+| `0x411d50` | `calcdeg` / atan2 on the 256-circle (0=S, 64=E, 128=N, 192=W). `0xC0` here is **west**, not focal 192. |
+
+SET container 0 (every Dust map we dumped):
+
+| Offset | Town / Nite | Meaning |
+|---|---|---|
+| +24 | 64 | Draw-lens setback (constant on all SETs) |
+| +26 | 62 (town/nite); 72 (target); 90–260 interiors | Camera Z / height |
+| +42 / +44 | 512×264 | Still size |
+| +48 / +50 / +52 | 6, 14, 1 | Spawn tile + facing (O7 N) |
+| +60 | 32 (town); 64/128 interiors | Default `actorzclip` |
+
+**Not traced:** no `mov [0x46094c], 64` in `.text`. Play copies SET +24
+into that slot because the engine *reads* `[0x46094c]` as setback, every
+SET has 64 there, and 64 + focal 310 + 256-tiles puts O7 N Leroy at
+still-x **354** (original midline **353**).
+
+Patents (web search “Cyberflix DreamFactory projection”, not a known
+number): US5644694 production camera (256-unit cells, set-back lens,
+height 72); US5729669 24-level Z sprites. Dust’s setback is **64**, not
+the patent’s 128. Prefer EXE + SET.
+
+Play uses this X. Y and scale stay 1/z from the **feet** so the hotspot
+stays in SET Z=5. Engine Y `viewH/2 + camZ * 310 / forward` puts town
+Leroy in Z=4 and clips feet — do not switch Y to that without a new Z
+pass.
+
+---
+
 ## 8. What we have **not** gotten out of the EXEs yet
 
 Do not pretend these are done:
@@ -534,8 +582,8 @@ Do not pretend these are done:
 - `walktostar` hop algorithm (blocking vs async is script-side
   `while iswalk { forceupdate }`). Named dest follows the SET camera-tile
   graph; Dust never calls `walkonroad`. Play BFS + walk-edge snap is a
-  remake stand-in. `actorxyz` units match SET stars (255/tile) and
-  scripts that divide by 256.
+  remake stand-in. `actorxyz` units match SET stars (256/tile in the
+  EXE) and scripts that divide by 256.
 - Save blob format. Filter string is `Saved games (.RTD)!*.rtd`. No
   `.rtd` in this install.
 - Mouth/`animLogic` visemes: integer is now in `texts.csv`; how it
@@ -544,9 +592,9 @@ Do not pretend these are done:
   dustdecompile --rsrc` → `out/rsrc/cursors/`). Script `cursor("touch")`
   maps to `CURS.TOUCH`. RCDATA `TRIG1` / `TRIG2` are 256 int16s,
   `16384 * sin/cos(2π i / 256)` — `actordeg` / `calcvect`, not FOV.
-- Exact sprite dest-rect in `DF.EXE` (world xyz → 512×264). Play uses
-  pinhole X `256 + 256 * right / forward` and 1/z for Y/scale; O7 east
-  hiding Leroy matches the original, O7 north still overshoots right.
+- CST dest-rect **X** is §7a. Leftover: the `mov` that fills
+  `[0x46094c]` from SET +24; engine Y vs play 1/z; sprite scale path
+  at `0x415271` (`actorscale * … / 1000`).
 - Z-buffer **use** at runtime is in play: CST pixels draw when
   `actorZ <= stillZ` (DFET: smaller is closer). Actor Z is
   `round(nearZ / persp)` from the still’s bottom-row Z (3 on the south
@@ -565,6 +613,8 @@ Do not pretend these are done:
 4. Implement native `pluginfx("checkmove")` as a function that matches
    the string protocol; port `goodmove`/`goodjump` from the PRP scripts.
 5. Never guess `unknown` rows (delay units, save format, MOV timing).
+6. CST world→still is §7a. Do not invent 90° FOV, `255`/tile, or a
+   star nudge. Dead ends: [`src/play/README.md`](../../src/play/README.md).
 
 Regenerate dumps:
 

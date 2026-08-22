@@ -64,7 +64,7 @@ describe("actor walk wait", () => {
     actor.x = 1740;
     actor.y = 3536;
     actor.speed = 3;
-    host.startWalk(actor, 1658, 3698, 0);
+    host.startWalk(actor, 1664, 3712, 0);
     let frames = 0;
     while (actor.walking && frames < 2048) {
       host.advanceActors(1 / 60);
@@ -72,8 +72,8 @@ describe("actor walk wait", () => {
     }
     expect(actor.walking).toBe(false);
     expect(frames).toBeLessThan(2048);
-    expect(actor.x).toBe(1658);
-    expect(actor.y).toBe(3698);
+    expect(actor.x).toBe(1664);
+    expect(actor.y).toBe(3712);
   });
 
   it("advances walk poses by distance, not a 0.08s treadmill", () => {
@@ -89,7 +89,7 @@ describe("actor walk wait", () => {
       w: 1,
       h: 1,
     }));
-    host.startWalk(actor, 1658, 3698, 0);
+    host.startWalk(actor, 1664, 3712, 0);
     let frames = 0;
     while (actor.walkStep === 0 && actor.walking && frames < 2048) {
       host.advanceActors(1 / 60);
@@ -127,7 +127,7 @@ describe("actor walk wait", () => {
     void host.call("walktostar", ["leroy", "town.leroy2"], {} as VM);
     expect(actor.walking).toBe(true);
     expect(actor.route.length).toBeGreaterThan(3);
-    expect(actor.destX).toBeCloseTo(6 * 255 + 128, 0);
+    expect(actor.destX).toBeCloseTo(6 * 256 + 128, 0);
     expect(actor.destY).toBeCloseTo(3536, 0);
     expect(actor.route.at(-1)).toEqual({ x: 2656, y: 2720, z: 0 });
   });
