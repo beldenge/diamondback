@@ -47,8 +47,7 @@ describe("worldToStill", () => {
     expect(at!.x).toBeCloseTo(354, 0);
     expect(at!.x).toBeGreaterThan(340);
     expect(at!.x).toBeLessThan(370);
-    expect(at!.y).toBeGreaterThan(160);
-    expect(at!.y).toBeLessThan(250);
+    expect(at!.y).toBe(212);
   });
 
   it("hides someone behind the camera", () => {

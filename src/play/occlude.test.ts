@@ -1,40 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { actorPerspective } from "./facing";
 import {
   actorBlitZ,
-  actorWorldZ,
+  exeSpriteZ,
   blitSpriteZ,
   paintFarToNear,
-  sampleNearZ,
   spriteBitsFromImageData,
   spriteOverZ,
-  STILL_NEAR_Z,
 } from "./occlude";
 
 describe("SET Z vs actor", () => {
-  it("matches 3/persp on the south-gate road", () => {
-    expect(actorWorldZ(0)).toBe(STILL_NEAR_Z);
-    expect(actorWorldZ(162)).toBe(5);
-    expect(actorWorldZ(162)).toBe(
-      Math.round(STILL_NEAR_Z / actorPerspective(162)),
-    );
+  it("uses EXE lens-forward sprite Z (N7 E jug on dirt, O7 N Leroy)", () => {
+    // (130 − 0 − 64 + 128) >> 6 = 3, so the jug draws on Z=3 dirt.
+    expect(exeSpriteZ(130, 0)).toBe(3);
+    expect(exeSpriteZ(130, 32)).toBe(2);
+    // (240 − 32 − 64 + 128) >> 6 = 4
+    expect(exeSpriteZ(240, 32)).toBe(4);
   });
 
   it("draws on the ground and sky, not through a closer fence", () => {
     expect(spriteOverZ(5, 3)).toBe(false);
     expect(spriteOverZ(5, 5)).toBe(true);
     expect(spriteOverZ(5, 24)).toBe(true);
-  });
-
-  it("reads near Z from the bottom of the still", () => {
-    const z = new Uint8Array(512 * 264);
-    z.fill(24);
-    for (let y = 256; y < 264; y++) {
-      for (let x = 240; x < 280; x++) {
-        z[y * 512 + x] = 3;
-      }
-    }
-    expect(sampleNearZ(z)).toBe(3);
   });
 
   it("paints farther sprites first so nearer ones win", () => {
@@ -63,6 +49,13 @@ describe("SET Z vs actor", () => {
     expect(pick[10 * 512 + 11]).toBe(1);
     expect(dest[(10 * 512 + 11) * 4]).toBe(0);
     expect(dest[(10 * 512 + 11) * 4 + 1]).toBe(255);
+  });
+
+  it("samples the still edge when the hotspot is below the plate", () => {
+    const z = new Uint8Array(512 * 264);
+    z.fill(7);
+    z[263 * 512 + 303] = 3;
+    expect(actorBlitZ(3, z, 303, 279)).toBe(3);
   });
 
   it("does not sit behind the still Z under the hotspot", () => {

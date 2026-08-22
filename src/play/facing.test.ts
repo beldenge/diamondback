@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { ActorState } from "./host";
 import {
   actorCssHeight,
-  actorPerspective,
   actorStillHeight,
   ACTOR_SCALE_REF,
+  CST_SCALE_FIELD,
+  enginePinholeY,
+  engineStillScale,
   calcDeg,
   calcVect,
   CAMERA_FOCAL,
@@ -12,19 +14,20 @@ import {
   cameraFromPose,
   cameraWorldPoint,
   degDelta,
-  filmstripCamera,
+  filmstripT,
   lerpViewCamera,
   degToOctant,
   dirToDeg,
   spriteStillTopLeft,
   SPRITE_HOTSPOT_X,
-  stillGroundY,
   visibleOctant,
   gameFrameSec,
   poseFromTable,
   timingForPose,
   walkFrame,
   worldToStill,
+  worldToStillFilmstrip,
+  wrapDeg,
 } from "./facing";
 import { TILE_SPAN } from "../world/set/path";
 import { playStageRect, STAGE_HEIGHT, STAGE_WIDTH } from "./stage";
@@ -161,24 +164,20 @@ describe("worldToStill", () => {
     expect(at).not.toBeNull();
     const feetX = 6 * TILE_SPAN + 128;
     const feetY = 14 * TILE_SPAN + 128;
-    const feetForward = feetY - 3536;
     const lensY = feetY + CAMERA_SETBACK;
     const right = 1740 - feetX;
     const lensForward = lensY - 3536;
-    expect(at!.x).toBeCloseTo(SPRITE_HOTSPOT_X + (CAMERA_FOCAL * right) / lensForward);
+    expect(at!.x).toBe(SPRITE_HOTSPOT_X + Math.trunc((CAMERA_FOCAL * right) / lensForward));
     // Original O7 N midline ≈353 still-px; DF.EXE lands at 354.
-    expect(at!.x).toBeCloseTo(354, 0);
-    expect(at!.y).toBeCloseTo(stillGroundY(feetForward));
-    expect(at!.y).toBeGreaterThan(194);
-    expect(at!.y).toBeLessThan(210);
+    expect(at!.x).toBe(354);
+    expect(at!.y).toBe(enginePinholeY(0, lensForward));
+    expect(at!.y).toBe(212);
   });
 
-  it("uses 1/z for Y (scale), matching O7 N Z bands", () => {
-    // Z=5 band is y=194–209; 1/z at O7 N feet-forward 176 lands at ~199.
-    const y = stillGroundY(176);
-    expect(y).toBeCloseTo(128 + (248 - 128) * actorPerspective(176));
-    expect(y).toBeGreaterThan(194);
-    expect(y).toBeLessThan(210);
+  it("uses EXE pinhole Y, not 1/z, so same-tile ground sits on the HUD", () => {
+    // 0x40dcd0: 132 − 310*(objZ−62)/forward. Ground z=0, forward 130 → 279.
+    expect(enginePinholeY(0, 130)).toBe(279);
+    expect(enginePinholeY(0, 240)).toBe(212);
   });
 
   it("blits CST frames from the header hotspot, not bbox center", () => {
@@ -223,44 +222,74 @@ describe("worldToStill", () => {
     expect(mid.deg).toBeLessThan(128);
   });
 
-  it("keeps the start camera for in-place turns so props do not slide", () => {
+  it("yaws look-deg on an in-place turn but keeps camera XY", () => {
     const n7e = { x: 6, y: 13, facing: "E" as const };
     const n7s = { x: 6, y: 13, facing: "S" as const };
-    expect(filmstripCamera(n7e, n7s, 0.5)).toEqual(cameraFromPose(n7e));
-    const jug = actor(1730, 3476);
-    const start = worldToStill(jug, filmstripCamera(n7e, n7s, 0));
-    const end = worldToStill(jug, filmstripCamera(n7e, n7s, 1));
-    expect(start?.x ?? null).toBe(end?.x ?? null);
-    expect(start?.y ?? null).toBe(end?.y ?? null);
+    const start = cameraFromPose(n7e);
+    const mid = lerpViewCamera(n7e, n7s, 0.5);
+    expect(mid.x).toBe(start.x);
+    expect(mid.y).toBe(start.y);
+    expect(mid.deg).toBe(wrapDeg(start.deg + degDelta(start.deg, cameraFromPose(n7s).deg) * 0.5));
+    expect(mid.deg).not.toBe(start.deg);
   });
 
-  it("keeps the N7 jug on the still with 1/z Y", () => {
-    const jug = actor(1730, 3476);
-    const o7n = { x: 6, y: 14, facing: "N" as const };
-    const n7s = { x: 6, y: 13, facing: "S" as const };
+  it("reprojects the jug through pan yaw", () => {
     const n7e = { x: 6, y: 13, facing: "E" as const };
-    const atGate = worldToStill(jug, o7n);
-    expect(atGate).not.toBeNull();
-    expect(atGate!.x).toBeCloseTo(324, 0);
-    expect(atGate!.y).toBeGreaterThan(180);
-    expect(atGate!.y).toBeLessThan(220);
-    const south = worldToStill(jug, n7s);
-    expect(south).not.toBeNull();
-    expect(south!.y).toBeGreaterThan(200);
-    expect(south!.y).toBeLessThanOrEqual(264);
+    const n7s = { x: 6, y: 13, facing: "S" as const };
+    const jug = actor(1730, 3476);
+    const start = worldToStillFilmstrip(jug, n7e, n7s, 0);
+    const mid = worldToStillFilmstrip(jug, n7e, n7s, 0.5);
+    const end = worldToStillFilmstrip(jug, n7e, n7s, 1);
+    expect(start).toEqual(worldToStill(jug, n7e));
+    expect(end).toEqual(worldToStill(jug, n7s));
+    expect(mid).not.toBeNull();
+    expect(start).not.toBeNull();
+    expect(end).not.toBeNull();
+    expect(mid!.x).not.toBe(start!.x);
+    // Pinhole at 45° is not the average of the two standing 1/z stills.
+    expect(mid!.x).not.toBeCloseTo((start!.x + end!.x) / 2, 0);
+  });
+
+  it("steps a 5-frame walk as index/4 (EXE index*64)", () => {
+    expect(filmstripT(0, 5)).toBe(0);
+    expect(filmstripT(2, 5)).toBe(0.5);
+    expect(filmstripT(4, 5)).toBe(1);
+    expect(filmstripT(4, 6)).toBe(1);
+    expect(filmstripT(5, 6)).toBe(1);
+  });
+
+  it("puts the N7 E jug on the HUD line (screenshot oracle)", () => {
+    // N7_east_original.png: overlay bbox ~still (304,248)–(316,264) after
+    // mapping 3× letterbox. Hotspot 279 sits 3px under the still; the
+    // 64px jug (field 96, scale 800) paints up onto the dirt.
+    const jug = actor(1730, 3476);
+    const n7e = { x: 6, y: 13, facing: "E" as const };
+    const n7s = { x: 6, y: 13, facing: "S" as const };
     const east = worldToStill(jug, n7e);
     expect(east).not.toBeNull();
-    expect(east!.y).toBeGreaterThan(180);
-    expect(east!.y).toBeLessThanOrEqual(264);
+    expect(east!.x).toBe(303);
+    expect(east!.y).toBe(279);
+    expect(east!.lensForward).toBeCloseTo(130, 0);
+    const south = worldToStill(jug, n7s);
+    expect(south).not.toBeNull();
+    expect(south!.y).toBeGreaterThan(264);
+    expect(n7e.x).toBe(n7s.x);
+    expect(n7e.y).toBe(n7s.y);
   });
 
   it("still lerps camera XY on a forward walk", () => {
     const o7n = { x: 6, y: 14, facing: "N" as const };
     const n7n = { x: 6, y: 13, facing: "N" as const };
-    const mid = filmstripCamera(o7n, n7n, 0.5);
+    const mid = lerpViewCamera(o7n, n7n, 0.5);
     expect(mid.y).toBeLessThan(cameraFromPose(o7n).y);
     expect(mid.y).toBeGreaterThan(cameraFromPose(n7n).y);
+    expect(mid.y).toBeCloseTo((cameraFromPose(o7n).y + cameraFromPose(n7n).y) / 2);
     expect(mid.deg).toBe(dirToDeg("N"));
+    const leroy = actor(1740, 3536);
+    expect(worldToStillFilmstrip(leroy, o7n, n7n, 0)).toEqual(worldToStill(leroy, o7n));
+    const midStill = worldToStillFilmstrip(leroy, o7n, n7n, 0.5);
+    expect(midStill).not.toBeNull();
+    expect(midStill!.x).toBeGreaterThan(worldToStill(leroy, o7n)!.x);
   });
 
   it("does not plant the south-gate actor on the O7 east still", () => {
@@ -269,25 +298,38 @@ describe("worldToStill", () => {
     expect(worldToStill(actor(1740, 3536), o7e)).toBeNull();
   });
 
-  it("keeps feet on the still, not in the HUD band", () => {
+  it("slides the south-gate actor off during an O7 north-to-east pan", () => {
+    const o7n = { x: 6, y: 14, facing: "N" as const };
+    const o7e = { x: 6, y: 14, facing: "E" as const };
+    const leroy = actor(1740, 3536);
+    const start = worldToStillFilmstrip(leroy, o7n, o7e, 0);
+    const mid = worldToStillFilmstrip(leroy, o7n, o7e, 0.5);
+    expect(start).not.toBeNull();
+    expect(start!.x).toBeCloseTo(354, 0);
+    expect(mid).not.toBeNull();
+    expect(mid!.x).toBeLessThan(start!.x);
+    expect(worldToStillFilmstrip(leroy, o7n, o7e, 1)).toBeNull();
+  });
+
+  it("puts the camera-tile feet in the HUD band (pinhole, not 1/z near plane)", () => {
     const pose = { x: 6, y: 14, facing: "N" as const };
     const close = worldToStill(actor(6 * TILE_SPAN + 128, 14 * TILE_SPAN + 128), pose);
     expect(close).not.toBeNull();
-    expect(close!.y).toBeLessThanOrEqual(264);
+    expect(close!.y).toBeGreaterThan(264);
   });
 });
 
 describe("actor sprite size", () => {
-  it("is native height at stdscale on the camera plane", () => {
-    expect(actorStillHeight(199, ACTOR_SCALE_REF, 0)).toBeCloseTo(199);
+  it("uses CST +0x2a field 114 over lens-forward (0x415271)", () => {
+    expect(engineStillScale(ACTOR_SCALE_REF, 240, CST_SCALE_FIELD)).toBeCloseTo(
+      (1450 * 114) / (1000 * 240),
+    );
+    expect(actorStillHeight(199, 1100, 240)).toBeCloseTo((199 * 1100 * 114) / (1000 * 240));
   });
 
-  it("uses Leroy's setupactor 1100 and 1/z in 256-unit tiles", () => {
-    // town.leroy1 (1740, 3536) vs O7 N feet (1664, 3712) → forward 176
-    const h = actorStillHeight(199, 1100, 176);
-    expect(h).toBeCloseTo(199 * (1100 / ACTOR_SCALE_REF) * (256 / (256 + 176)));
-    expect(h).toBeLessThan(100);
-    expect(h).toBeGreaterThan(70);
+  it("uses Leroy's setupactor 1100 and lens-forward 240 at the south gate", () => {
+    const h = actorStillHeight(199, 1100, 240);
+    expect(h).toBeCloseTo(104, 0);
   });
 
   it("tracks the letterboxed still instead of raw CSS pixels", () => {

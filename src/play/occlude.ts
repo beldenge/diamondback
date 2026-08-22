@@ -1,5 +1,5 @@
 import { STILL_HEIGHT, STILL_WIDTH } from "../world/set/types";
-import { ACTOR_TILE } from "./facing";
+import { CAMERA_SETBACK } from "./facing";
 
 /**
  * Dust SET Z is 1–24 (DFET: 24 levels, 24 = sky, 0 unused / “super close”).
@@ -7,34 +7,21 @@ import { ACTOR_TILE } from "./facing";
  * Draw a sprite pixel when `actorZ <= stillZ` (equal = standing on that ground).
  */
 export const Z_SKY = 24;
-export const STILL_NEAR_Z = 3;
 
-export function actorWorldZ(forward: number, nearZ = STILL_NEAR_Z): number {
-  const z = nearZ * ((ACTOR_TILE + Math.max(0, forward)) / ACTOR_TILE);
-  return Math.max(1, Math.min(Z_SKY - 1, Math.round(z)));
-}
-
-/** Closest ground Z in the bottom rows (camera feet). Fence views still read 3. */
-export function sampleNearZ(
-  zPlane: Uint8Array | null,
-  width = STILL_WIDTH,
-  height = STILL_HEIGHT,
+/**
+ * DF.EXE `0x415213` / PRP `0x428173` sprite Z:
+ * `(lensForward − zclip − setback + 128) >> 6` (24-level).
+ */
+export function exeSpriteZ(
+  lensForward: number,
+  zclip = 32,
+  setback = CAMERA_SETBACK,
 ): number {
-  if (!zPlane || zPlane.length < width * height) {
-    return STILL_NEAR_Z;
+  let raw = Math.trunc(lensForward) - Math.trunc(zclip) - setback + 128;
+  if (raw < 0) {
+    raw = 0;
   }
-  let min = 255;
-  const mid = width >> 1;
-  for (let y = height - 8; y < height; y++) {
-    const row = y * width;
-    for (let x = mid - 16; x < mid + 32; x++) {
-      const z = zPlane[row + x];
-      if (z > 0 && z < Z_SKY && z < min) {
-        min = z;
-      }
-    }
-  }
-  return min === 255 ? STILL_NEAR_Z : min;
+  return raw >> 6;
 }
 
 export function spriteOverZ(actorZ: number, stillZ: number): boolean {
@@ -42,9 +29,9 @@ export function spriteOverZ(actorZ: number, stillZ: number): boolean {
 }
 
 /**
- * How many SET Z planes closer than 1/z the hotspot may pull the
- * billboard (Help’s Z=5 robe on Z=4 dirt). A building in front of a
- * far actor is many planes closer — keep `computed` so the wall wins.
+ * How many SET Z planes closer than EXE sprite Z the hotspot may pull
+ * the billboard. A building in front of a far actor is many planes
+ * closer — keep `computed` so the wall wins.
  */
 export const GROUND_Z_SLACK = 1;
 
@@ -65,11 +52,8 @@ export function actorBlitZ(
   if (!zPlane || zPlane.length < width * height) {
     return computed;
   }
-  const x = Math.round(hx);
-  const y = Math.round(hy);
-  if (x < 0 || x >= width || y < 0 || y >= height) {
-    return computed;
-  }
+  const x = Math.min(width - 1, Math.max(0, Math.round(hx)));
+  const y = Math.min(height - 1, Math.max(0, Math.round(hy)));
   const feet = zPlane[y * width + x];
   if (feet <= 0 || feet >= Z_SKY) {
     return computed;

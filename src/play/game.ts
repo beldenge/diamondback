@@ -7,7 +7,12 @@ import {
   transitionForInput,
   type WalkInput,
 } from "../world/set/walker";
-import { createStillAnim, tickStillAnim, type StillAnim } from "../world/set/playback";
+import {
+  createStillAnim,
+  displayedFilmstripIndex,
+  tickStillAnim,
+  type StillAnim,
+} from "../world/set/playback";
 import {
   STILL_FRAME_SEC,
   STILL_HEIGHT,
@@ -39,20 +44,24 @@ import { StillsView } from "../world/set/stillsView";
 import {
   actorSprite,
   actorStillHeight,
+  CST_SCALE_FIELD,
+  PRP_SCALE_FIELD,
   cameraFromPose,
-  filmstripCamera,
+  lerpViewCamera,
+  filmstripT,
   SPRITE_HOTSPOT_X,
   SPRITE_HOTSPOT_Y,
   spriteStillTopLeft,
   worldToStill,
+  worldToStillFilmstrip,
+  type StillHit,
   type ViewCamera,
 } from "./facing";
 import {
   actorBlitZ,
-  actorWorldZ,
+  exeSpriteZ,
   blitSpriteZ,
   paintFarToNear,
-  sampleNearZ,
   spriteBitsFromImageData,
   zPlaneFromImageData,
   type SpriteBits,
@@ -231,19 +240,42 @@ export class PlayGame implements WorldView {
   }
 
   viewCamera(): ViewCamera {
-    if (this.anim && this.pending) {
-      const t = (this.anim.index + 1) / this.anim.urls.length;
-      return filmstripCamera(
-        {
-          x: this.pending.xFrom,
-          y: this.pending.yFrom,
-          facing: this.pending.dirFrom,
-        },
-        { x: this.pending.xTo, y: this.pending.yTo, facing: this.pending.dirTo },
-        t,
-      );
+    const strip = this.filmstrip();
+    if (strip) {
+      return lerpViewCamera(strip.from, strip.to, strip.t);
     }
     return cameraFromPose(this.pose);
+  }
+
+  projectWorld(obj: { x: number; y: number; z?: number }): StillHit | null {
+    const strip = this.filmstrip();
+    if (strip) {
+      return worldToStillFilmstrip(obj, strip.from, strip.to, strip.t);
+    }
+    return worldToStill(obj, cameraFromPose(this.pose));
+  }
+
+  private filmstrip(): {
+    from: { x: number; y: number; facing: string };
+    to: { x: number; y: number; facing: string };
+    t: number;
+  } | null {
+    if (!this.anim || !this.pending) {
+      return null;
+    }
+    return {
+      from: {
+        x: this.pending.xFrom,
+        y: this.pending.yFrom,
+        facing: this.pending.dirFrom,
+      },
+      to: {
+        x: this.pending.xTo,
+        y: this.pending.yTo,
+        facing: this.pending.dirTo,
+      },
+      t: filmstripT(displayedFilmstripIndex(this.anim), this.anim.urls.length),
+    };
   }
 
   private layoutStage(): void {
@@ -440,13 +472,14 @@ export class PlayGame implements WorldView {
     }
     this.host.tickScriptClock(dt);
     void this.host.runQueued(this.vm);
-    this.layoutActors();
-    this.applyCursor();
-    this.ui.tick(dt);
     if (this.anim) {
       this.driveAnim(this.anim, dt);
       this.needsRender = true;
     }
+    // Project after the still advances so sprites ride the same plate.
+    this.layoutActors();
+    this.applyCursor();
+    this.ui.tick(dt);
     if (this.needsRender) {
       this.renderer.render(this.view.scene, this.view.camera);
       if (!this.anim) {
@@ -727,6 +760,10 @@ export class PlayGame implements WorldView {
     this.pending = tr;
     const folder = this.stillsFolder();
     const urls = [0, 1, 2, 3, 4].map((offset) => frameUrl(folder, tr.frame0, offset));
+    const destHq = hqFrame(this.graph, applyTransition(tr));
+    if (destHq) {
+      urls.push(frameUrl(folder, destHq.frame0, destHq.offset));
+    }
     this.view.preload(urls);
     const anim = createStillAnim(urls);
     this.anim = anim;
@@ -786,8 +823,9 @@ export class PlayGame implements WorldView {
       this.host.currentDir = this.pose.facing;
     }
     this.host.noticeCamera();
-    this.syncHud();
-    this.layoutActors();
+    // Dest HQ is the last plate of the strip (already on screen when
+    // preloaded). Do not layout dest sprites before that still is up —
+    // that was the end-of-move teleport.
     void this.showHold().then(() => this.host.onArrive(this.vm));
   }
 
@@ -909,7 +947,6 @@ export class PlayGame implements WorldView {
     this.pick.fill(0);
     this.pickNames.length = 1;
     const cam = this.viewCamera();
-    const nearZ = sampleNearZ(this.zPlane);
     const draws: {
       forward: number;
       name: string;
@@ -919,7 +956,7 @@ export class PlayGame implements WorldView {
       z: number;
     }[] = [];
     for (const actor of this.host.nearbyActors()) {
-      const still = worldToStill(actor, cam);
+      const still = this.projectWorld(actor);
       if (!still) {
         continue;
       }
@@ -933,21 +970,22 @@ export class PlayGame implements WorldView {
         void this.loadSpriteBits(url);
         continue;
       }
-      const stillScale = actorStillHeight(place.h, actor.scale, still.forward) / place.h;
+      const stillScale =
+        actorStillHeight(place.h, actor.scale, still.lensForward, CST_SCALE_FIELD) / place.h;
       draws.push({
         forward: still.forward,
         name: actor.name,
         bits,
         topLeft: spriteStillTopLeft(still.x, still.y, place, stillScale),
         stillScale,
-        z: actorBlitZ(actorWorldZ(still.forward, nearZ), this.zPlane, still.x, still.y),
+        z: actorBlitZ(exeSpriteZ(still.lensForward, actor.zclip), this.zPlane, still.x, still.y),
       });
     }
     for (const prop of this.host.nearbyProps()) {
       if (prop.view === "large" || prop.view === "panel" || prop.view === "hilite") {
         continue;
       }
-      const still = worldToStill(prop, cam);
+      const still = this.projectWorld(prop);
       if (!still) {
         continue;
       }
@@ -962,14 +1000,16 @@ export class PlayGame implements WorldView {
         continue;
       }
       const place = sizedPlace(raw, bits.w, bits.h);
-      const stillScale = actorStillHeight(place.h, prop.scale || 1450, still.forward) / place.h;
+      const stillScale =
+        actorStillHeight(place.h, prop.scale || 1450, still.lensForward, PRP_SCALE_FIELD) /
+        place.h;
       draws.push({
         forward: still.forward,
         name: `prop:${prop.name}`,
         bits,
         topLeft: spriteStillTopLeft(still.x, still.y, place, stillScale),
         stillScale,
-        z: actorBlitZ(actorWorldZ(still.forward, nearZ), this.zPlane, still.x, still.y),
+        z: actorBlitZ(exeSpriteZ(still.lensForward, prop.zclip), this.zPlane, still.x, still.y),
       });
     }
     let pickId = 1;

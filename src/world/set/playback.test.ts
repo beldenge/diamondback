@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createStillAnim, tickStillAnim } from "./playback";
+import { createStillAnim, displayedFilmstripIndex, tickStillAnim } from "./playback";
 
 describe("still anim", () => {
   it("does not advance until marked ready", () => {
@@ -22,6 +22,12 @@ describe("still anim", () => {
     anim.ready = true;
     expect(tickStillAnim(anim, 5, 0.1)).toEqual({ frameChanged: true, done: false });
     expect(anim.index).toBe(1);
+  });
+
+  it("holds the previous plate while the next still is loading", () => {
+    expect(displayedFilmstripIndex({ index: 2, ready: false })).toBe(1);
+    expect(displayedFilmstripIndex({ index: 2, ready: true })).toBe(2);
+    expect(displayedFilmstripIndex({ index: 0, ready: false })).toBe(0);
   });
 
   it("finishes only after the last frame has been shown for one interval", () => {

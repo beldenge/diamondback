@@ -538,7 +538,7 @@ Capstone on `.text` (not Ghidra). Addresses are VAs, image base
 | `0x40eae0` | Apply walk/turn command → dest pose. Arg `1` left, `2` right, `3` forward, `4` back. Facing codes **1=N, 2=S, 3=E, 4=W** (spawn +52 and framelist `dir_*`). Left from N writes dest facing **4**. |
 | `0x415170` | CST per-actor. `actor+0x12 == 0` is a **2D** path (no `0x40dcd0`; uses `actor+0x18` as a deg). Non-zero is world projection. Record stride **0x9e**. |
 | `0x415213` | World path calls `0x40dcd0`. Then `bx = forward - actor+0x4c - setback + 128`; clamp `< 0` to 0; skip if `> 0x600` (6×256) or scale divisor `< 0x20`. `sar bx, 6` is the 24-level sprite Z (patent US5729669). O7 N Leroy lens-forward 240, zclip 32: `(240-32-64+128)>>6 = 4`. |
-| `0x415271` | Dest size: `actorscale * sprite_field / 1000`, then `idiv` by `[esp+0x12]`. Dest Mac Rect at out+0x10: top/left = projected hotspot minus scaled header hotspot. Clip `0x40ab50`. **Leftover:** what `[esp+0x12]` is (skip if `< 32`). |
+| `0x415271` | Dest size: `actorscale * setInfo+0x2a / 1000`, then `idiv` by **lens-forward** (`[esp+0x12]` is the `ax` from `0x40dcd0`; skip if `< 32`). Dest Mac Rect at out+0x10: top/left = projected hotspot minus scaled header hotspot. Clip `0x40ab50`. GANG +0x2a = **114**; INVEN jug = **96**. |
 | `0x427fa0` / `0x4280d0` | PRP draw / per-prop helper. Clone of CST (`prop+0x4e` zclip, `prop+0x2c` scale). Record stride **0xa4**. Same `0x40dcd0`. |
 | `0x411d50` / `0x411d20` | `calcdeg` / atan2 on the 256-circle (0=S, 64=E, 128=N, 192=W). CST helper mixes that with look-deg for the sprite octant. `0xC0` here is **west**, not focal 192. |
 
@@ -591,17 +591,20 @@ EXE + SET.
 | Piece | `DF.EXE` | Play |
 |---|---|---|
 | Screen X | `0x40dcd0` pinhole | same |
-| Screen Y | `0x40dcd0` pinhole | 1/z `stillGroundY` from the **feet** (SET Z=5 at O7 N). Engine Y hid `town.jug` at N7 and walked Leroy down the still |
-| Scale | `0x415271` leftover | 1/z from the feet |
-| Sprite Z | `(forward − zclip − setback + 128) >> 6` | `round(nearZ / persp)`, then at most **one** SET plane closer if the hotspot is dirt (`GROUND_Z_SLACK`). Unconditional `min(hotspot Z)` punched Leroy through range-road buildings |
-| Filmstrip walk | `index*64` along the axis | lerp camera XY over the 5 motion frames |
-| Filmstrip turn | `index*16` look-deg + setback | **start** camera until dest HQ. 90° pinhole on 1/z Y skates every ground sprite |
+| Screen Y | `0x40dcd0` pinhole `132 − 310*(objZ−62)/forward` | same. N7 E jug hotspot **279**. 1/z Y was a remake guess |
+| Scale | `actorscale * field / 1000 / lens-forward` (`0x415271`, skip forward `< 32`). Field is setInfo +0x2a (**114** GANG, **96** INVEN jug) | same |
+| Sprite Z | `(lensForward − zclip − setback + 128) >> 6` | same, then at most **one** SET plane closer if the hotspot is dirt. 1/z from the feet hid the N7 E jug (Z=4 on Z=3 dirt) |
+| Filmstrip walk | `index*64` along the axis | lerp camera XY, `t = index/4` on the 5 motion frames; dest HQ stays at dest |
+| Filmstrip turn | `index*16` look-deg + setback | yaw + reproject `0x40dcd0` every plate |
 | Draw order | PRP then CST, both reproject every frame | far-to-near among world sprites; still Z vs sprite is per pixel |
 
 `town.jug` is SET star **(1730, 3476)** — 66 east / 20 south of N7 feet
-`(1664, 3456)`. Engine Y facing south is ~360 (off the 264 still). 1/z Y
-is ~239 (on the still). Do not one-off that item; CST and PRP share
-`0x40dcd0`.
+`(1664, 3456)`. N7 E: still-x **303**, hotspot Y **279**, sprite Z **3**
+(dirt is Z=3). Facing south, engine Y is ~361 (under the HUD) — the
+overlay drops out and the photographed jug remains. Do not one-off that
+item; CST and PRP share `0x40dcd0`. Screenshots:
+`screenshots/N7_east_original.png` vs `N7_east_ours.png` (1/z Y) vs
+`N7_east_ours_next.png` (1/z Z).
 
 ---
 
@@ -656,19 +659,18 @@ Do not pretend these are done:
   dustdecompile --rsrc` → `out/rsrc/cursors/`). Script `cursor("touch")`
   maps to `CURS.TOUCH`. RCDATA `TRIG1` / `TRIG2` are 256 int16s,
   `16384 * sin/cos(2π i / 256)` — `actordeg` / `calcvect`, not FOV.
-- CST dest-rect **X and Y** and SET filmstrip camera are §7a.
-  Leftover: the `mov` that fills `[0x46094c]` from SET +24; sprite
-  scale path at `0x415271` (`actorscale * … / 1000`, divisor at
-  `[esp+0x12]`, skip if `< 0x20`); walk-table look-deg vs facing 1=N;
-  turn jump-table start deg (step size `index*16` is proven).
+- CST dest-rect **X, Y, size, sprite Z** and SET filmstrip camera are
+  §7a (locked in play). Leftover: the `mov` that fills `[0x46094c]`
+  from SET +24; walk-table look-deg vs facing 1=N; turn jump-table
+  start deg (step size `index*16` is proven). Do not revive 1/z Y,
+  1/z sprite Z, or frozen/screen-lerped pans.
 - Z-buffer **use** at runtime is in play: CST pixels draw when
-  `actorZ <= stillZ` (DFET: smaller is closer). Actor Z is
-  `round(nearZ / persp)` from the still’s bottom-row Z (3 on the south
-  gate), then at most one plane closer if the hotspot is dirt. EXE
-  sprite Z is `(forward − zclip − setback + 128) >> 6` (`0x41535c`).
-  `actorzclip` is stored (stdactor 32) but play does not subtract it
-  from the 24-level plane — 32 would punch everyone through the O8
-  fence. Unconditional `min(hotspot Z)` put Leroy through buildings.
+  `actorZ <= stillZ` (smaller = closer). Sprite Z is EXE
+  `(lensForward − zclip − setback + 128) >> 6` (`0x41535c`), then at
+  most one plane closer if the hotspot is dirt. 1/z from the feet hid
+  the N7 E jug (Z=4 on Z=3 dirt). Unconditional `min(hotspot Z)` put
+  Leroy through buildings. `actorzclip` 32 is part of the EXE formula,
+  not a 24-level subtract on its own.
 
 ---
 

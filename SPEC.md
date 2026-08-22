@@ -103,6 +103,7 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 - Sleep has no stills UI yet (hotel bed later). Clock is discrete; `sleep()` still wakes next morning.
 - Debug query: `?clock=1|2|3`.
 - How strips, HQ, G11, flipbook (~24 fps, no skip, no input queue), loader, and doors work: [`src/world/set/README.md`](src/world/set/README.md).
+- CST/PRP world→still (X, Y, scale, Z, pans) is **locked**: [`src/play/README.md`](src/play/README.md) § World → still. Do not revive 1/z Y/scale/Z or frozen/screen-lerped pans.
 - Still codec / palette / sizes: [`dfextract/docs/images.md`](dfextract/docs/images.md) (`255` white, cream index 2 skull, negative look, `_TOWN` vs `_NITE`).
 - Sandbox: every door is unlocked. Facades live on the north–south road (I7 apoth, H7 saloon/stage, E7 hotel/doctor, …) plus H4 paper, G1 caretaker, F10 livery, I10 mayor. Click opens (click again closes); walk forward enters. Nested: mission classroom, Rodham inner office, saloon/hotel/mansion rooms.
 - Extractor setup: [`dfextract/README.md`](dfextract/README.md). The remake does not run that tool.
@@ -175,6 +176,10 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 | 2026-08-22 | Documented remaining `DF.EXE` projector/filmstrip traces in [`dustdecompile/docs/findings.md`](dustdecompile/docs/findings.md) §7a (BSS, dest-rect, engine sprite Z `>> 6`, `0x40eae0` facing 1=N, play vs EXE). |
 | 2026-08-22 | Actor Z may pull one SET plane closer for ground under the hotspot (Help). Do not `min` with a foreground wall — that put Leroy through buildings on the range road. |
 | 2026-08-22 | SET filmstrip camera traced at DF.EXE `0x40dd90` (walk `index*64`, turn `index*16`). Play still freezes in-place-turn yaw. Engine pinhole Y hid the N7 jug and walked Leroy down the still — play Y stays 1/z / SET Z. |
+| 2026-08-22 | Filmstrip sprites: walk `t = index/4`; in-place pans screen-lerp standing 1/z stills (do not freeze frame 0, do not yaw 1/z Y). Draw after the still advances; hold the previous plate while the next PNG loads. |
+| 2026-08-22 | Dest HQ is the last plate of the play strip. Pans stretch t across motion+HQ so dest 1/z lands on dest HQ (last turn LQ is a different take). Walks keep last-LQ t=1 (same camera as dest HQ). |
+| 2026-08-22 | Play Y and dest size are DF.EXE `0x40dcd0` / `0x415271`: pinhole Y `132−310*(z−62)/forward`, scale `actorscale*field/(1000*forward)` (GANG field 114, INVEN 96). 1/z Y was wrong for same-tile ground — N7 E original jug sits on the HUD (hotspot 279), not mid-fence. Pans yaw `index*16` and reproject. |
+| 2026-08-22 | **Supersedes** earlier 08-22 rows that freeze pans, screen-lerp 1/z, or keep 1/z Y/Z. Locked book: [`src/play/README.md`](src/play/README.md) § World → still. Sprite Z is EXE `>> 6` (1/z Z hid the N7 E jug). Screenshots: `N7_east_original.png` / `N7_east_ours.png` / `N7_east_ours_next.png`. |
 | 2026-08-22 | CST and PRP share DF.EXE `0x40dcd0` for **X**. Engine Y is the same function; play does not use it for placement. |
 | 2026-08-21 | PUP paint order is Body then Head (beard is on the Head). Body-over-Head left a static beard ring that did not turn. |
 | 2026-08-21 | Dialog chrome: full-width black speech bar over the still; five `butbevel` slots replace the HUD (not overlays above it). |

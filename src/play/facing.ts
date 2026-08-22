@@ -15,8 +15,6 @@ export const DIR_DEG: Record<Dir, number> = {
   W: DEG_WEST,
 };
 
-const OCTANT_DEG = [0, 32, 64, 96, 128, 160, 192, 224];
-
 export function wrapDeg(deg: number): number {
   return ((Math.round(deg) % 256) + 256) % 256;
 }
@@ -143,11 +141,7 @@ export function poseFromTable(table: number[] | undefined, step: number, poses: 
   return ((step % n) + n) % n;
 }
 
-/**
- * `stdscale("town")` in `CST/_GANG/Cast.txt`. Native CST frames (~200px,
- * hotspot 256,192 on the 384 stage) are 1:1 at this scale on the camera
- * plane. Indoor sets use 2400–5800 — closer photos, not a different codec.
- */
+/** `stdscale("town")` in `CST/_GANG/Cast.txt`. Indoor sets use 2400–5800. */
 export const ACTOR_SCALE_REF = 1450;
 
 /** Scripts treat world xyz as tiles of 256 (`walktopuppet` divides by 256). */
@@ -173,32 +167,6 @@ export const SPRITE_HOTSPOT_X = 256;
 export const SPRITE_HOTSPOT_Y = 192;
 
 /**
- * Distance falloff. Dust scripts never compute this — DF.EXE does, via
- * SET Z (DFET) and BitBlt (no StretchBlt import). Z at the south-gate
- * road is 3 (at your feet) … 7 (up the street). `256/(256+forward)` is
- * the same 1/z in the units the scripts use; sampled Z matches
- * `3 / persp` on that road.
- */
-export function actorPerspective(forward: number): number {
-  return ACTOR_TILE / (ACTOR_TILE + Math.max(0, forward));
-}
-
-/**
- * Still Y of the ground. Same 1/z as scale (not pinhole X).
- * NITE O7 N SET Z: 3 at y=236–263, 5 at y=194–209 (Leroy’s star),
- * 7 at y=176–183. Horizon 128 is half the 256 tile. Near plane **248**
- * is mid Z=3 — the still bottom (264) put the sign hotspot in Z=4 while
- * `actorWorldZ` is 5, so the closer ground clipped his feet. Do not scan
- * Z for Y (O8 N’s fence has no ground at the actor’s depth).
- */
-export const STILL_HORIZON_Y = 128;
-export const STILL_NEAR_Y = 248;
-
-export function stillGroundY(forward: number): number {
-  return STILL_HORIZON_Y + (STILL_NEAR_Y - STILL_HORIZON_Y) * actorPerspective(forward);
-}
-
-/**
  * `timeGetTime * 3 / 50` (`0x438210`) is a 60 Hz counter. The frame loop
  * (`0x40e1d2`) waits `framerate` of those ticks — boot `framerate (3)` →
  * **20 Hz** game frames. `actorspeed` is units per game frame. CST draw
@@ -210,22 +178,37 @@ export function gameFrameSec(framerate: number): number {
   return Math.max(1, Math.trunc(framerate) || 1) / TIME_TICK_HZ;
 }
 
-/** @deprecated Distance-based stride was a remake guess. CST +0x2e is time-based. */
-export function walkStride(frameCount: number, perDir = 8): number {
-  const poses = Math.max(1, Math.floor(frameCount / perDir));
-  return ACTOR_TILE / poses;
-}
-
 /** Script frames each drink pose is held (`toidle` 25 / 4-pose strip). */
 export const DRINK_HOLD_FRAMES = 6;
 
-/** Sprite height in 512×264 still pixels (Dust’s framebuffer). */
+/**
+ * CST setInfo record +0x2a. Every GANG frame is **114**; INVEN world
+ * props (jug, bone, …) are **96**. dest = bbox * actorscale * field
+ * / (1000 * lens-forward) (`0x415271` / PRP `0x4281d1`).
+ */
+export const CST_SCALE_FIELD = 114;
+export const PRP_SCALE_FIELD = 96;
+
+/** EXE skips the blit when lens-forward < 32 (`cmp [esp+0x12], 0x20`). */
+export const SCALE_MIN_FORWARD = 32;
+
+export function engineStillScale(
+  actorScale: number,
+  lensForward: number,
+  field: number = CST_SCALE_FIELD,
+): number {
+  const fwd = Math.max(SCALE_MIN_FORWARD, lensForward);
+  return (actorScale * field) / (1000 * fwd);
+}
+
+/** Sprite height in 512×264 still pixels. `forward` is lens-forward. */
 export function actorStillHeight(
   spriteH: number,
   actorScale: number,
-  forward: number,
+  lensForward: number,
+  field: number = CST_SCALE_FIELD,
 ): number {
-  return spriteH * (actorScale / ACTOR_SCALE_REF) * actorPerspective(forward);
+  return spriteH * engineStillScale(actorScale, lensForward, field);
 }
 
 /**
@@ -268,12 +251,17 @@ export interface ViewCamera {
   deg: number;
 }
 
-/**
- * SET +26 (town/nite 62). DF.EXE `0x40dcd0` Y is
- * `132 − 310*(objZ − camZ)/forward`. Play does **not** use that for
- * placement: it drops the N7 jug off the still and walks actors down
- * the photographed ground. Keep it here as the traced value.
- */
+/** Projected hotspot on the 512×264 still. */
+export interface StillHit {
+  x: number;
+  y: number;
+  /** Feet-forward, for draw order. */
+  forward: number;
+  /** Lens-forward from `0x40dcd0` (X, Y, and dest size). */
+  lensForward: number;
+}
+
+/** SET +26. Town/nite 62. DF.EXE `0x40dcd0` Y uses this as camZ. */
 export const CAMERA_HEIGHT = 62;
 
 /** Mac dest-rect half-height. DF.EXE `0x40d279`. */
@@ -284,14 +272,24 @@ export function cameraFromPose(pose: { x: number; y: number; facing: string }): 
   return { x: feet.x, y: feet.y, deg: dirToDeg(pose.facing as Dir) };
 }
 
+function clamp01(t: number): number {
+  return Math.min(1, Math.max(0, t));
+}
+
 /**
- * SET filmstrips are 5 motion frames then dest HQ. DF.EXE `0x40dd90`
- * walks `index*64` along the facing axis and turns `index*16` look-deg
- * (then setback on that heading). Play still lerps **XY** on forward
- * walks so sprites ride the strip. In-place turns keep the **start**
- * camera: a 90° pinhole yaw on 1/z Y skates every ground sprite, and
- * the filmed pan is not that swing.
+ * Progress along a SET filmstrip. DF.EXE `0x40dd90` walks `index*64` and
+ * turns `index*16` over 5 motion frames (`index / 4`). Dest HQ is an
+ * extra plate at t=1.
  */
+export function filmstripT(index: number, frameCount: number): number {
+  if (frameCount <= 1) {
+    return 1;
+  }
+  const motionFrames = Math.min(5, frameCount);
+  return clamp01(Math.min(index, motionFrames - 1) / (motionFrames - 1));
+}
+
+/** SET filmstrip camera: lerp feet on walks, yaw look-deg on in-place turns. */
 export function lerpViewCamera(
   from: { x: number; y: number; facing: string },
   to: { x: number; y: number; facing: string },
@@ -299,7 +297,7 @@ export function lerpViewCamera(
 ): ViewCamera {
   const a = cameraFromPose(from);
   const b = cameraFromPose(to);
-  const u = Math.min(1, Math.max(0, t));
+  const u = clamp01(t);
   return {
     x: a.x + (b.x - a.x) * u,
     y: a.y + (b.y - a.y) * u,
@@ -307,15 +305,81 @@ export function lerpViewCamera(
   };
 }
 
-export function filmstripCamera(
-  from: { x: number; y: number; facing: string },
-  to: { x: number; y: number; facing: string },
-  t: number,
+/** DF.EXE `0x40dcd0` Y: `centerY − focal*(objZ − camZ)/lensForward` (`idiv`). */
+export function enginePinholeY(objZ: number, lensForward: number): number {
+  const fwd = lensForward === 0 ? 1 : lensForward;
+  return STILL_CENTER_Y - Math.trunc((CAMERA_FOCAL * (objZ - CAMERA_HEIGHT)) / fwd);
+}
+
+interface RawProject {
+  x: number;
+  y: number;
+  forward: number;
+  lensForward: number;
+  right: number;
+}
+
+function asViewCamera(
+  view: { x: number; y: number; facing: string } | ViewCamera,
 ): ViewCamera {
-  if (from.x === to.x && from.y === to.y) {
-    return cameraFromPose(from);
+  return "deg" in view ? view : cameraFromPose(view);
+}
+
+function rawProject(
+  actor: { x: number; y: number; z?: number },
+  view: { x: number; y: number; facing: string } | ViewCamera,
+): RawProject {
+  const cam = asViewCamera(view);
+  const f = calcVect(cam.deg, 1);
+  const feetDx = actor.x - cam.x;
+  const feetDy = actor.y - cam.y;
+  const feetForward = feetDx * f.x + feetDy * f.y;
+  const back = calcVect(cam.deg + 128, CAMERA_SETBACK);
+  const dx = actor.x - (cam.x + back.x);
+  const dy = actor.y - (cam.y + back.y);
+  const lensForward = dx * f.x + dy * f.y;
+  const right = dx * -f.y + dy * f.x;
+  const objZ = actor.z ?? 0;
+  if (lensForward <= 0) {
+    return {
+      x: SPRITE_HOTSPOT_X + right,
+      y: enginePinholeY(objZ, SCALE_MIN_FORWARD),
+      forward: 0,
+      lensForward,
+      right,
+    };
   }
-  return lerpViewCamera(from, to, t);
+  return {
+    x: SPRITE_HOTSPOT_X + Math.trunc((CAMERA_FOCAL * right) / lensForward),
+    y: enginePinholeY(objZ, lensForward),
+    forward: Math.max(0, feetForward),
+    lensForward,
+    right,
+  };
+}
+
+function cullStill(hit: RawProject): StillHit | null {
+  if (hit.lensForward > TILE_SPAN * 6) {
+    return null;
+  }
+  if (hit.lensForward <= 0) {
+    if (hit.lensForward < -16 || Math.abs(hit.right) > 48) {
+      return null;
+    }
+    return { x: hit.x, y: hit.y, forward: 0, lensForward: hit.lensForward };
+  }
+  if (hit.lensForward < SCALE_MIN_FORWARD) {
+    return null;
+  }
+  if (hit.x < -48 || hit.x > STILL_WIDTH + 48) {
+    return null;
+  }
+  return {
+    x: hit.x,
+    y: hit.y,
+    forward: hit.forward,
+    lensForward: hit.lensForward,
+  };
 }
 
 /**
@@ -325,48 +389,31 @@ export function filmstripCamera(
  *   x = 256 + 310 * right / forward
  * after yaw-rotate (TRIG/16384) with lens set back SET +24 (64).
  *
- * **Y** is 1/z from the feet (`stillGroundY`), same as scale, so the
- * hotspot stays in the SET Z band of the photograph. Engine Y
- * (`132 − 310*(objZ−camZ)/forward`, camZ=62) is traced and unused:
- * it hid the N7 jug and walked Leroy down the still.
+ * **Y** is the same `0x40dcd0` pinhole:
+ *   y = 132 − 310 * (objZ − 62) / forward
+ * Ground z=0 at N7 E lands the jug hotspot at **279** (sprite sits on
+ * the HUD). Do not clamp Y into the still — a hotspot below 264 still blits.
  */
 export function worldToStill(
   actor: { x: number; y: number; z?: number },
   view: { x: number; y: number; facing: string } | ViewCamera,
-): { x: number; y: number; forward: number } | null {
-  const cam: ViewCamera =
-    "deg" in view ? view : cameraFromPose(view);
-  const f = calcVect(cam.deg, 1);
-  const feetDx = actor.x - cam.x;
-  const feetDy = actor.y - cam.y;
-  const feetForward = feetDx * f.x + feetDy * f.y;
-  const back = calcVect(cam.deg + 128, CAMERA_SETBACK);
-  const dx = actor.x - (cam.x + back.x);
-  const dy = actor.y - (cam.y + back.y);
-  const forward = dx * f.x + dy * f.y;
-  const right = dx * -f.y + dy * f.x;
-  if (forward > TILE_SPAN * 6) {
-    return null;
-  }
-  if (forward <= 0) {
-    if (forward < -16 || Math.abs(right) > 48) {
-      return null;
-    }
-    return {
-      x: SPRITE_HOTSPOT_X + right,
-      y: Math.min(STILL_HEIGHT, Math.max(0, stillGroundY(0))),
-      forward: 0,
-    };
-  }
-  const x = SPRITE_HOTSPOT_X + (CAMERA_FOCAL * right) / forward;
-  if (x < -48 || x > STILL_WIDTH + 48) {
-    return null;
-  }
-  return {
-    x,
-    y: Math.min(STILL_HEIGHT, Math.max(0, stillGroundY(Math.max(0, feetForward)))),
-    forward: Math.max(0, feetForward),
-  };
+): StillHit | null {
+  return cullStill(rawProject(actor, view));
+}
+
+/**
+ * Sprite still-position during a SET filmstrip.
+ *
+ * Walks translate the camera `index*64`. Turns yaw `index*16`. Both
+ * reproject with `0x40dcd0` every plate — the same path as standing.
+ */
+export function worldToStillFilmstrip(
+  actor: { x: number; y: number; z?: number },
+  from: { x: number; y: number; facing: string },
+  to: { x: number; y: number; facing: string },
+  t: number,
+): StillHit | null {
+  return worldToStill(actor, lerpViewCamera(from, to, t));
 }
 
 /**
@@ -400,5 +447,3 @@ export function actorSprite(
   }
   return pickCyclic(actor.standSprites, oct);
 }
-
-export { OCTANT_DEG };

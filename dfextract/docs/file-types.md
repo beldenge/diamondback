@@ -148,8 +148,8 @@ palette                           @ ~80
 
 +24 is the draw-lens setback `DF.EXE` reads at `[0x46094c]` (play:
 `CAMERA_SETBACK`). The `mov` that copies SET→BSS is not traced; do not
-swap in the patent’s 128. World→still:
-[`src/play/README.md`](../../src/play/README.md).
+swap in the patent’s 128. World→still (X, Y, scale, Z, pans) is locked:
+[`src/play/README.md`](../../src/play/README.md) § World → still.
 
 ### Scene grid (end of container 0)
 

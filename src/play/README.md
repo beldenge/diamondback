@@ -5,7 +5,7 @@ PUP talking-heads, world props, night FX, and spot-movies, all driven by
 extracted DreamFactory scripts (boot → `advanceday` → SET/CST/PRP). Extract formats live in
 [`dfextract/docs/`](../../dfextract/docs/). This file is the **playback**
 book so we do not re-debug speech, visemes, the Firefox audio delay, or
-CST world→still X.
+world→still (X, Y, scale, Z, pans).
 
 Town sandbox (`/`) stays an unlocked stills walker:
 [`src/world/set/README.md`](../world/set/README.md).
@@ -157,53 +157,49 @@ hotspot is (256, 192). Scale that offset by the still scale; do not
 `translate(-50%, -100%)` on the bbox. ¾ frames are not centered on the
 hotspot.
 
-World → still (X vs Y, three cameras, dead ends): **World → still**
-below. During a SET walk, lerp the feet through the 5 motion frames.
-In-place turns keep the start camera.
+World → still is **locked**. Do not invent a second projector. The
+trap: 1/z Y/scale/Z looks fine for **far** actors (Leroy at the O7
+sign sits in SET Z=5) and fails on the **same tile** (N7 E jug and
+Help). Full book: **World → still** below.
 
-### World → still (do not re-debug)
+### World → still (locked — do not re-debug)
 
-Code: `CAMERA_FOCAL` / `CAMERA_SETBACK` / `TILE_SPAN` in
-[`facing.ts`](facing.ts). Tests pin O7 N + `town.leroy1` at still-x
-**354**. Binary writeup:
-[`dustdecompile/docs/findings.md`](../../dustdecompile/docs/findings.md)
-§7a. SET header fields:
-[`dfextract/docs/file-types.md`](../../dfextract/docs/file-types.md).
+Code: [`facing.ts`](facing.ts), [`occlude.ts`](occlude.ts). Tests in
+`facing.test.ts` / `occlude.test.ts`. Binary: [`dustdecompile/docs/findings.md`](../../dustdecompile/docs/findings.md)
+§7a. SET header: [`dfextract/docs/file-types.md`](../../dfextract/docs/file-types.md).
 
 There are **three** cameras. Do not collapse them.
 
 | Name | World point | Used for |
 |---|---|---|
-| Feet / `playerxyz` | `tile * 256 + 128` | Scripts, walk dest, scale 1/z, actor Z |
-| Draw lens | feet minus `calcvect(facing, 64)` | **Screen X** (`0x40dcd0`) |
+| Feet / `playerxyz` | `tile * 256 + 128` | Scripts, walk dest, draw-order forward |
+| Draw lens | feet minus `calcvect(facing, 64)` | **Screen X, Y, dest size, sprite Z** |
 | `cameraxyz` | one **full tile** behind the feet | Idle `calcdeg` only. Not placement. |
 
-Play **X** is DF.EXE `0x40dcd0` (CST **and** PRP, sites `0x415213` /
-`0x428173`): rotate `(obj − lens)` by TRIG/16384, then
-`x = 256 + 310 * right / forward`. Focal **310** (`0x136` at
-`0x40d255`).
+CST and PRP share this projector (`0x415213` / `0x428173`). Skip a
+sprite if lens-forward `≤ 0` or `< 32` or `> 6×256`. Integer `idiv`
+truncates toward 0.
 
-Play **Y** is 1/z from the feet (`stillGroundY`), same as scale, so the
-hotspot stays in the SET Z=5 band of the photograph. The EXE also
-computes pinhole Y `132 − 310*(objZ−camZ)/forward` (camZ = SET +26 =
-**62** outdoor). That is traced at `0x40dcd0` and **not** used: it hid
-the N7 jug and walked Leroy down the still.
+| Piece | Formula | Pin |
+|---|---|---|
+| **X** | `256 + 310 * right / lensForward` | O7 N Leroy **354** |
+| **Y** | `132 − 310 * (objZ − 62) / lensForward` (ground z=0) | N7 E jug hotspot **279** |
+| **Size** | `bbox * actorscale * field / (1000 * lensForward)` | GANG field **114**, INVEN jug **96** |
+| **Sprite Z** | `(lensForward − zclip − setback + 128) >> 6` | O7 N Leroy **4**, N7 E jug **3** |
+| Draw | pixel if `spriteZ ≤ stillZ` (smaller = closer). At most **one** SET plane closer if the hotspot is dirt. Never unconditional `min(hotspot Z)`. |
 
-SET filmstrip camera is `0x40dd90`: walk `index*64` along the axis;
-turn `index*16` look-deg then setback. Play lerps XY on forward walks
-and **keeps the start camera on in-place turns**. A 90° pinhole yaw on
-1/z Y skates every ground sprite. The N7 dest-snap is still open.
+Blit top-left from DFET hotspot (256, 192) plus header `pos_x`/`pos_y`,
+scaled. A hotspot **below** 264 still paints onto the still; do not
+clamp Y into 0..264 and do not treat “off the plate” as hidden. The
+actor layer **is** the still (top 264 of the 384 stage), under the HUD.
 
-`town.jug` is star **(1730, 3476)** (66 east, 20 south of N7 feet).
-Engine Y facing south is off the still (~360); 1/z Y stays on it
-(~239). Facing codes **1=N 2=S 3=E 4=W** (`DF.EXE` `0x40eae0`). EXE
-sprite Z is `(forward − zclip − setback + 128) >> 6` (O7 N Leroy **4**);
-play uses 1/z from camera-feet Z then at most one plane closer for dirt
-under the hotspot. Full BSS / dest-rect / leftovers:
-[`dustdecompile/docs/findings.md`](../../dustdecompile/docs/findings.md)
-§7a.
+SET filmstrip (`0x40dd90`): 5 motion frames then dest HQ as the last
+plate. Walk: lerp feet `index*64` (`t = index/4`). Turn: keep XY, yaw
+look-deg `index*16`, **reproject** with the table above every plate.
+Draw sprites **after** the still advances. If the next PNG is not
+ready, hold the previous plate’s camera. Facing codes **1=N 2=S 3=E 4=W**.
 
-**Oracle** (spawn O7 N, `town.leroy1` = 1740, 3536):
+**Oracle A — O7 N Leroy** (`town.leroy1` = 1740, 3536, `actorscale` 1100):
 
 ```
 feet     = (6*256+128, 14*256+128) = (1664, 3712)
@@ -211,25 +207,51 @@ lens     = (1664, 3712+64)          = (1664, 3776)   # looking N, +y south
 right    = 76
 forward  = 240
 x        = 256 + 310*76/240         = 354
+y        = 132 + 310*62/240         = 212
+z        = (240 − 32 − 64 + 128)>>6 = 4
 ```
 
-Original DOSBox still-space midline (shirt ≈ hotspot on the front
-stand plate) measured **353**. Integer `idiv` truncates to 354.
+Original DOSBox shirt midline **353**. `idiv` truncates to 354.
 
-How we measured the screenshots: both are a **3×** 512×384 stage
-(still 1536×792). Original has wood window chrome (still origin 6,10);
-ours was 8,10. Map screenshot pixels through that rect, then
-still-minus-diff the orange shirt in x=300–430, y=90–230. Do not
-compare raw PNG sizes — the two shots are not the same pixel size and
-the original is letterboxed inside a frame.
+**Oracle B — N7 E jug** (`town.jug` = 1730, 3476, `propscale` 800, zclip 0):
+
+```
+feet     = (6*256+128, 13*256+128) = (1664, 3456)
+lens     = (1600, 3456)             # looking E, setback west 64
+right    = 20
+forward  = 130
+x        = 256 + 310*20/130         = 303
+y        = 132 + 310*62/130         = 279
+z        = (130 − 0 − 64 + 128)>>6  = 3
+```
+
+N7 E dirt is SET Z **3**. 1/z sprite Z was **4** → jug vanished
+(`4 ≤ 3` fails) and Help punched through the picket. Facing **south**,
+engine Y is ~361 (under the HUD); the overlay drops out and the
+photographed jug remains. That is correct. Do not one-off the jug.
+
+**Screenshots** (do not compare raw PNG sizes; map through the 3×
+512×384 stage, still 1536×792). HUD leather starts at screenshot
+**y=799** → still is **y=7..798**. Original N7 E has a left letterbox
+(still **x=249**); ours is **x=1**. Diff against HQ `FRAMES/1629_5.png`
+to find overlays.
+
+| File | What it shows |
+|---|---|
+| `screenshots/original.png` / `ours.png` | O7 N Leroy **X** era (1/z X planted him on the east fence) |
+| `screenshots/N7_east_original.png` | Jug on the HUD dirt; Help in front of the fence, feet on the ground |
+| `screenshots/N7_east_ours.png` | 1/z **Y**: jug floating at mid-fence, Help small and high |
+| `screenshots/N7_east_ours_next.png` | Pinhole Y but 1/z **Z**: jug gone, Help clipped through the post |
 
 **Proven from this install’s `DF.EXE` (SHA-1 `54558d7b…`):** tile
 `*256+128` (`0x40ddac`); focal 310; TRIG rotate + pinhole at
 `0x40dcd0`; lens subtracts `calcvect(facing, [0x46094c])` at
-`0x40e081`; depth cap `0x600` = 6×256. **Proven from SET container 0:**
-+24 = **64 on every map**; +26 = camera Z (town/nite **62**, target
-**72**, interiors 90–260); +42/+44 = 512×264; +48/+50/+52 = spawn
-`(6,14,1)` = O7 N.
+`0x40e081`; dest size divisor is **lens-forward** (`0x415271`, skip
+`< 32`); sprite Z `>> 6` at `0x41535c`; depth cap `0x600` = 6×256.
+**Proven from SET container 0:** +24 = **64 on every map**; +26 =
+camera Z (town/nite **62**, target **72**, interiors 90–260); +42/+44
+= 512×264; +48/+50/+52 = spawn `(6,14,1)` = O7 N. **Proven from
+setInfo +0x2a:** GANG **114** (1320 frames), INVEN jug **96**.
 
 **Inferred, not traced:** nothing in `.text` does `mov [0x46094c], 64`.
 Play treats SET +24 as that word because the engine *reads* it as the
@@ -249,45 +271,35 @@ Z overlay. Prefer the EXE + SET over the patent when they disagree.
 |---|---|
 | `tile * 255 + 128` | mrxstudios / early docs counted 0–255 as the span. EXE is `shl 8`. O7 feet became (1658, 3698); Leroy 82 east / 162 north. |
 | 90° pinhole, focal 256, camera at feet | `256 + 256*82/162` = **386**. Too far right of original 353. |
-| 1/z X: `256 + 256*right/(256+forward)` | Same math as a **full-tile** setback. **~306**. Too far left; plants him on the O7 east fence. `ours.png` in `screenshots/` is this era. |
+| 1/z X: `256 + 256*right/(256+forward)` | Same math as a **full-tile** setback. **~306**. Too far left; plants him on the O7 east fence. `ours.png` is this era. |
 | Focal 192 (half of 384) | Attractive (353.2 with 255-tiles and no setback) and **wrong**. EXE says `0x136`. |
 | Patent setback 128 / height 72 | Dust’s SET +24 is 64; town +26 is 62. Target +26 is 72 (patent default). |
-| Engine pinhole Y for placement | Traced at `0x40dcd0`. Hides the N7 jug (hotspot below the still) and walks Leroy down the photographed ground. Play Y stays 1/z / SET Z. |
-| Nudge `town.leroy1` | Authored (1740, 3536). The error was the camera, not the star. |
-| Use `cameraxyz` (one tile back) for blit | That vector is idle facing. Draw lens is 64, not 256. |
-| Fit FOV to one screenshot and freeze it | X is the EXE. If another actor looks off, check tile 256 / focal 310 / setback 64 before inventing a new model. |
-| Lerp 90° yaw on in-place SET turns | EXE `0x40dd90` does `index*16`. On play’s 1/z Y that skates every ground sprite. Keep the start camera until dest HQ. |
+| 1/z Y (`128 + 120 × 256/(256+feetForward)`) | Far actors land in SET Z bands. **Same-tile** ground floats at mid-fence (`N7_east_ours.png`). EXE Y is pinhole. |
+| Clamp hotspot Y into 0..264 / treat Y>264 as hidden | N7 E jug hotspot **279** is *below* the still; the sprite still sits on the HUD. N7 S overlay Y ~361 is supposed to drop out. |
+| 1/z sprite Z (`round(nearZ / persp)` from feet) | N7 E dirt is Z=3; 1/z gave the jug Z=4 → invisible. Help Z=4–5 behind the Z=3 picket (`N7_east_ours_next.png`). Use EXE `>> 6`. |
+| Unconditional `min(hotspot still-Z)` | Far Leroy whose hotspot hits a building becomes Z=3 and draws through every wall. Slack is **one** plane, dirt only. |
+| Nudge `town.leroy1` / `town.jug` | Authored stars. The error was the camera or Z, not the pin. |
+| Use `cameraxyz` (one tile back) for blit | Idle facing only. Draw lens is 64, not 256. |
+| Fit FOV to one screenshot and freeze it | Formulas are the EXE. Check tile 256 / focal 310 / setback 64 / pinhole Y / EXE Z before a new model. |
+| Freeze in-place-turn camera (start pose until dest HQ) | Sprites stuck on frame 0, then snap. EXE yaws `index*16` and reprojects every plate. |
+| Screen-lerp standing 1/z stills across a pan | Looks planted on the film, then teleports to dest HQ. Reproject. |
+| Yaw 90° on 1/z Y | Skates every ground sprite. Yaw + **pinhole** Y is what the EXE does. |
 | Blend near props toward 1/z X | One-off. PRP uses the same `0x40dcd0` as CST. |
+| Layout dest sprites, then swap dest HQ | Dest sprites sit on the last LQ; the world jumps. Dest HQ is the last strip plate; draw sprites **after** the still. |
 
-Distance: Dust never computes scale in scripts. DFET says DF.EXE uses the
-SET Z plane; the EXE imports `BitBlt` / `WinGBitBlt`, not `StretchBlt`.
-South-gate Z is 3 at your feet … 7 up the road (24 = sky). Falloff is
-`256 / (256 + forward)` — same 256 the scripts use for tiles
-(`walktopuppet` does `xyz / 256`). Sampled actor depth is `round(3 /
-persp)` (Leroy at the sign is Z=5). Then multiply sprite size by the
-still canvas CSS height / 264 so window resize does not change his size
-relative to the street.
-
-Actors are blitted onto a 512×264 canvas with the SET Z plane: a pixel
-draws when `actorZ <= stillZ` (DFET: smaller Z is closer). Actor Z is
-1/z from the camera-feet plane, then pulled at most **one** SET Z step
-closer if the hotspot sits on dirt (Help Z=5 on Z=4). Do not
-unconditionally `min` with the hotspot — a far Leroy whose hotspot
-lands on a building becomes Z=3 and draws through every wall. Clothing
-pixels are forced opaque; only the translucent-black foot pancake stays
-alpha 120 (canvas premultiply punched Help’s black robe). From O8 N
-the picket fence is Z=3, so his body does not show through it; gaps
-in the fence (Z≥5) can still leak slivers. `python cli.py --type set --z`
-writes `FRAMES/z/` without rewriting color stills.
+Clothing pixels are forced opaque; only the translucent-black foot
+pancake stays alpha 120 (canvas premultiply punched Help’s black robe).
+From O8 N the picket fence is Z=3, so a far body does not show through
+it; gaps (Z≥5) can still leak slivers. `python cli.py --type set --z`
+writes `FRAMES/z/` without rewriting color stills. Multiply dest size
+by still CSS height / 264 so resize does not change size relative to
+the street.
 
 Walk poses advance on the **20 Hz game frame** from that actor’s CST
 setInfo +0x2e table (`timing.json`, keyed by `actorpose`). GANG 8-pose
 walks: 16 slots, 0.8 s cycle. Not distance, not a 60 Hz treadmill.
 Drink is still the 8×4 CST strip, one pose every 6 script frames
 (`toidle` waits 25), held on the last pose.
-
-The actor layer **is** the still (top 264 of the 384 stage), `overflow:
-hidden`, under the HUD. Town sprites never paint into the dashboard.
 
 The brown pancake under feet is a **contact shadow**, not studio dirt.
 Detect **per actor** from stand frames: a dark maroon index (`8 ≤

@@ -17,6 +17,7 @@ import {
   timingForPose,
   worldToStill,
   wrapDeg,
+  type StillHit,
 } from "./facing";
 import type { ViewCamera } from "./facing";
 import { ScriptIndex, loadScriptJson } from "./scripts";
@@ -123,6 +124,8 @@ export interface WorldView {
   refreshActors(): void;
   /** Camera during a SET filmstrip; defaults to the standing pose. */
   viewCamera?(): ViewCamera;
+  /** Sprite still-position; filmstrips reproject with the SET camera. */
+  projectWorld?(obj: { x: number; y: number; z?: number }): StillHit | null;
   playMovie?(
     frames: { url: string; holdSec: number }[],
     clips: { url: string; startSec: number; channel?: string }[],
@@ -1278,7 +1281,6 @@ export class DustHost implements OpcodeHost {
     if (!pose) {
       return [];
     }
-    const cam = this.view?.viewCamera?.() ?? cameraFromPose(pose);
     const world = this.view?.world ?? WORLD_TOWN;
     return [...this.actors.values()].filter((actor) => {
       if (!actor.visible) {
@@ -1287,7 +1289,7 @@ export class DustHost implements OpcodeHost {
       if (actor.set && actor.set !== world && actor.set !== this.currentSet) {
         return false;
       }
-      return worldToStill(actor, cam) !== null;
+      return viewStill(this.view, actor) !== null;
     });
   }
 
@@ -1818,12 +1820,11 @@ export class DustHost implements OpcodeHost {
   private hitTest(point: Point): string {
     this.clickAbsorbed = false;
     const hits: { kind: "actor" | "prop"; name: string; forward: number }[] = [];
-    const cam = this.view?.viewCamera?.() ?? (this.view ? cameraFromPose(this.view.pose) : null);
     for (const actor of this.nearbyActors()) {
       if (!this.pointHitsSprite(actor, point)) {
         continue;
       }
-      const still = cam ? worldToStill(actor, cam) : null;
+      const still = viewStill(this.view, actor);
       hits.push({ kind: "actor", name: actor.name, forward: still?.forward ?? 0 });
     }
     for (const prop of this.nearbyProps()) {
@@ -1834,7 +1835,7 @@ export class DustHost implements OpcodeHost {
       if (hud && point.y < 264) {
         continue;
       }
-      const still = !hud && cam ? worldToStill(prop, cam) : null;
+      const still = !hud ? viewStill(this.view, prop) : null;
       hits.push({
         kind: "prop",
         name: prop.name,
@@ -1872,11 +1873,7 @@ export class DustHost implements OpcodeHost {
   }
 
   private pointHitsSprite(actor: ActorState, point: Point): boolean {
-    const cam = this.view?.viewCamera?.() ?? (this.view ? cameraFromPose(this.view.pose) : null);
-    if (!cam) {
-      return false;
-    }
-    const still = worldToStill(actor, cam);
+    const still = viewStill(this.view, actor);
     return still !== null && Math.abs(still.x - point.x) < 40 && still.y - point.y < 80 && point.y <= still.y + 10;
   }
 
@@ -1884,21 +1881,13 @@ export class DustHost implements OpcodeHost {
     if (prop.view === "large" || prop.view === "panel" || prop.view === "hilite") {
       return Math.abs(prop.x - point.x) < 40 && Math.abs(prop.y - point.y) < 40;
     }
-    const cam = this.view?.viewCamera?.() ?? (this.view ? cameraFromPose(this.view.pose) : null);
-    if (!cam) {
-      return false;
-    }
-    const still = worldToStill(prop, cam);
+    const still = viewStill(this.view, prop);
     return still !== null && Math.abs(still.x - point.x) < 36 && Math.abs(still.y - point.y) < 40;
   }
 
   private spriteDist(obj: { x: number; y: number; z?: number }): number {
-    const cam = this.view?.viewCamera?.() ?? (this.view ? cameraFromPose(this.view.pose) : null);
-    if (!cam || !this.view) {
-      return 32000;
-    }
-    const still = worldToStill(obj, cam);
-    if (!still) {
+    const still = viewStill(this.view, obj);
+    if (!still || !this.view) {
       return 32000;
     }
     const p = playerWorldPoint(this.view.pose);
@@ -2118,6 +2107,19 @@ export class DustHost implements OpcodeHost {
   }
 }
 
+function viewStill(
+  view: WorldView | null,
+  obj: { x: number; y: number; z?: number },
+): StillHit | null {
+  if (!view) {
+    return null;
+  }
+  if (view.projectWorld) {
+    return view.projectWorld(obj);
+  }
+  const cam = view.viewCamera?.() ?? cameraFromPose(view.pose);
+  return worldToStill(obj, cam);
+}
 
 export function puppetFolder(stem: string): string {
   const name = stem.replace(/\.pup$/i, "").toUpperCase();

@@ -12,6 +12,18 @@ export function createStillAnim(urls: string[]): StillAnim {
   return { urls, index: 0, elapsed: 0, ready: false };
 }
 
+/**
+ * Still actually on screen. `tickStillAnim` may step `index` before the
+ * next PNG is uploaded; sprites must stay on the previous plate until
+ * `ready` so they do not jump a frame ahead of the film.
+ */
+export function displayedFilmstripIndex(anim: Pick<StillAnim, "index" | "ready">): number {
+  if (!anim.ready && anim.index > 0) {
+    return anim.index - 1;
+  }
+  return anim.index;
+}
+
 export function tickStillAnim(
   anim: StillAnim,
   dt: number,
