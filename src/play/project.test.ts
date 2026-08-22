@@ -24,11 +24,14 @@ function actor(x: number, y: number): ActorState {
     destX: 0,
     destY: 0,
     destZ: 0,
+    route: [],
     degTarget: 0,
     walkStep: 0,
     walkAcc: 0,
+    zclip: 32,
     standSprites: [],
     walkSprites: [],
+    drinkSprites: [],
     spriteRoot: "",
   };
 }
@@ -36,16 +39,16 @@ function actor(x: number, y: number): ActorState {
 describe("worldToStill", () => {
   it("puts Leroy ahead of the south-gate camera", () => {
     const pose = { x: 6, y: 14, facing: "N" as const };
-    const at = worldToStill(actor(1664, 3584), pose);
+    const at = worldToStill(actor(1740, 3536), pose);
     expect(at).not.toBeNull();
-    expect(at!.x).toBeGreaterThan(200);
-    expect(at!.x).toBeLessThan(320);
+    expect(at!.x).toBeGreaterThan(320);
+    expect(at!.x).toBeLessThan(420);
     expect(at!.y).toBeGreaterThan(160);
     expect(at!.y).toBeLessThan(250);
   });
 
   it("hides someone behind the camera", () => {
     const pose = { x: 6, y: 14, facing: "N" as const };
-    expect(worldToStill(actor(1664, 4000), pose)).toBeNull();
+    expect(worldToStill(actor(1740, 4000), pose)).toBeNull();
   });
 });

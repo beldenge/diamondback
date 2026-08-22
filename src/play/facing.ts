@@ -32,9 +32,15 @@ export function degToOctant(deg: number): number {
 /**
  * Which of the 8 CST stand/walk frames the camera sees.
  * Octant 0 is the front (actor facing the camera).
+ *
+ * CST east/west plates are drawn with east facing *left* on the PNG
+ * (clockwise around the actor, opposite increasing `actordeg`).
+ * `camOct - actorOct` keeps front/back and puts eastward travel to the
+ * *right* of a north-facing still. The old `actorOct - camOct` moonwalked
+ * the K7 corner toward the range.
  */
 export function visibleOctant(actorDeg: number, cameraDeg: number): number {
-  return (degToOctant(actorDeg) - degToOctant(cameraDeg) + 4) & 7;
+  return (degToOctant(cameraDeg) - degToOctant(actorDeg) + 4) & 7;
 }
 
 /** Shortest signed step from `from` to `to` on the 0–255 circle. */
@@ -71,6 +77,28 @@ export function calcVect(
   return { x: dist * Math.sin(rad), y: dist * Math.cos(rad) };
 }
 
+/** Player feet: tile center (255/tile + 128), same as `playerxyz`. */
+export function playerWorldPoint(pose: { x: number; y: number }): { x: number; y: number } {
+  return { x: pose.x * 255 + 128, y: pose.y * 255 + 128 };
+}
+
+/**
+ * Stills camera on the view axis, one tile *behind* the feet.
+ * `calcdeg(actor, cameraxyz)` then faces the lens — same idea as
+ * `walktopuppet`'s `currentdeg + 128` — instead of the sub-tile
+ * diagonal to the tile center (Leroy sits 82 east of O7).
+ */
+export function cameraWorldPoint(pose: {
+  x: number;
+  y: number;
+  facing: string;
+}): { x: number; y: number } {
+  const feet = playerWorldPoint(pose);
+  const facing = pose.facing as Dir;
+  const back = calcVect(dirToDeg(facing) + 128, ACTOR_TILE);
+  return { x: feet.x + back.x, y: feet.y + back.y };
+}
+
 export function pickCyclic<T>(frames: T[], octant: number): T | undefined {
   if (frames.length === 0) {
     return undefined;
@@ -87,41 +115,209 @@ export function walkFrame<T>(
   if (frames.length < perDir) {
     return pickCyclic(frames, octant);
   }
-  const dirs = Math.max(1, Math.floor(frames.length / perDir));
-  const pose = step % Math.max(1, Math.floor(frames.length / dirs));
-  return frames[pose * dirs + (octant % dirs)];
+  const poses = Math.max(1, Math.floor(frames.length / perDir));
+  const pose = step % poses;
+  return frames[pose * perDir + (octant % perDir)];
 }
 
-/** Project a world-space actor onto the 512×264 still. */
+/**
+ * `stdscale("town")` in `CST/_GANG/Cast.txt`. Native CST frames (~200px,
+ * hotspot 256,192 on the 384 stage) are 1:1 at this scale on the camera
+ * plane. Indoor sets use 2400–5800 — closer photos, not a different codec.
+ */
+export const ACTOR_SCALE_REF = 1450;
+
+/** Scripts treat world xyz as tiles of 256 (`walktopuppet` divides by 256). */
+export const ACTOR_TILE = 256;
+
+/** DFET CST/PUP header: blit top-left so this hotspot lands on the stage point. */
+export const SPRITE_HOTSPOT_X = 256;
+export const SPRITE_HOTSPOT_Y = 192;
+
+/**
+ * Distance falloff. Dust scripts never compute this — DF.EXE does, via
+ * SET Z (DFET) and BitBlt (no StretchBlt import). Z at the south-gate
+ * road is 3 (at your feet) … 7 (up the street). `256/(256+forward)` is
+ * the same 1/z in the units the scripts use; sampled Z matches
+ * `3 / persp` on that road.
+ */
+export function actorPerspective(forward: number): number {
+  return ACTOR_TILE / (ACTOR_TILE + Math.max(0, forward));
+}
+
+/**
+ * Still Y of the ground. Same 1/z as scale (not pinhole X).
+ * NITE O7 N SET Z: 3 at y=236–263, 5 at y=194–209 (Leroy’s star),
+ * 7 at y=176–183. Horizon 128 is half the 256 tile. Near plane **248**
+ * is mid Z=3 — the still bottom (264) put the sign hotspot in Z=4 while
+ * `actorWorldZ` is 5, so the closer ground clipped his feet. Do not scan
+ * Z for Y (O8 N’s fence has no ground at the actor’s depth).
+ */
+export const STILL_HORIZON_Y = 128;
+export const STILL_NEAR_Y = 248;
+
+export function stillGroundY(forward: number): number {
+  return STILL_HORIZON_Y + (STILL_NEAR_Y - STILL_HORIZON_Y) * actorPerspective(forward);
+}
+
+/** World units per walk pose. One CST cycle covers a 256-unit tile. */
+export function walkStride(frameCount: number, perDir = 8): number {
+  const poses = Math.max(1, Math.floor(frameCount / perDir));
+  return ACTOR_TILE / poses;
+}
+
+/** Script frames each drink pose is held (`toidle` 25 / 4-pose strip). */
+export const DRINK_HOLD_FRAMES = 6;
+
+/** Sprite height in 512×264 still pixels (Dust’s framebuffer). */
+export function actorStillHeight(
+  spriteH: number,
+  actorScale: number,
+  forward: number,
+): number {
+  return spriteH * (actorScale / ACTOR_SCALE_REF) * actorPerspective(forward);
+}
+
+/**
+ * CSS height on the letterboxed still. The still canvas is already
+ * `STILL_HEIGHT * stageScale`; do not size sprites in raw CSS pixels.
+ */
+export function actorCssHeight(
+  spriteH: number,
+  actorScale: number,
+  forward: number,
+  stillCssHeight: number,
+): number {
+  if (stillCssHeight <= 0) {
+    return 0;
+  }
+  return actorStillHeight(spriteH, actorScale, forward) * (stillCssHeight / STILL_HEIGHT);
+}
+
+/**
+ * Still top-left so the CST header hotspot (256, 192) lands on `(hx, hy)`.
+ * Same rule as PUP `spriteTopLeft`, with the in-world scale applied.
+ * Do not bbox-center: ¾ frames are not centered on the hotspot.
+ */
+export function spriteStillTopLeft(
+  hx: number,
+  hy: number,
+  place: { x: number; y: number },
+  stillScale: number,
+): { x: number; y: number } {
+  return {
+    x: hx + (place.x - SPRITE_HOTSPOT_X) * stillScale,
+    y: hy + (place.y - SPRITE_HOTSPOT_Y) * stillScale,
+  };
+}
+
+/** World-space camera: tile center + `actordeg` (0=S). */
+export interface ViewCamera {
+  x: number;
+  y: number;
+  deg: number;
+}
+
+export function cameraFromPose(pose: { x: number; y: number; facing: string }): ViewCamera {
+  const feet = playerWorldPoint(pose);
+  return { x: feet.x, y: feet.y, deg: dirToDeg(pose.facing as Dir) };
+}
+
+/**
+ * SET filmstrips are 5 motion frames then dest HQ. Lerp the camera
+ * through that so sprites don't sit on the start pose until a snap —
+ * a right turn at O7 looked like he jumped onto the O8 road.
+ */
+export function lerpViewCamera(
+  from: { x: number; y: number; facing: string },
+  to: { x: number; y: number; facing: string },
+  t: number,
+): ViewCamera {
+  const a = cameraFromPose(from);
+  const b = cameraFromPose(to);
+  const u = Math.min(1, Math.max(0, t));
+  return {
+    x: a.x + (b.x - a.x) * u,
+    y: a.y + (b.y - a.y) * u,
+    deg: wrapDeg(a.deg + degDelta(a.deg, b.deg) * u),
+  };
+}
+
+/**
+ * Project a world-space actor onto the 512×264 still.
+ * `x,y` is the **hotspot** (ground point), not the PNG bbox.
+ *
+ * **X** is a pinhole: `256 + 256 * right / forward` (focal = still
+ * half-width; patent 256 for SGI position tracking). **Y and scale**
+ * stay `256/(256+forward)` so size is finite on the camera plane.
+ * Using 1/z for X planted O7-east Leroy on the fence (`x≈133`); he is
+ * 162 off-axis and only 82 forward — `|right| > forward` is outside a
+ * 90° still, and the original does not draw him in that photo.
+ */
 export function worldToStill(
   actor: ActorState,
-  pose: { x: number; y: number; facing: string },
+  view: { x: number; y: number; facing: string } | ViewCamera,
 ): { x: number; y: number; forward: number } | null {
-  const px = pose.x * 255 + 128;
-  const py = pose.y * 255 + 128;
-  let fx = 0;
-  let fy = 0;
-  if (pose.facing === "N") {
-    fy = -1;
-  } else if (pose.facing === "S") {
-    fy = 1;
-  } else if (pose.facing === "E") {
-    fx = 1;
-  } else {
-    fx = -1;
+  const cam: ViewCamera =
+    "deg" in view ? view : cameraFromPose(view);
+  const f = calcVect(cam.deg, 1);
+  const dx = actor.x - cam.x;
+  const dy = actor.y - cam.y;
+  const forward = dx * f.x + dy * f.y;
+  const right = dx * -f.y + dy * f.x;
+  // Further than ~5 tiles (K7 east → K11).
+  if (forward > 255 * 5) {
+    return null;
   }
-  const dx = actor.x - px;
-  const dy = actor.y - py;
-  const forward = dx * fx + dy * fy;
-  const right = dx * -fy + dy * fx;
-  if (forward < -80 || forward > 700) {
+  // `walktopuppet` dest is the camera plane. Pinhole X is undefined at
+  // forward=0; keep a near-plane blit only if he's on-axis at your feet.
+  if (forward <= 0) {
+    if (forward < -16 || Math.abs(right) > 48) {
+      return null;
+    }
+    return {
+      x: SPRITE_HOTSPOT_X + right,
+      y: Math.min(STILL_HEIGHT, Math.max(0, stillGroundY(0))),
+      forward: 0,
+    };
+  }
+  const x = SPRITE_HOTSPOT_X + (SPRITE_HOTSPOT_X * right) / forward;
+  if (x < -48 || x > STILL_WIDTH + 48) {
     return null;
   }
   return {
-    x: STILL_WIDTH / 2 + right * 0.55,
-    y: STILL_HEIGHT * 0.94 - Math.min(forward, 520) * 0.28,
+    x,
+    y: Math.min(STILL_HEIGHT, Math.max(0, stillGroundY(forward))),
     forward,
   };
+}
+
+/**
+ * CST sprite for the current pose. Walk and drink are facing-major
+ * strips (8 dirs × N poses), same layout as stand's 8 facings.
+ */
+export function actorSprite(
+  actor: ActorState,
+  cameraDeg: number,
+): ActorState["standSprites"][number] | undefined {
+  const oct = visibleOctant(actor.deg, cameraDeg);
+  if (actor.pose === "walk") {
+    return (
+      walkFrame(actor.walkSprites, oct, actor.walkStep) ??
+      pickCyclic(actor.standSprites, oct)
+    );
+  }
+  const drink = actor.drinkSprites;
+  if (actor.pose === "drink" && drink && drink.length > 0) {
+    const frame =
+      drink.length >= 16
+        ? walkFrame(drink, oct, actor.walkStep)
+        : pickCyclic(drink, oct);
+    if (frame) {
+      return frame;
+    }
+  }
+  return pickCyclic(actor.standSprites, oct);
 }
 
 export { OCTANT_DEG };

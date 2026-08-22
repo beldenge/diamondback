@@ -231,6 +231,14 @@ export function frameUrl(folder: string, frame0: number, offset: number): string
   return extractUrl(`SET/${folder}/FRAMES/${frame0}_${offset}.png`);
 }
 
+export function zUrl(folder: string, frame0: number, offset: number): string {
+  return extractUrl(`SET/${folder}/FRAMES/z/${frame0}_${offset}.png`);
+}
+
+export function zUrlFromStill(stillUrl: string): string {
+  return stillUrl.replace("/FRAMES/", "/FRAMES/z/");
+}
+
 export function poseLabel(graph: SetGraph, pose: WalkerPose, world: string = WORLD_TOWN): string {
   const scene = graph.scenes.get(tileKey(pose.x, pose.y));
   const name = scene?.name ?? `Tile ${pose.x},${pose.y}`;

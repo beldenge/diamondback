@@ -78,6 +78,9 @@ first PUP-only runs. Those are stale. Use `out/PUP/_JENIX`.
 | `Boot Script.txt`, `day1.txt`, `day2.txt`, … | Conversation / AI scripts. Name comes from the PUP script table |
 | same names with `.json` | Token AST (Dust opcode names). `.txt` still prints Titanic 4.0 names |
 | `AUDIO/texts.csv` | Columns: `ID`, `container`, `Identifier`, `Text`, `animLogic`. `Identifier` is `jenix.5`; `Text` is the spoken line; `container` is the WAV’s container index; `animLogic` is the per-line viseme/anim integer |
+| `AUDIO/visemes/<ident>.json` | Per-line 60 Hz face/hand keyframes. Play mode must not parse `visemes.json`. |
+| `FRAMES/sprites.json` | Layer placement plus `rest` / `restLayers` from the first viseme frame |
+| `scripts.json` | Script filenames in this PUP (`Boot Script.json`, `day1.json`, …) |
 | `AUDIO/<Identifier>.wav` | Speech for that line (8-bit or 16-bit mono PCM) |
 | `FRAMES/Background/frame_<id>.png` | Backdrop plate for the talking head |
 | `FRAMES/Body`, `Head`, `Eyes`, `Eyebrows`, `Nose`, `Jaw`, `Left`, `Right`, `Hands 1`, `Hands 2` | Face-part sprites. `<id>` is the source container index. Missing folders means that part has `count == 0` |
@@ -90,9 +93,10 @@ Puppet folder names (39): `_BLOOD`, `_BOLIVAR`, `_BUICK`, `_COBB`, `_DEAD`, `_DE
 
 | File | What it is |
 |---|---|
-| `<Actor>/Script.txt` | In-world actor logic (`setupactor`, `mousedown`, schedules) |
-| `Cast.txt` | Cast library (not an actor): `initactors`, `runpuppet`, `walktopuppet`, `stdactor`, … |
-| `<Actor>/<anim>/frame_<id>.png` | Body sprites for that animation (`stand`, `walk`, `grunt`, …) |
+| `<Actor>/Script.txt` | In-world actor logic (`setupactor`, `mousedown`, schedules). Leroy `setupactor("sign")` does `stdactor` then `actorscale (me, 1100)`. |
+| `Cast.txt` | Cast library: `initactors`, `runpuppet`, `walktopuppet`, `stdactor`, `stdscale` (town **1450**, interiors 2400–5800), `hotdist` (town **384**) |
+| `sprites.json` | Per-actor stand/walk placement (`x,y,w,h`) on the 512×384 stage |
+| `<Actor>/<anim>/frame_<id>.png` | Body sprites. Foot blobs are contact shadows (translucent black), not maroon studio dirt. |
 
 `_EXTRA` = animals / Jenix beggar / bounty / kidgang. `_GANG` = named townspeople. `_TARGET` = shooting-gallery marks. `_MINE` = mine extras.
 
@@ -110,12 +114,12 @@ No scripts. Folder stem matches the `.SND` file (`TOWN.SND` → `_TOWN`).
 | File | What it is |
 |---|---|
 | `scenes.json` | Grid tiles. Fields: `x`, `y`, `interact` (hotspot), `blocked`, `unknown_c`, `unknown_e`, `name` (`Scene A2`), `script_container` |
-| `waypoints.json` | Stand / walk-to points. Fields: `x`, `y` (255 units per tile), `name` (`drugs.watson1`) |
+| `waypoints.json` | Stand / walk-to points. Fields: `x`, `y` (255 units per tile), `name` (`drugs.watson1`). Both slots of each 50-byte SET record. |
 | `transitions.json` | One walk/turn filmstrip. Fields: `x_from`, `y_from`, `dir_from`, `x_to`, `y_to`, `dir_to`, `dir_*_name` (`N/S/E/W`), `frame0` (first of 6 stills) |
 | `Boot Script.txt` | Set-level script (cursor defaults, etc.) if present |
 | `<Scene name>.txt` | Per-tile script **only if** that container actually holds a `code` script (blocked tiles are often empty) |
 | `FRAMES/<frame0>_<offset>.png` | 512×264 walk/turn still. One file per strip slot (`0`…`5`). Container IDs can overlap two strips, so we do **not** share `frame_<id>.png`. On walks, slot `5` is the **from**-pose HQ; the remake plays `0`–`4` then looks up the dest HQ separately ([`src/world/set/README.md`](../../src/world/set/README.md)). |
-| `FRAMES/z/<frame0>_<offset>.png` | **`--z` only.** 8-bit grayscale depth plane for sprite occlusion. |
+| `FRAMES/z/<frame0>_<offset>.png` | **`--z` only.** 8-bit grayscale depth plane for sprite occlusion. `--z` without `--frames` does not rewrite color stills. |
 
 Important sets: `_TOWN` and `_NITE` (same 225-cell / 15×15 outdoor grid,
 day/night; 52 walkable tiles), interiors `_APOTH`, `_BANK`, `_STORE`,
@@ -181,6 +185,8 @@ Story/cutscene reels live under `MOVIES/` (`_INTRO`, `_INTRO3`,
 ```json
 { "x": 190, "y": 90, "name": "drugs.watson1" }
 ```
+
+TOWN also has the second slot of a pair, e.g. `{ "x": 1740, "y": 3536, "name": "town.leroy1" }` (packed with `town.leroy2`).
 
 `transitions.json` element:
 

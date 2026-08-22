@@ -396,6 +396,7 @@ OPCODES: list[dict] = [
             "Jenix refuse-money: actorstar (\"JENIX\", \"town.extra\" @ numtostring (random (3))).",
             "@ is string concat. town.extra + \"0\"/\"1\"/\"2\" indexes EXTRA CST extras.",
             "Waypoint units in SET JSON are 255 per tile — star names live in waypoints.json.",
+            "50-byte SET records hold two stars. town.leroy1 is slot B of town.leroy2 at (1740, 3536).",
         ],
     },
     {
@@ -568,10 +569,13 @@ OPCODES: list[dict] = [
     {
         "name": "framerate",
         "id": 16022,
-        "summary": "Boot calls framerate (3). Units unknown (MOVPLAY also has a framerate string).",
+        "summary": "Boot calls framerate (3). hasattention uses (seconds * 60) / framerate() frames.",
         "args": "integer",
-        "confidence": "unknown",
-        "notes": ["Do not treat 3 as 3 fps. SET walker currently uses ~24 fps from play, not this."],
+        "confidence": "inferred",
+        "notes": [
+            "hasattention implies script frames at 60/framerate Hz (20 Hz when boot set 3).",
+            "Do not treat 3 as 3 fps. SET walker fps is separate.",
+        ],
     },
     {
         "name": "delay",
@@ -579,6 +583,25 @@ OPCODES: list[dict] = [
         "summary": "Wait some ticks. Unit unknown (boot blacktoscreen uses 30; checkers delay (45)).",
         "args": "integer",
         "blocking": "inferred yes",
+        "confidence": "inferred",
+    },
+    {
+        "name": "makeloop",
+        "id": 12005,
+        "summary": "One-shot timer: after delay script frames, run proc on kind/who. Proc re-arms.",
+        "args": "kind (`actor`/`prop`/`scene`/`flat`), who, proc name, delay frames",
+        "confidence": "inferred",
+        "notes": [
+            "Leroy: makeloop (\"actor\", me, \"leroyidle\", 20); drink holds via toidle at 25.",
+            "stoploop (kind, who) cancels. One loop per kind+who (later makeloop replaces).",
+            "Delay uses the same script frames as hasattention (60/framerate).",
+        ],
+    },
+    {
+        "name": "stoploop",
+        "id": 12011,
+        "summary": "Cancel makeloop for that kind/who. who can be `all`.",
+        "args": "kind, who",
         "confidence": "inferred",
     },
     {

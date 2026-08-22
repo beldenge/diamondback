@@ -3,13 +3,21 @@ import { num, str, VM, type OpcodeHost, type Value } from "../vm/runtime";
 import { extractUrl } from "../world/set/extract";
 import type { Dir, SetGraph, WalkerPose } from "../world/set/types";
 import { loadSetGraph, parseDir, sceneByName, tileKey, WORLD_TOWN } from "../world/set/graph";
+import { roadRoute, type RoutePoint } from "../world/set/path";
 import {
   calcDeg,
   calcVect,
+  cameraFromPose,
+  cameraWorldPoint,
   degDelta,
   dirToDeg,
+  DRINK_HOLD_FRAMES,
+  playerWorldPoint,
+  walkStride,
+  worldToStill,
   wrapDeg,
 } from "./facing";
+import type { ViewCamera } from "./facing";
 import { ScriptIndex, loadScriptJson } from "./scripts";
 import { asCenter, type PuppetSheet, type PuppetUi, type SpritePlace, type VisemeLine } from "./ui";
 import { voices } from "./speech";
@@ -41,13 +49,26 @@ export interface ActorState {
   destX: number;
   destY: number;
   destZ: number;
+  /** Remaining SET-road waypoints after the current `dest*` (named `walktostar`). */
+  route: RoutePoint[];
   degTarget: number;
   walkStep: number;
   walkAcc: number;
+  zclip: number;
   standSprites: SpritePlace[];
   walkSprites: SpritePlace[];
+  drinkSprites: SpritePlace[];
   spriteRoot: string;
   standUrl?: string;
+}
+
+interface ScriptLoop {
+  kind: string;
+  who: string;
+  proc: string;
+  delay: number;
+  remaining: number;
+  paused: boolean;
 }
 
 export interface WorldView {
@@ -58,6 +79,8 @@ export interface WorldView {
   setPose(world: string, pose: WalkerPose): Promise<void>;
   log(message: string): void;
   refreshActors(): void;
+  /** Camera during a SET filmstrip; defaults to the standing pose. */
+  viewCamera?(): ViewCamera;
 }
 
 const SET_FILE: Record<string, string> = {
@@ -98,13 +121,6 @@ const SET_FILE: Record<string, string> = {
   "target.set": "_TARGET",
 };
 
-const STAR_FALLBACK: Record<string, { x: number; y: number }> = {
-  // town.leroy1 is not in SET waypoints. Day-1 bysign() needs x < 2432
-  // (not the range star town.leroy2 at 2656,2720). Stand him by the
-  // extracted south-gate jug (1730,3476), slightly off the road center.
-  "town.leroy1": { x: 1784, y: 3510 },
-};
-
 export class DustHost implements OpcodeHost {
   readonly index = new ScriptIndex();
   readonly actors = new Map<string, ActorState>();
@@ -123,8 +139,25 @@ export class DustHost implements OpcodeHost {
   private visemeLines = new Map<string, VisemeLine>();
   private currentPuppetFolder = "";
   private loadedPuppets = new Set<string>();
+  private puppetSheets = new Map<string, PuppetSheet>();
+  private puppetWavs = new Map<string, string[]>();
+  private puppetIdents = new Map<string, string[]>();
+  private puppetScriptBag = new Map<
+    string,
+    { label: string; rel: string; procs: Proc[] }[]
+  >();
   private bevels: { id: number; label: string }[] = [];
   framerateValue = 3;
+  /** `random (n)` → `floor(rng() * n)`. Tests pin idle drink vs pivot. */
+  rng = Math.random;
+  frameCounter = 0;
+  /** Nested `forceupdate` count. Game tick must not also step actors. */
+  scriptPump = 0;
+  private readonly loops = new Map<string, ScriptLoop>();
+  private readonly dueLoops: ScriptLoop[] = [];
+  private readonly walkEnds: string[] = [];
+  private readonly turnEnds: string[] = [];
+  private loopAcc = 0;
   view: WorldView | null = null;
   skipMovies = true;
   currentVoice = "none";
@@ -199,10 +232,7 @@ export class DustHost implements OpcodeHost {
       case "halttheme":
       case "haltsound":
       case "haltvoice":
-      case "makeloop":
-      case "stoploop":
       case "stopball":
-      case "pauseloop":
       case "pausewalk":
       case "pauseball":
       case "mixclut":
@@ -258,11 +288,26 @@ export class DustHost implements OpcodeHost {
         this.playBed(str(args[0]));
         return 0;
       case "forceupdate":
-        this.advanceActors(1 / 60);
-        await nextFrame();
+        this.scriptPump += 1;
+        try {
+          this.advanceActors(1 / 60);
+          await this.runQueued(ctx);
+          await nextFrame();
+        } finally {
+          this.scriptPump -= 1;
+        }
+        return 0;
+      case "makeloop":
+        this.makeLoop(str(args[0]), str(args[1]), str(args[2]), num(args[3]));
+        return 0;
+      case "stoploop":
+        this.stopLoop(str(args[0]), str(args[1] ?? "all"));
+        return 0;
+      case "pauseloop":
+        this.pauseLoop(str(args[0]), str(args[1] ?? "all"), truthyArg(args[2]));
         return 0;
       case "random":
-        return Math.floor(Math.random() * Math.max(1, num(args[0])));
+        return Math.floor(this.rng() * Math.max(1, num(args[0])));
       case "numtostring":
         return String(Math.trunc(num(args[0])));
       case "stringtonum":
@@ -303,6 +348,9 @@ export class DustHost implements OpcodeHost {
       case "closepuppetfile":
         this.currentPuppet = "none";
         this.ui.close();
+        if (this.cursorName === "watch") {
+          this.cursorName = "arrow";
+        }
         return 0;
       case "currentset":
         return this.currentSet;
@@ -372,7 +420,12 @@ export class DustHost implements OpcodeHost {
         return this.setActorStar(ctx, args);
       case "actorpose":
         return this.actorField(ctx, args, "pose", (actor, value) => {
-          actor.pose = str(value);
+          const next = str(value);
+          if (next !== actor.pose) {
+            actor.pose = next;
+            actor.walkStep = 0;
+            actor.walkAcc = 0;
+          }
         });
       case "actorowner":
         return this.actorField(ctx, args, "owner", (actor, value) => {
@@ -399,6 +452,9 @@ export class DustHost implements OpcodeHost {
           actor.turnSpeed = num(value);
         });
       case "actorzclip":
+        return this.actorField(ctx, args, "zclip", (actor, value) => {
+          actor.zclip = num(value);
+        });
       case "actorhitbox":
       case "currentcd":
         return 0;
@@ -407,7 +463,7 @@ export class DustHost implements OpcodeHost {
       case "playerxyz":
         return this.playerXyz(args);
       case "cameraxyz":
-        return this.playerXyz(args);
+        return this.cameraXyz(args);
       case "calcdist":
         return calcDist(args[0], args[1]);
       case "starxyz":
@@ -429,12 +485,14 @@ export class DustHost implements OpcodeHost {
           for (const actor of this.actors.values()) {
             actor.walking = false;
             actor.turning = false;
+            actor.route = [];
             actor.pose = "stand";
           }
         } else {
           const actor = this.namedActor(who);
           actor.walking = false;
           actor.turning = false;
+          actor.route = [];
           actor.pose = "stand";
         }
         return 0;
@@ -455,7 +513,7 @@ export class DustHost implements OpcodeHost {
       case "calcvecty":
         return calcVect(num(args[0]), num(args[1])).y;
       case "frame":
-        return Math.floor(performance.now() / 16);
+        return this.frameCounter;
       case "tick":
         return Math.floor(performance.now());
       case "puppetclear":
@@ -484,8 +542,12 @@ export class DustHost implements OpcodeHost {
         return this.ui.waitEvent();
       case "actorscript": {
         const who = str(args[0] || ctx.me || ctx.target);
-        const proc = this.index.lookup([`actor:${who.toLowerCase()}`], ctx.frame()?.object ?? "");
-        return proc ? 0 : 0;
+        const hook = ctx.frame()?.procName ?? "";
+        const proc = this.index.lookup([`actor:${who.toLowerCase()}`], hook);
+        if (proc) {
+          await ctx.inObject("actor", who.toLowerCase(), () => ctx.runProc(proc));
+        }
+        return 0;
       }
       default:
         ctx.unimplemented.add(name);
@@ -546,19 +608,14 @@ export class DustHost implements OpcodeHost {
 
   private playerXyz(args: Value[]): Value {
     const pose = this.view?.pose;
-    const x = pose ? pose.x * 255 + 128 : 0;
-    const y = pose ? pose.y * 255 + 128 : 0;
-    const axis = num(args[0]);
-    if (axis === 1) {
-      return x;
-    }
-    if (axis === 2) {
-      return y;
-    }
-    if (axis === 3) {
-      return 0;
-    }
-    return { kind: "point", x, y, z: 0 };
+    const p = pose ? playerWorldPoint(pose) : { x: 0, y: 0 };
+    return xyzAxis(args, p.x, p.y);
+  }
+
+  private cameraXyz(args: Value[]): Value {
+    const pose = this.view?.pose;
+    const p = pose ? cameraWorldPoint(pose) : { x: 0, y: 0 };
+    return xyzAxis(args, p.x, p.y);
   }
 
   private walkToStar(ctx: VM, args: Value[]): Value {
@@ -567,6 +624,7 @@ export class DustHost implements OpcodeHost {
     if (dest.includes(",")) {
       const [x, y, z] = dest.split(",").map(Number);
       actor.star = "custom";
+      actor.route = [];
       this.startWalk(actor, x || 0, y || 0, z || 0);
       return 0;
     }
@@ -574,9 +632,26 @@ export class DustHost implements OpcodeHost {
     actor.star = star;
     const point = this.starPoint(star);
     if (point) {
-      this.startWalk(actor, point.x, point.y, point.z);
+      this.walkToPoint(actor, point.x, point.y, point.z);
     }
     return 0;
+  }
+
+  /**
+   * Named `walktostar` follows the SET walk graph (52 camera tiles).
+   * Dust scripts never call `walkonroad`; DF.EXE does that inside
+   * `walktostar`. Explicit `x,y,z` strings (town `walktopuppet`) stay a
+   * beeline.
+   */
+  private walkToPoint(actor: ActorState, x: number, y: number, z: number): void {
+    const graph = this.view?.graph;
+    const hops =
+      graph && graph.cameraTiles.size > 0
+        ? roadRoute(graph, actor.x, actor.y, x, y, z)
+        : [{ x, y, z }];
+    const first = hops[0] ?? { x, y, z };
+    actor.route = hops.slice(1);
+    this.startWalk(actor, first.x, first.y, first.z);
   }
 
   startWalk(actor: ActorState, x: number, y: number, z: number): void {
@@ -586,12 +661,33 @@ export class DustHost implements OpcodeHost {
     actor.walking = true;
     actor.pose = "walk";
     actor.walkStep = 0;
+    actor.walkAcc = 0;
     const dx = x - actor.x;
     const dy = y - actor.y;
     if (dx !== 0 || dy !== 0) {
-      actor.deg = calcDeg(actor, { x, y });
+      actor.deg = this.facingForWalk(actor, x, y);
     }
     this.view?.refreshActors();
+  }
+
+  /**
+   * Town `walktopuppet` walks to `playerxyz`. Face the camera
+   * (`currentdeg + 128`) so the approach is straight-on, not the
+   * sub-tile diagonal (Leroy 82 east of O7). Road hops are tile
+   * centers — if the player is on that tile, hypot&lt;2 used to fire
+   * this too, so he moonwalked past L7. Only the final beeline to
+   * the player (empty route) uses the camera.
+   */
+  private facingForWalk(actor: ActorState, x: number, y: number): number {
+    const pose = this.view?.pose;
+    if (pose && actor.route.length === 0) {
+      const px = pose.x * 255 + 128;
+      const py = pose.y * 255 + 128;
+      if (Math.hypot(x - px, y - py) < 2) {
+        return wrapDeg(dirToDeg(pose.facing) + 128);
+      }
+    }
+    return calcDeg(actor, { x, y });
   }
 
   startTurn(actor: ActorState, deg: number): void {
@@ -617,14 +713,22 @@ export class DustHost implements OpcodeHost {
           actor.x = actor.destX;
           actor.y = actor.destY;
           actor.z = actor.destZ;
-          actor.walking = false;
-          actor.pose = "stand";
+          if (actor.route.length > 0) {
+            const next = actor.route.shift()!;
+            this.startWalk(actor, next.x, next.y, next.z);
+          } else {
+            actor.walking = false;
+            actor.pose = "stand";
+            this.walkEnds.push(actor.name);
+          }
         } else {
           actor.x += (dx / dist) * step;
           actor.y += (dy / dist) * step;
-          actor.walkAcc += dt;
-          if (actor.walkAcc >= 0.08) {
-            actor.walkAcc = 0;
+          // One CST walk cycle per 256-unit tile, not a 0.08s treadmill.
+          const stride = walkStride(actor.walkSprites.length);
+          actor.walkAcc += step;
+          while (actor.walkAcc >= stride) {
+            actor.walkAcc -= stride;
             actor.walkStep += 1;
           }
         }
@@ -636,6 +740,7 @@ export class DustHost implements OpcodeHost {
         if (Math.abs(delta) <= step) {
           actor.deg = actor.degTarget;
           actor.turning = false;
+          this.turnEnds.push(actor.name);
         } else {
           actor.deg = wrapDeg(actor.deg + Math.sign(delta) * step);
         }
@@ -647,20 +752,132 @@ export class DustHost implements OpcodeHost {
     }
   }
 
-  faceNearby(maxDist = 384): void {
-    const pose = this.view?.pose;
-    if (!pose) {
+  private loopKey(kind: string, who: string): string {
+    return `${kind.toLowerCase()}:${who.toLowerCase()}`;
+  }
+
+  private makeLoop(kind: string, who: string, proc: string, delay: number): void {
+    const ticks = Math.max(1, Math.trunc(delay));
+    const key = this.loopKey(kind, who);
+    this.loops.set(key, {
+      kind: kind.toLowerCase(),
+      who: who.toLowerCase(),
+      proc: proc.toLowerCase(),
+      delay: ticks,
+      remaining: ticks,
+      paused: false,
+    });
+  }
+
+  private stopLoop(kind: string, who: string): void {
+    const type = kind.toLowerCase();
+    const name = who.toLowerCase();
+    if (name === "all") {
+      for (const [key, loop] of this.loops) {
+        if (loop.kind === type) {
+          this.loops.delete(key);
+        }
+      }
       return;
     }
-    const cam = { x: pose.x * 255 + 128, y: pose.y * 255 + 128 };
-    for (const actor of this.nearbyActors(maxDist)) {
-      if (actor.walking || actor.turning) {
+    this.loops.delete(this.loopKey(type, name));
+  }
+
+  private pauseLoop(kind: string, who: string, paused: boolean): void {
+    const type = kind.toLowerCase();
+    const name = who.toLowerCase();
+    for (const loop of this.loops.values()) {
+      if (loop.kind === type && (name === "all" || loop.who === name)) {
+        loop.paused = paused;
+      }
+    }
+  }
+
+  /**
+   * Script frames are `60 / framerate()` Hz. Boot sets `framerate (3)`
+   * so a `makeloop (…, 20)` idle tick is one second. One-shot: the proc
+   * re-arms with another makeloop (Leroy `leroyidle` / `toidle`).
+   */
+  tickScriptClock(dt: number): void {
+    const frameSec = Math.max(1, this.framerateValue) / 60;
+    this.loopAcc += Math.max(0, dt);
+    let frames = 0;
+    while (this.loopAcc >= frameSec && frames < 32) {
+      this.loopAcc -= frameSec;
+      this.frameCounter += 1;
+      frames += 1;
+      for (const [key, loop] of [...this.loops]) {
+        if (loop.paused) {
+          continue;
+        }
+        loop.remaining -= 1;
+        if (loop.remaining <= 0) {
+          this.loops.delete(key);
+          this.dueLoops.push(loop);
+        }
+      }
+      this.advanceDrinkPoses();
+    }
+  }
+
+  /**
+   * Drink is 8 facings × 4 poses. `toidle` waits 25 script frames —
+   * hold each pose 6 frames and stop on the last (one swallow, not a
+   * 12 Hz loop that looks like a fidget).
+   */
+  private advanceDrinkPoses(): void {
+    let changed = false;
+    for (const actor of this.actors.values()) {
+      if (actor.pose !== "drink") {
         continue;
       }
-      actor.deg = calcDeg(actor, cam);
-      actor.pose = "stand";
+      const poses = Math.max(1, Math.floor((actor.drinkSprites.length || 32) / 8));
+      actor.walkAcc += 1;
+      const next = Math.min(
+        poses - 1,
+        Math.floor((actor.walkAcc - 1) / DRINK_HOLD_FRAMES),
+      );
+      if (next !== actor.walkStep) {
+        actor.walkStep = next;
+        changed = true;
+      }
     }
-    this.view?.refreshActors();
+    if (changed) {
+      this.view?.refreshActors();
+    }
+  }
+
+  async runQueued(ctx: VM): Promise<void> {
+    const ends = this.walkEnds.splice(0);
+    const turns = this.turnEnds.splice(0);
+    const due = this.dueLoops.splice(0);
+    for (const name of ends) {
+      await ctx.inObject("actor", name, () => ctx.evalCall("endwalk", []));
+    }
+    for (const name of turns) {
+      await ctx.inObject("actor", name, () => ctx.evalCall("endturn", []));
+    }
+    for (const loop of due) {
+      await ctx.inObject(loop.kind, loop.who, () => ctx.evalCall(loop.proc, []));
+    }
+  }
+
+  /**
+   * Camera tile/facing changed. Fire standing actors' idle loops on the
+   * next script frame so `turntodeg` re-aims instead of waiting a full
+   * `makeloop` (Leroy's 20 frames = 1s). Do not cut a drink short.
+   */
+  noticeCamera(): void {
+    for (const loop of this.loops.values()) {
+      if (loop.paused || loop.kind !== "actor") {
+        continue;
+      }
+      const actor = this.actors.get(loop.who);
+      if (!actor?.visible || actor.pose !== "stand") {
+        continue;
+      }
+      loop.remaining = Math.min(loop.remaining, 1);
+    }
   }
 
   private handleScene(arg: string): string {
@@ -709,11 +926,14 @@ export class DustHost implements OpcodeHost {
         destX: 0,
         destY: 0,
         destZ: 0,
+        route: [],
         degTarget: 0,
         walkStep: 0,
         walkAcc: 0,
+        zclip: 32,
         standSprites: [],
         walkSprites: [],
+        drinkSprites: [],
         spriteRoot: "",
       };
       this.actors.set(key, actor);
@@ -735,20 +955,19 @@ export class DustHost implements OpcodeHost {
     if (!name) {
       return undefined;
     }
-    const hit = this.waypoints.get(name.toLowerCase()) ?? STAR_FALLBACK[name.toLowerCase()];
+    const hit = this.waypoints.get(name.toLowerCase());
     if (!hit) {
       return undefined;
     }
     return { kind: "point", x: hit.x, y: hit.y, z: 0 };
   }
 
-  nearbyActors(maxDist = 384): ActorState[] {
+  nearbyActors(): ActorState[] {
     const pose = this.view?.pose;
     if (!pose) {
       return [];
     }
-    const px = pose.x * 255 + 128;
-    const py = pose.y * 255 + 128;
+    const cam = this.view?.viewCamera?.() ?? cameraFromPose(pose);
     const world = this.view?.world ?? WORLD_TOWN;
     return [...this.actors.values()].filter((actor) => {
       if (!actor.visible) {
@@ -757,9 +976,7 @@ export class DustHost implements OpcodeHost {
       if (actor.set && actor.set !== world && actor.set !== this.currentSet) {
         return false;
       }
-      const dx = actor.x - px;
-      const dy = actor.y - py;
-      return Math.hypot(dx, dy) <= maxDist;
+      return worldToStill(actor, cam) !== null;
     });
   }
 
@@ -778,23 +995,33 @@ export class DustHost implements OpcodeHost {
     await this.ui.speak(line?.text ?? ident, line?.wav, line?.viseme);
   }
 
-  /** Prefetch the two greeting WAVs. Do not parse visemes.json (1.8MB). */
+  /** Prefetch a few WAVs. Do not parse visemes.json (multi-megabyte blob). */
   prefetchTalk(folder = "PUP/_LEROY"): void {
-    const urls = [
-      extractUrl(`${folder}/AUDIO/leroy.43.wav`),
-      extractUrl(`${folder}/AUDIO/leroy.44.wav`),
-    ];
+    const urls = this.wavsFor(folder).slice(0, 8);
     voices.queue(urls);
     void this.ui.preloadVoices(urls);
   }
 
-  warmTalk(folder = "PUP/_LEROY"): void {
-    const urls = [
-      extractUrl(`${folder}/AUDIO/leroy.43.wav`),
-      extractUrl(`${folder}/AUDIO/leroy.44.wav`),
-    ];
+  warmTalk(who?: string): void {
+    const folder = who
+      ? puppetFolder(who)
+      : this.currentPuppetFolder || "PUP/_LEROY";
+    const urls = this.wavsFor(folder).slice(0, 8);
     voices.prime(urls);
     void this.ui.preloadVoices(urls);
+  }
+
+  private wavsFor(folder: string): string[] {
+    const hit = this.puppetWavs.get(folder);
+    if (hit?.length) {
+      return hit;
+    }
+    if (folder.replace(/\\/g, "/").toUpperCase().endsWith("_LEROY")) {
+      return ["leroy.43", "leroy.44"].map((id) =>
+        extractUrl(`${folder}/AUDIO/${id}.wav`),
+      );
+    }
+    return [];
   }
 
   private async loadVisemeLine(ident: string): Promise<VisemeLine | undefined> {
@@ -802,7 +1029,10 @@ export class DustHost implements OpcodeHost {
     if (hit) {
       return hit;
     }
-    const folder = this.currentPuppetFolder || "PUP/_LEROY";
+    const folder = this.currentPuppetFolder;
+    if (!folder) {
+      return undefined;
+    }
     const data = await fetchJson<VisemeLine>(
       extractUrl(`${folder}/AUDIO/visemes/${ident}.json`),
     ).catch(() => null);
@@ -830,6 +1060,7 @@ export class DustHost implements OpcodeHost {
       actor.spriteRoot = "CST/_GANG";
       actor.standSprites = poses.stand ?? [];
       actor.walkSprites = poses.walk ?? [];
+      actor.drinkSprites = poses.drink ?? [];
     }
   }
 
@@ -932,10 +1163,7 @@ export class DustHost implements OpcodeHost {
     this.currentSet = logical === "nite" ? "town" : logical;
     this.currentSetFile = name.toLowerCase();
     const graph = await loadSetGraph(folder);
-    const waypoints = await fetchJson<Waypoint[]>(extractUrl(`SET/${folder}/waypoints.json`)).catch(
-      () => [] as Waypoint[],
-    );
-    this.waypoints = new Map(waypoints.map((w) => [w.name.toLowerCase(), w]));
+    await this.loadWaypoints(folder);
     try {
       const boot = await loadScriptJson(`SET/${folder}/Boot Script.json`);
       for (const proc of boot) {
@@ -973,49 +1201,75 @@ export class DustHost implements OpcodeHost {
     const folder = puppetFolder(stem);
     this.currentPuppetFolder = folder;
     if (!this.loadedPuppets.has(stem)) {
-      this.puppetNames.length = 0;
-      this.puppetLines.clear();
-      const scripts = ["Boot Script.json", "day1.json"];
+      const manifest = await fetchJson<{ scripts?: string[] }>(
+        extractUrl(`${folder}/scripts.json`),
+      ).catch(() => null);
+      const scripts = manifest?.scripts?.length
+        ? manifest.scripts
+        : [
+            "Boot Script.json",
+            "day1.json",
+            "day2.json",
+            "day3.json",
+            "day4.json",
+            "day5.json",
+          ];
       const csvRel = `${folder}/AUDIO/texts.csv`;
-      const [sheet, csvText] = await Promise.all([
+      const [sheet, csvText, bags] = await Promise.all([
         loadPuppetSheet(folder),
-        fetch(extractUrl(csvRel)).then((r) => (r.ok ? r.text() : "")).catch(() => ""),
-        ...scripts.map(async (file) => {
-          const rel = `${folder}/${file}`;
-          try {
-            const procs = await loadScriptJson(rel);
-            const label = file.replace(/\.json$/i, "").toLowerCase();
-            this.puppetNames.push(label);
-            for (const proc of procs) {
-              this.index.add(`puppet:${label}`, proc, rel);
+        fetch(extractUrl(csvRel))
+          .then((r) => (r.ok ? r.text() : ""))
+          .catch(() => ""),
+        Promise.all(
+          scripts.map(async (file) => {
+            const rel = `${folder}/${file}`;
+            try {
+              const procs = await loadScriptJson(rel);
+              return {
+                label: file.replace(/\.json$/i, "").toLowerCase(),
+                rel,
+                procs,
+              };
+            } catch {
+              return { label: "", rel, procs: [] as Proc[] };
             }
-          } catch {
-            /* optional day script */
-          }
-        }),
+          }),
+        ),
       ]);
-      this.puppetSheet = sheet;
+      this.puppetScriptBag.set(
+        stem,
+        bags.filter((item) => item.procs.length),
+      );
+      if (sheet) {
+        this.puppetSheets.set(folder, sheet);
+      }
+      const wavs: string[] = [];
+      const idents: string[] = [];
       if (csvText) {
         for (const row of parseCsv(csvText)) {
           const ident = row[2]?.toLowerCase();
           if (!ident) {
             continue;
           }
-          this.puppetLines.set(ident, {
-            text: row[3] ?? ident,
-            wav: extractUrl(`${folder}/AUDIO/${row[2]}.wav`),
-          });
+          const wav = extractUrl(`${folder}/AUDIO/${row[2]}.wav`);
+          this.puppetLines.set(ident, { text: dustMacRoman(row[3] ?? ident), wav });
+          wavs.push(wav);
+          idents.push(ident);
         }
       }
-      const first = ["leroy.43", "leroy.44"]
-        .map((id) => this.puppetLines.get(id)?.wav)
-        .filter((url): url is string => Boolean(url));
-      if (first.length) {
-        void this.ui.preloadVoices(first);
-      }
-      void this.loadVisemeLine("leroy.43");
-      void this.loadVisemeLine("leroy.44");
+      this.puppetWavs.set(folder, wavs);
+      this.puppetIdents.set(folder, idents);
       this.loadedPuppets.add(stem);
+    }
+    this.installPuppetScripts(stem);
+    this.puppetSheet = this.puppetSheets.get(folder) ?? null;
+    const wavs = this.wavsFor(folder).slice(0, 8);
+    if (wavs.length) {
+      voices.queue(wavs);
+      void this.ui.preloadVoices(wavs);
+    }
+    for (const ident of (this.puppetIdents.get(folder) ?? []).slice(0, 2)) {
+      void this.loadVisemeLine(ident);
     }
     if (show) {
       this.currentPuppet = name.toLowerCase();
@@ -1027,36 +1281,48 @@ export class DustHost implements OpcodeHost {
     }
   }
 
+  private installPuppetScripts(stem: string): void {
+    const bag = this.puppetScriptBag.get(stem) ?? [];
+    this.puppetNames.length = 0;
+    for (const { label, rel, procs } of bag) {
+      this.puppetNames.push(label);
+      for (const proc of procs) {
+        this.index.add(`puppet:${label}`, proc, rel);
+      }
+    }
+  }
+
   spriteUrl(actor: ActorState, place: SpritePlace): string {
     return extractUrl(`${actor.spriteRoot}/${place.path}`);
+  }
+
+  async loadWaypoints(folder: string): Promise<void> {
+    const waypoints = await fetchJson<Waypoint[]>(extractUrl(`SET/${folder}/waypoints.json`)).catch(
+      () => [] as Waypoint[],
+    );
+    this.waypoints = new Map(waypoints.map((w) => [w.name.toLowerCase(), w]));
   }
 
   log(message: string): void {
     this.view?.log(message);
   }
 
-  placeLeroyAtSign(): ActorState {
+  async placeLeroyAtSign(vm: VM): Promise<ActorState> {
     const leroy = this.namedActor("leroy");
     leroy.cast = "gang";
-    leroy.visible = true;
-    leroy.set = "town";
-    leroy.star = "town.leroy1";
-    const star = this.starPoint("town.leroy1");
-    leroy.x = star?.x ?? 1664;
-    leroy.y = star?.y ?? 3584;
-    leroy.z = 0;
-    leroy.deg = 0;
-    leroy.pose = "stand";
-    leroy.speed = 3;
-    leroy.turnSpeed = 7;
     leroy.spriteRoot = "CST/_GANG";
     const poses = this.gangSprites.Leroy ?? this.gangSprites.leroy;
     if (poses) {
       leroy.standSprites = poses.stand ?? [];
       leroy.walkSprites = poses.walk ?? [];
+      leroy.drinkSprites = poses.drink ?? [];
     }
     leroy.standUrl = extractUrl("CST/_GANG/Leroy/stand/frame_68.png");
-    this.faceNearby();
+    // CST/_GANG/Leroy/Script.txt setupactor("sign") → actorstar, stdactor,
+    // actorscale 1100, endwalk → leroyidle. Do not invent facing/drink.
+    await vm.inObject("actor", "leroy", () =>
+      vm.evalCall("setupactor", [{ type: "str", value: "sign" }]),
+    );
     return leroy;
   }
 
@@ -1121,20 +1387,36 @@ export class DustHost implements OpcodeHost {
   }
 }
 
-function puppetFolder(stem: string): string {
-  return `PUP/_${stem}`;
+export function puppetFolder(stem: string): string {
+  const name = stem.replace(/\.pup$/i, "").toUpperCase();
+  return `PUP/_${name}`;
 }
 
 async function loadPuppetSheet(folder: string): Promise<PuppetSheet | null> {
   const data = await fetchJson<{
     layers?: Record<string, SpritePlace[]>;
     rest?: Record<string, unknown>;
+    restLayers?: Record<string, number>;
   }>(extractUrl(`${folder}/FRAMES/sprites.json`)).catch(() => null);
   if (!data?.layers) {
     return null;
   }
   const rest = normalizeCenters(data.rest);
-  return { folder, layers: data.layers, rest: Object.keys(rest).length ? rest : undefined };
+  const restLayers: Record<string, number> = {};
+  if (data.restLayers) {
+    for (const [name, value] of Object.entries(data.restLayers)) {
+      const index = Number(value);
+      if (Number.isFinite(index)) {
+        restLayers[name] = index;
+      }
+    }
+  }
+  return {
+    folder,
+    layers: data.layers,
+    rest: Object.keys(rest).length ? rest : undefined,
+    restLayers: Object.keys(restLayers).length ? restLayers : undefined,
+  };
 }
 
 function normalizeCenters(
@@ -1174,6 +1456,20 @@ function asPoint(value: Value): { x: number; y: number; z: number } {
   return { x: 0, y: 0, z: 0 };
 }
 
+function xyzAxis(args: Value[], x: number, y: number): Value {
+  const axis = num(args[0]);
+  if (axis === 1) {
+    return x;
+  }
+  if (axis === 2) {
+    return y;
+  }
+  if (axis === 3) {
+    return 0;
+  }
+  return { kind: "point", x, y, z: 0 };
+}
+
 function findWord(list: string, sep: string, index: number): string {
   const parts = list.split(sep).filter((p) => p.length > 0);
   return parts[index - 1] ?? parts[0] ?? "";
@@ -1205,6 +1501,19 @@ async function fetchJson<T>(url: string): Promise<T> {
 
 async function firstStand(dir: string, actor: string): Promise<string | undefined> {
   return extractUrl(`${dir}/${actor}/stand/frame_0.png`);
+}
+
+/** Undo latin-1 reads of Mac Roman (0xD5 apostrophe became Õ). */
+function dustMacRoman(text: string): string {
+  const table: Record<number, string> = {
+    0xd0: "\u2013",
+    0xd1: "\u2014",
+    0xd2: "\u201c",
+    0xd3: "\u201d",
+    0xd4: "\u2018",
+    0xd5: "\u2019",
+  };
+  return text.replace(/[\u0080-\u00ff]/g, (ch) => table[ch.charCodeAt(0)] ?? ch);
 }
 
 function parseCsv(text: string): string[][] {

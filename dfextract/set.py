@@ -111,10 +111,14 @@ def write_set_extract(
 
     if write_scripts:
         counts["scripts"] = _write_set_scripts(df, scenes, out_dir)
-    if write_frames:
-        counts["frames"] = _write_set_frames(
-            df, transitions, out_dir, write_z=write_z
+    if write_frames or write_z:
+        n = _write_set_frames(
+            df, transitions, out_dir, write_frames=write_frames, write_z=write_z
         )
+        if write_frames:
+            counts["frames"] = n
+        if write_z:
+            counts["z"] = n
     return {key: value for key, value in counts.items() if value}
 
 
@@ -194,11 +198,32 @@ def _read_waypoints(df: DFFile, container_id: int) -> list[SetWaypoint]:
     points: list[SetWaypoint] = []
     for index in range(count):
         base = 28 + index * 50
-        if base + 26 > len(data):
+        rec = data[base : base + 50]
+        if len(rec) < 26:
             break
-        x, y = struct.unpack_from("<HH", data, base + 2)
-        points.append(SetWaypoint(x=x, y=y, name=pascal_string(data, base + 8)))
+        # 50-byte record: two stars. Slot A is 26 bytes (18-byte name
+        # field); slot B is 24 bytes (16-byte name field). Empty B has
+        # Pascal length 0 — the rest is leftover editor bytes, not a star.
+        for offset in (0, 26):
+            star = _waypoint_slot(rec, offset)
+            if star is not None:
+                points.append(star)
     return points
+
+
+def _waypoint_slot(rec: bytes, offset: int) -> SetWaypoint | None:
+    name_off = offset + 8
+    if name_off >= len(rec):
+        return None
+    nlen = rec[name_off]
+    end = name_off + 1 + nlen
+    if nlen < 1 or end > len(rec):
+        return None
+    raw = rec[name_off + 1 : end]
+    if any(byte < 0x20 or byte > 0x7E for byte in raw):
+        return None
+    x, y = struct.unpack_from("<HH", rec, offset + 2)
+    return SetWaypoint(x=x, y=y, name=raw.decode("ascii"))
 
 
 def _read_framelist(df: DFFile, container_id: int) -> list[SetTransition]:
@@ -264,6 +289,7 @@ def _write_one_strip(
     blobs: tuple[bytes | None, ...],
     frame_dir: Path,
     palette: Palette,
+    write_frames: bool = True,
     write_z: bool = False,
 ) -> int:
     # Each filmstrip is a delta sequence. Do not reuse another strip's
@@ -291,7 +317,8 @@ def _write_one_strip(
                 prior = None
                 prior_size = None
                 continue
-        write_indexed_png(dest, image, palette)
+        if write_frames:
+            write_indexed_png(dest, image, palette)
         if write_z:
             write_z_png(frame_dir / "z" / strip_frame_name(frame0, offset), image)
         prior = image.pixels
@@ -301,11 +328,18 @@ def _write_one_strip(
 
 
 def _write_one_strip_job(
-    item: tuple[int, tuple[bytes | None, ...], str, list[tuple[int, int, int]], bool],
+    item: tuple[
+        int, tuple[bytes | None, ...], str, list[tuple[int, int, int]], bool, bool
+    ],
 ) -> int:
-    frame0, blobs, dest_s, colors, write_z = item
+    frame0, blobs, dest_s, colors, write_frames, write_z = item
     return _write_one_strip(
-        frame0, blobs, Path(dest_s), Palette(colors=list(colors)), write_z=write_z
+        frame0,
+        blobs,
+        Path(dest_s),
+        Palette(colors=list(colors)),
+        write_frames=write_frames,
+        write_z=write_z,
     )
 
 
@@ -314,6 +348,7 @@ def _write_set_frames(
     transitions: list[SetTransition],
     out_dir: Path,
     *,
+    write_frames: bool = True,
     write_z: bool = False,
 ) -> int:
     palette = find_palette(df.containers[0].data)
@@ -327,13 +362,21 @@ def _write_set_frames(
         workers = min(4, os.cpu_count() or 1, len(strips))
     if workers <= 1:
         return sum(
-            _write_one_strip(frame0, blobs, frame_dir, palette, write_z=write_z)
+            _write_one_strip(
+                frame0,
+                blobs,
+                frame_dir,
+                palette,
+                write_frames=write_frames,
+                write_z=write_z,
+            )
             for frame0, blobs in strips
         )
     dest_s = str(frame_dir)
     colors = list(palette.colors)
     payloads = [
-        (frame0, blobs, dest_s, colors, write_z) for frame0, blobs in strips
+        (frame0, blobs, dest_s, colors, write_frames, write_z)
+        for frame0, blobs in strips
     ]
     written = 0
     chunk = max(1, len(payloads) // (workers * 4))

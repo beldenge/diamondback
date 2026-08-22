@@ -83,8 +83,8 @@ describe("first talk delay", () => {
     leroy.visible = true;
     leroy.set = "town";
     leroy.star = "town.leroy1";
-    leroy.x = 1784;
-    leroy.y = 3510;
+    leroy.x = 1740;
+    leroy.y = 3536;
     leroy.speed = 3;
     leroy.turnSpeed = 7;
 

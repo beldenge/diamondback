@@ -22,6 +22,8 @@ export interface PuppetSheet {
   layers: Record<string, SpritePlace[]>;
   /** Viseme rest-pose centers `{ x, y }` on the 512×264 still. */
   rest?: Record<string, { x: number; y: number }>;
+  /** Viseme rest-pose table indices (`-1` = hide). */
+  restLayers?: Record<string, number>;
 }
 
 export interface VisemeFrame {
@@ -76,18 +78,57 @@ export interface VisemeLine {
   frames: VisemeFrame[];
 }
 
-/** Head goes in the Body face-hole, so Body is painted over Head. */
-const FACE_LAYERS = [
+/**
+ * Paint order matches the PUP face tables. Body is the chest (black
+ * face-hole is a matte). Head includes the beard and sits on top so a
+ * head-turn is not covered by the body's front-facing beard ring.
+ * Features then hands. Skip a missing folder (Kid has no Eyebrows).
+ */
+export const FACE_TABLES = [
   "Background",
-  "Head",
   "Body",
+  "Head",
   "Eyes",
   "Eyebrows",
   "Nose",
   "Jaw",
+  "Left",
+  "Hands 1",
+  "Right",
+  "Hands 2",
 ] as const;
 
+const GESTURE_TABLES = new Set(["Left", "Hands 1", "Right", "Hands 2"]);
+
+/** Rest viseme index, or hide hands until a viseme shows them. */
+export function idleLayerIndex(
+  name: string,
+  restLayers?: Record<string, number>,
+): number {
+  if (restLayers && Object.prototype.hasOwnProperty.call(restLayers, name)) {
+    return restLayers[name]!;
+  }
+  return GESTURE_TABLES.has(name) ? -1 : 0;
+}
+
+/** No fallback to frame 0: a missing part is skipped, not a wrong sprite. */
+export function layerPlace(
+  sheet: PuppetSheet,
+  name: string,
+  index: number,
+): SpritePlace | undefined {
+  if (index < 0) {
+    return undefined;
+  }
+  return sheet.layers[name]?.[index];
+}
+
 export const VISEME_HZ = 60;
+
+/** DreamFactory draws five stacked bevels in the 120px HUD band. */
+export const BEVEL_SLOTS = 5;
+/** Speech bar height in stage pixels, flush on the HUD, over the still. */
+export const SPEECH_BAR_HEIGHT = 40;
 
 /** Watchdog only: never a 12s floor. Wait for the WAV, or a short viseme estimate. */
 export function speakHangSec(duration: number, visemeTicks?: number): number {
@@ -121,7 +162,7 @@ export class PuppetUi {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly line: HTMLDivElement;
   private readonly choices: HTMLDivElement;
-  private readonly skip: HTMLButtonElement;
+  private readonly slots: HTMLButtonElement[] = [];
   private sheet: PuppetSheet | null = null;
   private speakWait: (() => void) | null = null;
   private eventWait: ((id: number) => void) | null = null;
@@ -131,11 +172,12 @@ export class PuppetUi {
   private viseme: VisemeLine | null = null;
   private visemeTick = -1;
   private readonly bitmaps = new Map<string, HTMLImageElement>();
-  private readonly knockouts = new Map<string, HTMLCanvasElement>();
   private readonly flatBackdrop = new Map<string, boolean>();
   private readonly layerIndex = new Map<string, number>();
   private readonly layerAt = new Map<string, { x: number; y: number }>();
   private paintGen = 0;
+  /** Speech bar on. Audio and visemes keep running when this is off. */
+  private captionsOn = true;
 
   constructor() {
     this.root = document.createElement("div");
@@ -151,21 +193,33 @@ export class PuppetUi {
     this.ctx.imageSmoothingEnabled = false;
     this.line = document.createElement("div");
     this.line.id = "puppet-line";
-    this.choices = document.createElement("div");
-    this.choices.id = "puppet-choices";
-    this.skip = document.createElement("button");
-    this.skip.type = "button";
-    this.skip.textContent = "Continue";
-    this.skip.addEventListener("click", () => {
+    this.line.hidden = true;
+    this.line.addEventListener("click", () => {
+      if (!this.speakWait) {
+        return;
+      }
       voices.unlock();
       this.finishSpeak();
     });
-    this.root.append(this.canvas, this.line, this.skip, this.choices);
+    this.choices = document.createElement("div");
+    this.choices.id = "puppet-choices";
+    this.choices.hidden = true;
+    this.choices.style.setProperty("--bevel-art", `url("${BEVEL_CHROME}")`);
+    for (let i = 0; i < BEVEL_SLOTS; i += 1) {
+      const slot = document.createElement("button");
+      slot.type = "button";
+      slot.className = "puppet-bevel";
+      slot.disabled = true;
+      this.slots.push(slot);
+      this.choices.append(slot);
+    }
+    this.root.append(this.canvas, this.line, this.choices);
   }
 
   layout(scale: number): void {
     this.root.style.width = `${STAGE_WIDTH * scale}px`;
     this.root.style.height = `${STAGE_HEIGHT * scale}px`;
+    this.root.style.setProperty("--play-scale", String(scale));
     this.canvas.style.width = `${STAGE_WIDTH * scale}px`;
     this.canvas.style.height = `${STAGE_HEIGHT * scale}px`;
     this.canvas.width = STAGE_WIDTH;
@@ -176,23 +230,18 @@ export class PuppetUi {
   open(sheet: PuppetSheet): void {
     this.sheet = sheet;
     this.root.hidden = false;
-    this.layerIndex.clear();
-    this.layerAt.clear();
-    for (const name of FACE_LAYERS) {
-      if (sheet.layers[name]?.length) {
-        this.layerIndex.set(name, 0);
-      }
-    }
-    this.line.textContent = "";
-    this.choices.replaceChildren();
-    this.skip.hidden = true;
+    this.applyIdle();
+    this.setLine("");
+    this.showEmptyBevels();
     void this.paint();
   }
 
   close(): void {
     this.stopJaw();
     this.stopAudio();
+    this.setLine("");
     this.root.hidden = true;
+    this.clearBevels();
     this.sheet = null;
     this.finishSpeak();
     this.eventWait?.(-1);
@@ -200,26 +249,36 @@ export class PuppetUi {
   }
 
   clear(): void {
-    this.choices.replaceChildren();
-    this.line.textContent = "";
-    this.skip.hidden = true;
+    this.setLine("");
+    this.clearBevels();
+  }
+
+  toggleCaptions(): boolean {
+    this.captionsOn = !this.captionsOn;
+    this.root.classList.toggle("hide-captions", !this.captionsOn);
+    return this.captionsOn;
   }
 
   addBevel(choice: BevelChoice): void {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = choice.label;
-    button.addEventListener("click", () => {
+    const slot = this.slots.find((button) => button.disabled);
+    if (!slot) {
+      return;
+    }
+    slot.textContent = choice.label;
+    slot.disabled = false;
+    slot.onclick = () => {
       voices.unlock();
       const wait = this.eventWait;
       this.eventWait = null;
       wait?.(choice.id);
-    });
-    this.choices.append(button);
+    };
+    this.choices.hidden = false;
+    this.root.classList.add("choosing");
   }
 
   waitEvent(): Promise<number> {
-    this.skip.hidden = true;
+    this.choices.hidden = false;
+    this.root.classList.add("choosing");
     return new Promise((resolve) => {
       this.eventWait = resolve;
     });
@@ -234,8 +293,8 @@ export class PuppetUi {
     wavUrl: string | undefined,
     viseme: VisemeLine | undefined,
   ): Promise<void> {
-    this.line.textContent = text;
-    this.skip.hidden = false;
+    this.setLine(text);
+    this.root.classList.add("speaking");
     this.clearSpeakTimer();
     this.viseme = viseme ?? null;
     this.visemeTick = -1;
@@ -254,6 +313,7 @@ export class PuppetUi {
     const hold = speakHangSec(duration, viseme?.ticks);
     this.speakTimer = setTimeout(() => this.finishSpeak(), hold * 1000);
     await done;
+    this.root.classList.remove("speaking");
     this.stopJaw();
   }
 
@@ -318,14 +378,26 @@ export class PuppetUi {
     }
   }
 
+  private applyIdle(): void {
+    const sheet = this.sheet;
+    this.layerIndex.clear();
+    this.layerAt.clear();
+    if (!sheet) {
+      return;
+    }
+    for (const name of FACE_TABLES) {
+      if (!sheet.layers[name]?.length) {
+        continue;
+      }
+      this.layerIndex.set(name, idleLayerIndex(name, sheet.restLayers));
+    }
+  }
+
   private stopJaw(): void {
     this.talking = false;
     this.lipsLive = false;
     this.viseme = null;
-    this.layerAt.clear();
-    for (const name of FACE_LAYERS) {
-      this.layerIndex.set(name, 0);
-    }
+    this.applyIdle();
     void this.paint();
   }
 
@@ -337,16 +409,12 @@ export class PuppetUi {
     }
     const gen = ++this.paintGen;
     const jobs: { name: string; place: SpritePlace; img: Promise<HTMLImageElement> }[] = [];
-    for (const name of FACE_LAYERS) {
-      const frames = sheet.layers[name];
-      if (!frames?.length) {
+    for (const name of FACE_TABLES) {
+      const index = this.layerIndex.get(name) ?? idleLayerIndex(name, sheet.restLayers);
+      const place = layerPlace(sheet, name, index);
+      if (!place) {
         continue;
       }
-      const index = this.layerIndex.get(name) ?? 0;
-      if (index < 0) {
-        continue;
-      }
-      const place = frames[index] ?? frames[0]!;
       jobs.push({ name, place, img: this.bitmap(sheet.folder, place.path) });
     }
     const loaded = await Promise.all(jobs.map(async (job) => ({
@@ -357,15 +425,10 @@ export class PuppetUi {
     if (gen !== this.paintGen) {
       return;
     }
-    const draws = loaded.map((job) => ({
-      name: job.name,
-      place: job.place,
-      img: job.name === "Body" ? this.knockoutBlack(job.img) : job.img,
-    }));
     this.ctx.imageSmoothingEnabled = false;
     this.ctx.clearRect(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
     const rest = sheet.rest ?? {};
-    for (const { name, img, place } of draws) {
+    for (const { name, img, place } of loaded) {
       if (name === "Background" && this.backdropIsFlat(img)) {
         continue;
       }
@@ -399,32 +462,6 @@ export class PuppetUi {
     return flat;
   }
 
-  private knockoutBlack(img: HTMLImageElement): HTMLCanvasElement {
-    const key = img.src;
-    const hit = this.knockouts.get(key);
-    if (hit) {
-      return hit;
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = img.naturalWidth || img.width;
-    canvas.height = img.naturalHeight || img.height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      return canvas;
-    }
-    ctx.drawImage(img, 0, 0);
-    const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = pixels.data;
-    for (let i = 0; i < data.length; i += 4) {
-      if (data[i]! < 14 && data[i + 1]! < 14 && data[i + 2]! < 14) {
-        data[i + 3] = 0;
-      }
-    }
-    ctx.putImageData(pixels, 0, 0);
-    this.knockouts.set(key, canvas);
-    return canvas;
-  }
-
   private bitmap(folder: string, rel: string): Promise<HTMLImageElement> {
     const url = extractUrl(`${folder}/FRAMES/${rel}`);
     const hit = this.bitmaps.get(url);
@@ -444,9 +481,35 @@ export class PuppetUi {
     });
   }
 
+  private setLine(text: string): void {
+    this.line.textContent = text;
+    this.line.hidden = !text;
+  }
+
+  private clearBevels(): void {
+    for (const slot of this.slots) {
+      slot.textContent = "";
+      slot.disabled = true;
+      slot.onclick = null;
+    }
+    if (this.root.hidden) {
+      this.choices.hidden = true;
+      this.root.classList.remove("choosing");
+    } else {
+      this.showEmptyBevels();
+    }
+  }
+
+  /** Five blank HOUSE bevels replace the HUD for the whole puppet. */
+  private showEmptyBevels(): void {
+    this.choices.hidden = false;
+    this.root.classList.add("choosing");
+  }
+
   private finishSpeak(): void {
     const wait = this.speakWait;
     this.speakWait = null;
+    this.root.classList.remove("speaking");
     this.stopAudio();
     wait?.();
   }
@@ -468,4 +531,9 @@ export const PLAY_HUD_FACE_NIGHT = extractUrl(
   "PRP/_HOUSE/FRAMES/avatar/nitefaces/00_c83.png",
 );
 export const PLAY_HUD_CHROME = extractUrl("FLT/_NEW/frame_3.png");
+/** HOUSE.PRP 72×23 3D rim. Interior is transparent, not an OS button. */
+export const BEVEL_CHROME = extractUrl("PRP/_HOUSE/FRAMES/butbevel/base/00_c66.png");
+/** Only opaque pixels on `butbevel`: dark top/left, tan bottom/right. */
+export const BEVEL_DARK = "rgb(111, 56, 38)";
+export const BEVEL_LIGHT = "rgb(206, 166, 128)";
 export const HUD_BAND = HUD_HEIGHT;

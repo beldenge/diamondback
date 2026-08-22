@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -12,7 +13,13 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 from container import read_df_file
-from pup import extract_pup, parse_viseme_track, visemes_from_dialogue
+from pup import (
+    extract_pup,
+    parse_viseme_track,
+    rest_pose_from_visemes,
+    visemes_from_dialogue,
+    write_pup_play_sidecars,
+)
 
 REPO = HERE.parent
 PUPPETS = REPO / "sources" / "dust.dbgl" / "dosroot" / "0" / "dust" / "DUSTCD" / "PUPPETS"
@@ -57,6 +64,15 @@ class TestPupScripts(unittest.TestCase):
         self.assertIn("puppetspeak", day1)
         self.assertIn("bolivar", day1.lower())
 
+    def test_leroy_dialogue_uses_mac_roman_apostrophe(self) -> None:
+        path = PUPPETS / "LEROY.PUP"
+        if not path.exists():
+            self.skipTest("LEROY.PUP not present")
+        line = next(item for item in extract_pup(read_df_file(path)).dialogue if item.ident == "leroy.44")
+        self.assertNotIn("Õ", line.text)
+        self.assertIn("midnight", line.text.lower())
+        self.assertTrue("'" in line.text or "\u2019" in line.text)
+
     def test_leroy_viseme_track_matches_wav_length(self) -> None:
         path = PUPPETS / "LEROY.PUP"
         if not path.exists():
@@ -93,6 +109,28 @@ class TestPupScripts(unittest.TestCase):
         self.assertLess(rest["Eyebrows"][1], rest["Eyes"][1])
         self.assertGreater(rest["Jaw"][1], rest["Eyes"][1])
         self.assertAlmostEqual(rest["Body"][1] + 114 / 2, 264, delta=2)
+        at, layers = rest_pose_from_visemes(table)
+        self.assertEqual(at["Body"], [256, 207])
+        self.assertEqual(layers["Jaw"], 0)
+        self.assertEqual(layers["Hands 1"], -1)
+
+    def test_jenix_play_sidecars(self) -> None:
+        path = PUPPETS / "JENIX.PUP"
+        if not path.exists():
+            self.skipTest("JENIX.PUP not present")
+        df = read_df_file(path)
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            counts = write_pup_play_sidecars(df, dest, write_blob=False)
+            self.assertGreater(counts["visemes"], 0)
+            self.assertTrue((dest / "AUDIO" / "visemes" / "jenix.5.json").exists())
+            self.assertFalse((dest / "AUDIO" / "visemes.json").exists())
+            scripts = json.loads((dest / "scripts.json").read_text(encoding="utf-8"))
+            self.assertIn("day2.json", scripts["scripts"])
+            sheet = json.loads((dest / "FRAMES" / "sprites.json").read_text(encoding="utf-8"))
+            self.assertIn("Jaw", sheet["layers"])
+            self.assertNotIn("Hands 1", sheet["layers"])
+            self.assertEqual(sheet["restLayers"]["Hands 1"], -1)
 
 
 if __name__ == "__main__":

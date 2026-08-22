@@ -18,7 +18,7 @@ infect the remake tree. We do not keep or test against DFET output.
 | Source | What we took |
 |---|---|
 | [mrxstudios 2021-03-05](https://mrxstudios.home.blog/2021/03/05/reverse-engineering-dust-uncovering-game-scripts/) | Script tokens, relative Pascal offsets, `DF.EXE` opcode table idea, Jenix gold listing |
-| [mrxstudios 2022-04-25](https://mrxstudios.home.blog/2022/04/25/reverse-engineering-dust-game-locations-and-map-layout/) | SET block kinds, 32-byte scene records, 50-byte waypoints, 28-byte framelist, 6 frames per transition, 255-unit tiles |
+| [mrxstudios 2022-04-25](https://mrxstudios.home.blog/2022/04/25/reverse-engineering-dust-game-locations-and-map-layout/) | SET block kinds, 32-byte scene records, 50-byte waypoints (two stars each), 28-byte framelist, 6 frames per transition, 255-unit tiles |
 | [M3tox/DFET](https://github.com/M3tox/DFET) (local `D:\dev\DFET`) | `LPPALPPA` reader, script pretty-printer + 4.0 opcode map, ADPCM v40/v41, both image codecs, PUP/CST/SND/BOOT Dust branches |
 | ResHax / ZenHAX thread | Only a pointer back at the 2021 blog. No extra layouts |
 | Dust `DF.EXE` | Opcode ASCII (`puppetspeak` @ 277700). Packed name/id table, Dust-vs-Titanic aliases, plugin ABI: [`dustdecompile/docs/findings.md`](../../dustdecompile/docs/findings.md) |
@@ -96,7 +96,8 @@ WAV, ~30,000 PNG after SET/MOV, and all playable SET / FLT / PRP / MOV.
 2. **`MOVIES/ZUNUSED/`** (11 files) are not `LPPALPPA`. Skipped.
 3. **Z-buffers** trail SET stills. Decode with `decode_z=True` (offsets
    from the Z table start). Default extract does not write them;
-   `python cli.py --z` writes `FRAMES/z/*.png`.
+   `python cli.py --type set --z` writes `FRAMES/z/*.png` without
+   rewriting color stills. Play uses them to occlude CST sprites.
 4. **Pretty-print opcode table** is still Titanic 4.0. JSON ASTs use
    Dust names. Re-audit from `DF.EXE` if you see `cmd_NNNN`.
 5. Old un-namespaced folders (`out/_JENIX`, …) and old flat

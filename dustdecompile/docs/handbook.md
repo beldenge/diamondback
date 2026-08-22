@@ -52,6 +52,13 @@ These are `code` blocks, not opcodes. If a SET/PUP/BOOT file defines one, the en
 - `runyoself` — Puppet conversation entry. Almost every PUP day script starts here.
 - `menuselect` — Menu item by string (`quit`, `volume 3`, …).
 
+Cast library (`CST/_GANG/Cast.txt`, also `_MINE` / `_EXTRA` copies):
+
+- `stdactor(who)` — `actorspeed` / `actorscale` / `actorturn` from `std*` of `actorset(who)`, then visible, stand, `actorzclip(who, 32)`.
+- `stdscale(theset)` — town **1450**; interiors 2400–5800 (chin 5800, sallower 4500, store 4000, …). See the switch in `Cast.txt`.
+- `hotdist()` — town / jail / hotlower / sallower **384**; else 512. Talk / touch cursor uses `realdist < hotdist`.
+- Individual `setupactor` often overrides scale after `stdactor` (Leroy sign **1100**).
+
 ## 3. Game library (`new.flt` / inventory)
 
 Boot does `openstagefile ("new.flt")`. SET scripts then `sendtostage (spotmovie (…))` etc.
@@ -491,6 +498,8 @@ Place an actor at a named star/waypoint.
 - Jenix refuse-money: actorstar ("JENIX", "town.extra" @ numtostring (random (3))).
 - @ is string concat. town.extra + "0"/"1"/"2" indexes EXTRA CST extras.
 - Waypoint units in SET JSON are 255 per tile — star names live in waypoints.json.
+- 50-byte SET records hold two stars. `town.leroy1` is slot B of `town.leroy2` at (1740, 3536).
+- Cast `walktopuppet` in town walks to `playerxyz` facing that vector, then `turntodeg (currentdeg + 128)`.
 - Example: `actorstar (me, "maydine.cage")`  (CST/_EXTRA/birdcage/Script.txt:29)
 - Example: `actorstar (me, "town.chick1")`  (CST/_EXTRA/chicken1/Script.txt:31)
 - Example: `actorstar (me, "town.chick2")`  (CST/_EXTRA/chicken1/Script.txt:34)
@@ -814,7 +823,7 @@ Fade down.
 
 ## 5. Still unknown (do not invent)
 
-- Exact `framerate (3)` and `delay (n)` units; SET walk fps (~24) is from play, not DF.EXE.
+- Exact `delay (n)` units; SET walk fps (~24) is from play, not DF.EXE. `framerate (3)` with `hasattention` is 60/3 script Hz (inferred).
 - MOV reel timing / audio cues (see dfextract reconstruction-gaps §4a).
 - `walktostar` async vs blocking; `actorxyz` units.
 - Save file layout (`savegame` / `opengame`).

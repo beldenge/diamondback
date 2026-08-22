@@ -75,6 +75,16 @@ current row (a few Dust sprites do).
 Proven: Bolivar `FRAMES/Background/frame_4.png` decodes at 512×264
 and EXTRA writes Jenix `stand/frame_195.png`.
 
+CST in-world bodies include a photographed **contact shadow** under the
+feet. Detect **per actor** from stand frames: a dark index (`max(rgb) ≤
+50`) with ≥80% of its pixels in the bottom quarter. GANG Leroy/Jones use
+index **131** RGB `(25, 17, 17)`; Todd/Oona/Watson use **132**. Flood-fill
+from the bottom edge of the sprite; isolated specks of that matte on the
+body are leftover chroma (fully transparent), not extra shadows. Write the
+connected blob as translucent black (`alpha` 120). Opaque maroon looks like
+studio dirt (same family of mistake as a flat PUP Background fill). PUP
+talking-heads do not use this. Re-dump: `python cli.py --type cst --frames`.
+
 `pos_x` / `pos_y` are the top-left of the sprite on the **512×384**
 DreamFactory stage (SET stills occupy y=0…264; HUD chrome is the
 bottom 120). Frame dumps now write that placement next to the PNGs:
@@ -85,10 +95,13 @@ bottom 120). Frame dumps now write that placement next to the PNGs:
 
 Bolivar/Leroy backgrounds sit at `(0, 60)` — a 264-tall plate centered
 on 384. Some plates are real rooms (Bolivar); Leroy/Jenix are a flat
-studio fill, so play mode keeps the SET still behind the puppet. Face
-parts (`Head`, `Jaw`, `Eyes`, `Nose`, `Eyebrows`) share that stage; idle
-is those layers only. `Left` / `Right` / `Hands` are gesture overlays,
-not idle. CST walk frames are **8 facings per pose** (front,
+studio fill, so play mode keeps the SET still behind the puppet. Paint
+**Body then Head** (table order). Head includes the beard; a Body-over-Head
+composite left a front-facing beard ring that did not turn. Face
+parts (`Head`, `Jaw`, `Eyes`, `Nose`, `Eyebrows`) share that stage.
+`Left` / `Right` / `Hands 1` / `Hands 2` are viseme-driven gesture overlays
+(often `-1` / hidden at rest; some puppets rest with a hand up). Missing
+face folders are skipped. CST walk frames are **8 facings per pose** (front,
 ¾, side…) then the next pose, not 8 poses of one facing.
 
 NEW.FLT button rects are Mac `{top, left, bottom, right}` in 512×384.
@@ -160,9 +173,13 @@ offsets, then runs of `(count, depth)`. **Offsets are from the start
 of the Z table** (first offset is `height * 2`, i.e. just past the
 table). DFET-style `data_start + offset` overshoots Dust stills.
 `decode_indexed_image(..., decode_z=True)` parses that. Default extract
-does not write Z PNGs; `python cli.py --z` writes `FRAMES/z/*.png`
-(8-bit grayscale). TOWN stills have a real plane (dozens of depth
-values, never zero on sampled HQ frames).
+does not write Z PNGs; `python cli.py --type set --z` writes
+`FRAMES/z/*.png` (8-bit grayscale) **without** rewriting color stills.
+Pass `--frames --z` to do both. Dust Z is 1–24 (24 = sky; 0 unused).
+South-gate road is 3 at your feet … 7 up the street. Play compares
+that plane to the actor’s `3/persp` depth so a closer fence hides the
+body. TOWN/NITE stills have a real plane (dozens of depth values,
+never zero on sampled HQ frames).
 
 **Previous frame.** DFET keeps one decode buffer and never clears it.
 Skip spans (mode 2 and row param 10) therefore leave the last still’s

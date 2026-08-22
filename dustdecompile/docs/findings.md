@@ -539,8 +539,11 @@ Do not pretend these are done:
 - Bevel / inventory chrome layout (cursors **are** dumped: `python -m
   dustdecompile --rsrc` → `out/rsrc/cursors/`). Script `cursor("touch")`
   maps to `CURS.TOUCH`.
-- Z-buffer **use** at runtime (how `actorzclip` combines with the SET
-  Z plane). The plane itself decodes; `dfextract --z` writes it.
+- Z-buffer **use** at runtime is in play: CST pixels draw when
+  `actorZ <= stillZ` (DFET: smaller is closer). Actor Z is
+  `round(nearZ / persp)` from the still’s bottom-row Z (3 on the south
+  gate). `actorzclip` is stored (stdactor 32) but not subtracted from
+  the 24-level plane — that would put everyone in front of the O8 fence.
 
 ---
 

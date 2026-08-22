@@ -46,6 +46,24 @@ class TestRemaining(unittest.TestCase):
         self.assertEqual(transitions[0].dir_from, 1)
         self.assertEqual(transitions[0].dir_to, 3)
 
+    def test_town_second_slot_has_leroy1(self) -> None:
+        """50-byte waypoint records hold two stars. town.leroy1 is slot B
+        of the town.leroy2 record — not missing, and not a guessed xyz."""
+        if not TOWN.exists():
+            self.skipTest("TOWN.SET not present")
+        _scenes, waypoints, _tr = extract_set_metadata(read_df_file(TOWN))
+        by_name = {w.name: w for w in waypoints}
+        self.assertEqual((by_name["town.leroy1"].x, by_name["town.leroy1"].y), (1740, 3536))
+        self.assertEqual((by_name["town.leroy2"].x, by_name["town.leroy2"].y), (2656, 2720))
+        self.assertEqual((by_name["town.blood2"].x, by_name["town.blood2"].y), (2482, 1670))
+        self.assertEqual((by_name["town.jug"].x, by_name["town.jug"].y), (1730, 3476))
+        names = [w.name for w in waypoints]
+        self.assertEqual(names.count("town.leroy1"), 1)
+        self.assertLess(names.index("town.leroy2"), names.index("town.leroy1"))
+        if NITE.exists():
+            nite = {w.name: w for w in extract_set_metadata(read_df_file(NITE))[1]}
+            self.assertEqual((nite["town.leroy1"].x, nite["town.leroy1"].y), (1740, 3536))
+
     def test_town_full_grid_not_g_o_suffix(self) -> None:
         """TOWN/NITE/TARGET are 15×15 (A–O). A 129-cell G–O suffix also
         matches the end-of-header heuristic; we must keep the full table
@@ -223,6 +241,24 @@ class TestRemaining(unittest.TestCase):
             self.assertTrue(last.exists(), last)
             self.assertTrue(z_first.exists(), z_first)
             self.assertGreaterEqual(counts.get("frames", 0), 28 * 5)
+
+    def test_z_only_skips_color_pngs(self) -> None:
+        if not APOTH.exists():
+            self.skipTest("APOTH.SET not present")
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            counts = write_set_extract(
+                read_df_file(APOTH),
+                dest,
+                write_scripts=False,
+                write_frames=False,
+                write_z=True,
+            )
+            color = dest / "FRAMES" / "45_0.png"
+            z_first = dest / "FRAMES" / "z" / "45_0.png"
+            self.assertFalse(color.exists(), color)
+            self.assertTrue(z_first.exists(), z_first)
+            self.assertGreaterEqual(counts.get("z", 0), 28 * 5)
 
     def test_apoth_boot_is_script(self) -> None:
         if not APOTH.exists():

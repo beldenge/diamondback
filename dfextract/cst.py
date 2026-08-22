@@ -103,6 +103,53 @@ def write_cst_scripts(
     return written
 
 
+def detect_contact_shadows(
+    df: DFFile, palette, frame_ids: list[int]
+) -> frozenset[int]:
+    """Palette indices that are a foot-blob, not boots or clothes.
+
+    Stand frames put the photographed shadow in the bottom quarter. A
+    dark index with ≥80% of its pixels there is that matte (GANG 131 =
+    25,17,17 on Leroy/Jones/…). Do not apply this to PUP faces.
+    """
+    from collections import Counter
+
+    from image import ImageError, decode_trans_indices
+
+    total: Counter[int] = Counter()
+    bottom: Counter[int] = Counter()
+    for frame_id in frame_ids:
+        if frame_id < 0 or frame_id >= len(df.containers):
+            continue
+        try:
+            width, height, _x, _y, indices = decode_trans_indices(
+                df.containers[frame_id].data
+            )
+        except ImageError:
+            continue
+        cut = (height * 3) // 4
+        for y in range(height):
+            row = y * width
+            for x in range(width):
+                index = indices[row + x]
+                if index == 255:
+                    continue
+                total[index] += 1
+                if y >= cut:
+                    bottom[index] += 1
+    shadows: set[int] = set()
+    for index, count in total.items():
+        if count < 40:
+            continue
+        if bottom[index] / count < 0.8:
+            continue
+        red, green, blue = palette.colors[index]
+        if max(red, green, blue) > 50:
+            continue
+        shadows.add(index)
+    return frozenset(shadows)
+
+
 def write_cst_frames(df: DFFile, out_dir: Path) -> int:
     from image import ImageError, cst_palette, decode_trans_sprite, sprite_record, write_png
 
@@ -128,6 +175,8 @@ def write_cst_frames(df: DFFile, out_dir: Path) -> int:
         actor_name = pascal_string(logic, 0x2A)
         set_count = struct.unpack_from("<i", logic, 0x5A)[0]
         set_cursor = 0x5E
+        poses: list[tuple[str, list[int]]] = []
+        stand_ids: list[int] = []
         for _set in range(set_count):
             if set_cursor + 32 > len(logic):
                 break
@@ -140,24 +189,33 @@ def write_cst_frames(df: DFFile, out_dir: Path) -> int:
             if len(info) < 0x76:
                 continue
             frame_count = struct.unpack_from("<i", info, 0x72)[0]
-            folder = out_dir / actor_name / set_name
+            frame_ids: list[int] = []
             for frame_i in range(frame_count):
                 rec = 0x76 + frame_i * 44
                 if rec + 4 > len(info):
                     break
                 frame_id = struct.unpack_from("<i", info, rec)[0]
-                if frame_id < 0 or frame_id >= len(df.containers):
-                    continue
+                if 0 <= frame_id < len(df.containers):
+                    frame_ids.append(frame_id)
+            if not frame_ids:
+                continue
+            poses.append((set_name, frame_ids))
+            if set_name.lower() == "stand":
+                stand_ids = frame_ids[:2]
+        shadows = detect_contact_shadows(df, palette, stand_ids)
+        for set_name, frame_ids in poses:
+            folder = out_dir / actor_name / set_name
+            for frame_i, frame_id in enumerate(frame_ids):
                 try:
                     sprite = decode_trans_sprite(
-                        df.containers[frame_id].data, palette
+                        df.containers[frame_id].data, palette, shadows
                     )
                 except ImageError:
                     continue
                 write_png(folder / f"frame_{frame_id}.png", sprite)
                 rel = f"{actor_name}/{set_name}/frame_{frame_id}.png"
-                poses = actors.setdefault(actor_name, {})
-                poses.setdefault(set_name, []).append(
+                bag = actors.setdefault(actor_name, {})
+                bag.setdefault(set_name, []).append(
                     sprite_record(
                         sprite,
                         rel,

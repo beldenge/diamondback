@@ -201,7 +201,7 @@ python cli.py path\to\DUSTCD -o D:\tmp\dust-out
 | Argument | Effect |
 |---|---|
 | *(none)* | All types, all content kinds, from `sources/dust.dbgl` |
-| `--scripts` / `--audio` / `--frames` / `--video` / `--z` | Only those kinds (any one of them turns the others off). `--video` is opt-in (ffmpeg) and muxes MOV stills to `movie.mp4`. `--z` is opt-in and writes SET depth PNGs under `FRAMES/z/`. `--scripts` also writes a JSON token AST next to each `.txt` (Dust names) and `animLogic` on PUP `texts.csv`. |
+| `--scripts` / `--audio` / `--frames` / `--video` / `--z` | Only those kinds (any one of them turns the others off). `--video` is opt-in (ffmpeg) and muxes MOV stills to `movie.mp4`. `--z` is opt-in and writes SET depth PNGs under `FRAMES/z/` **without** rewriting color stills (`--frames --z` does both). `--scripts` also writes a JSON token AST next to each `.txt` (Dust names) and `animLogic` on PUP `texts.csv`. |
 | `--catalog` | Alone: rebuild `out/catalog.json` from an existing dump (file graph, line ids, globals). A normal extract always rewrites it. |
 | `--type pup,set,flt,prp,mov,cst,snd,boot` | Only those file types |
 | paths | Only these files or directories |

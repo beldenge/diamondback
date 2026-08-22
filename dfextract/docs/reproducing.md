@@ -76,6 +76,16 @@ A file is a Dust container if bytes `32:40` are `LPPALPPA`. Files that
 fail that check (the 11 items in `MOVIES/ZUNUSED/`) are skipped, not
 treated as hard errors.
 
+After a full dump, PUP play sidecars (per-line visemes, `FRAMES/sprites.json`
+`restLayers`, `scripts.json`) without rewriting PNGs:
+
+```
+python sprites.py
+```
+
+That walks every `.PUP` under the CD (PUPPETS, SALGAMES, KID, UNDER).
+CST contact-shadow PNGs: `python cli.py --type cst --frames`.
+
 Media is always overwritten (PNG and WAV). Re-run after a decode or
 palette change; delete `out/` only if you want a clean tree. `python cli.py
 -j 1` forces one file at a time.
@@ -124,6 +134,7 @@ These assume the Dust CD tree is present. Checks include:
 - EXTRA.CST has Jenix `code resetactor ()` and writes `stand/frame_195.png`
 - TOWN.SND decodes `anvil` at 22050 Hz
 - APOTH.SET grid is the 3×3 from the mrxstudios blog
+- TOWN.SET waypoint slot B includes `town.leroy1` at (1740, 3536)
 - TOWN/NITE/TARGET grids are 225 cells (A–O), not the 129-cell G–O suffix
 - SET stills are `{frame0}_{offset}.png` (O7→N7 walk and an N7 turn both use 1640)
 - Palette 255 is white on stills (O7 skull); L7 west→north wall is not sky

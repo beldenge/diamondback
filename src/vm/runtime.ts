@@ -15,6 +15,7 @@ export interface Frame {
   me: string;
   target: string;
   object: string;
+  procName: string;
 }
 
 export interface OpcodeHost {
@@ -87,6 +88,7 @@ export class VM {
       me: this.me,
       target: this.target,
       object: this.object,
+      procName: proc.name,
     };
     this.frames.push(frame);
     try {

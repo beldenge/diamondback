@@ -57,39 +57,29 @@ body,
   text-shadow: 0 1px 4px #000;
 }
 
-#puppet-ui button {
-  font: inherit;
-  color: #1a120c;
-  background: #e6d5a3;
-  border: 1px solid #8a7018;
-  margin: 4px;
-  padding: 6px 12px;
-  cursor: pointer;
+#play-stage:has(#puppet-ui:not([hidden])) #play-hud {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 #actor-layer {
   position: absolute;
-  z-index: 12;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: calc(264 / 384 * 100%);
+  overflow: hidden;
+  contain: paint;
+  z-index: 1;
   pointer-events: none;
 }
 
-.actor-chip {
-  position: absolute;
-  transform: translate(-50%, -100%);
-  pointer-events: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  background: none;
-  border: 0;
-  padding: 0;
-  cursor: url("/rsrc/cursors/touch.cur"), pointer;
-}
-
-.actor-chip img {
-  height: auto;
+#actor-layer canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
   image-rendering: pixelated;
-  filter: drop-shadow(0 2px 4px #000);
+  pointer-events: none;
 }
 
 body.play {
@@ -115,8 +105,9 @@ body.play #viewport {
   position: absolute;
   left: 0;
   top: 0;
-  width: auto;
-  height: auto;
+  width: 100%;
+  height: calc(264 / 384 * 100%);
+  z-index: 0;
 }
 
 #play-hud {
@@ -130,7 +121,8 @@ body.play #viewport {
   background-size: 100% auto;
   image-rendering: pixelated;
   pointer-events: auto;
-  z-index: 16;
+  z-index: 40;
+  isolation: isolate;
 }
 
 #play-hud-face {
@@ -167,7 +159,8 @@ body.play #viewport {
   width: 100%;
   height: 100%;
   transform: none;
-  text-align: center;
+  text-align: left;
+  cursor: url("/rsrc/cursors/arrow.cur"), auto;
 }
 
 #puppet-layers {
@@ -206,36 +199,79 @@ body.play #viewport {
 
 #puppet-line {
   position: absolute;
-  left: 8%;
-  right: 8%;
-  bottom: calc(120 / 384 * 100% + 10px);
+  left: 0;
+  right: 0;
+  bottom: calc(120 / 384 * 100%);
+  min-height: calc(40 / 384 * 100%);
+  max-height: calc(56 / 384 * 100%);
   margin: 0;
-  min-height: 2.4em;
-  color: #fff6d8;
-  font-size: 18px;
-  line-height: 1.35;
-  text-shadow: 0 1px 4px #000, 0 0 8px #000;
+  padding: calc(6px * var(--play-scale, 1)) calc(10px * var(--play-scale, 1));
+  background: #000;
+  color: #fff;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: calc(13px * var(--play-scale, 1));
+  line-height: 1.25;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
   pointer-events: none;
   z-index: 2;
+  overflow: hidden;
 }
 
-#puppet-choices,
-#puppet-ui > button {
+#puppet-line[hidden],
+#puppet-ui.hide-captions #puppet-line {
+  display: none;
+}
+
+#puppet-ui.speaking #puppet-line {
   pointer-events: auto;
+  cursor: pointer;
 }
 
 #puppet-choices {
   position: absolute;
-  left: 6%;
-  right: 6%;
-  bottom: calc(120 / 384 * 100% + 52px);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(120 / 384 * 100%);
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  flex-direction: column;
+  pointer-events: auto;
+  z-index: 3;
 }
 
-#puppet-ui > button {
-  position: absolute;
-  right: 8px;
-  bottom: calc(120 / 384 * 100% + 8px);
+#puppet-choices[hidden] {
+  display: none;
+}
+
+.puppet-bevel {
+  flex: 1 1 0;
+  margin: 0;
+  padding: 0 calc(8px * var(--play-scale, 1));
+  width: 100%;
+  border: 3px solid rgb(111, 56, 38);
+  border-image: var(--bevel-art) 3 fill stretch;
+  /* Hole in butbevel is transparent. Fill with the rim's dark brown. */
+  background: rgb(111, 56, 38);
+  color: #f3e6c8;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: calc(12px * var(--play-scale, 1));
+  line-height: 1.1;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.puppet-bevel:disabled {
+  color: transparent;
+  cursor: default;
+}
+
+.puppet-bevel:not(:disabled):hover {
+  color: #fff;
+  filter: brightness(1.15);
 }

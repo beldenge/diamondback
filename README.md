@@ -24,7 +24,7 @@ Open http://localhost:5173 — Vite serves stills from `dfextract/out/` at `/ext
 
 **Sandbox** (`/`): unlocked-doors town walker. Hosted at https://diamondback.town.
 
-**Play mode** (`/?mode=play`): Day 1 night with the original dashboard under the stills, CST sprites that face you / walk up on talk, and a layered PUP talking-head. Needs a full local extract (PUP/CST/FLT/PRP, not just SET stills). Intros skipped unless `/?mode=play&intro=1`. Playback notes (visemes, Firefox audio delay): [`src/play/README.md`](src/play/README.md).
+**Play mode** (`/?mode=play`): Day 1 night with the original dashboard under the stills, CST sprites that face you / walk up on talk, and a layered PUP talking-head. Needs a full local extract (PUP/CST/FLT/PRP, not just SET stills). Intros skipped unless `/?mode=play&intro=1`. Playback notes (visemes, Firefox audio, all-cast puppets, town scale): [`src/play/README.md`](src/play/README.md).
 
 | Key / click | Action |
 |---|---|

@@ -36,7 +36,8 @@ def pascal_string(data: bytes, offset: int) -> str:
     end = start + length
     if end > len(data):
         return f"<truncated-str-off:{offset}>"
-    return data[start:end].decode("latin-1", errors="replace")
+    # Dust was authored on Mac. 0xD5 is a curly apostrophe, not latin-1 Õ.
+    return data[start:end].decode("mac_roman", errors="replace")
 
 
 def binary_script_to_text(data: bytes) -> str:

@@ -215,7 +215,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--z",
         action="store_true",
         help="Write SET still Z-buffer PNGs under FRAMES/z/. Opt-in: a "
-        "plain `python cli.py` does not write depth planes.",
+        "plain `python cli.py` does not write depth planes. Alone this "
+        "does not rewrite color frames; pass --frames --z to do both.",
     )
     parser.add_argument(
         "--type",
@@ -338,7 +339,7 @@ def extract_file(
             read_df_file(path),
             dest,
             write_scripts="scripts" in kinds,
-            write_frames="frames" in kinds or "z" in kinds,
+            write_frames="frames" in kinds,
             write_z="z" in kinds,
         )
     if file_type == "flt":

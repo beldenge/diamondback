@@ -124,30 +124,53 @@ def parse_viseme_track(data: bytes) -> list[dict]:
     return frames
 
 
-def rest_anchors_from_df(df: DFFile) -> dict[str, list[int]]:
-    """Idle compositor centers from the first viseme rest frame."""
+def rest_pose_from_visemes(visemes: dict) -> tuple[dict, dict]:
+    """Idle hotspot centers and layer indices from the first viseme rest frame."""
+    for line in visemes.values():
+        frames = line.get("frames") or []
+        if not frames:
+            continue
+        first = frames[0]
+        at = first.get("at") or {}
+        layers = first.get("layers") or {}
+        if at or layers:
+            return at, layers
+    return {}, {}
+
+
+def rest_pose_from_df(df: DFFile) -> tuple[dict, dict]:
     if not df.containers:
-        return {}
+        return {}, {}
     header = df.containers[0].data
     if len(header) < 2160:
-        return {}
-    vis = visemes_from_dialogue(df, _read_dialogue(header))
-    for line in vis.values():
-        frames = line.get("frames") or []
-        at = frames[0].get("at") if frames else None
-        if at:
-            return at
-    return {}
+        return {}, {}
+    return rest_pose_from_visemes(visemes_from_dialogue(df, _read_dialogue(header)))
 
 
-def sprite_sheet_payload(layers: dict, rest: dict | None = None) -> dict:
+def sprite_sheet_payload(
+    layers: dict,
+    rest: dict | None = None,
+    rest_layers: dict | None = None,
+) -> dict:
     payload: dict = {"screen": [512, 384], "still": [512, 264], "layers": layers}
     if rest:
         payload["rest"] = rest
+    if rest_layers:
+        payload["restLayers"] = rest_layers
     return payload
 
 
-def write_viseme_files(audio_dir: Path, visemes: dict) -> None:
+def write_script_manifest(out_dir: Path, scripts: list[PupScript]) -> None:
+    names = [f"{script.name}.json" for script in scripts]
+    (out_dir / "scripts.json").write_text(
+        json.dumps({"scripts": names}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def write_viseme_files(
+    audio_dir: Path, visemes: dict, *, write_blob: bool = True
+) -> None:
     """One small JSON per line. Play mode must not parse a multi-megabyte blob."""
     audio_dir.mkdir(parents=True, exist_ok=True)
     lines_dir = audio_dir / "visemes"
@@ -158,11 +181,12 @@ def write_viseme_files(audio_dir: Path, visemes: dict) -> None:
             json.dumps(line, separators=(",", ":")) + "\n",
             encoding="utf-8",
         )
-    (audio_dir / "visemes.json").write_text(
-        json.dumps({"hz": VISEME_HZ, "lines": visemes}, separators=(",", ":"))
-        + "\n",
-        encoding="utf-8",
-    )
+    if write_blob:
+        (audio_dir / "visemes.json").write_text(
+            json.dumps({"hz": VISEME_HZ, "lines": visemes}, separators=(",", ":"))
+            + "\n",
+            encoding="utf-8",
+        )
 
 
 def visemes_from_dialogue(df: DFFile, dialogue: list[DialogueLine]) -> dict:
@@ -202,6 +226,7 @@ def write_pup_extract(
                 out_dir / f"{script.name}.txt", script.text, script.tokens
             )
             counts["scripts"] += 1
+        write_script_manifest(out_dir, extract.scripts)
 
         csv_path = out_dir / "AUDIO" / "texts.csv"
         csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -302,15 +327,80 @@ def write_pup_frames(df: DFFile, out_dir: Path) -> int:
             written += 1
     frames_dir = out_dir / "FRAMES"
     frames_dir.mkdir(parents=True, exist_ok=True)
+    rest, rest_layers = rest_pose_from_df(df)
     (frames_dir / "sprites.json").write_text(
         json.dumps(
-            sprite_sheet_payload(layers, rest_anchors_from_df(df)),
+            sprite_sheet_payload(layers, rest, rest_layers),
             indent=2,
         )
         + "\n",
         encoding="utf-8",
     )
     return written
+
+
+def pup_layer_records(df: DFFile) -> dict[str, list]:
+    """Face-table placement without rewriting PNGs."""
+    from image import ImageError, decode_trans_sprite, pup_palette, sprite_record
+
+    if len(df.containers) < 4:
+        return {}
+    header = df.containers[0].data
+    table = df.containers[3].data
+    if len(table) < 22 + 11 * 262:
+        return {}
+    palette = pup_palette(header)
+    layers: dict[str, list] = {}
+    cursor = 22
+    for name in PUP_FACE_TABLES:
+        count, _unk, _total = struct.unpack_from("<hhh", table, cursor)
+        locations = struct.unpack_from("<" + "i" * 64, table, cursor + 6)
+        cursor += 6 + 256
+        if count <= 0:
+            continue
+        for index in range(count):
+            container_id = locations[index]
+            if container_id < 0 or container_id >= len(df.containers):
+                continue
+            try:
+                sprite = decode_trans_sprite(
+                    df.containers[container_id].data, palette
+                )
+            except ImageError:
+                continue
+            rel = f"{name}/frame_{container_id}.png"
+            layers.setdefault(name, []).append(
+                sprite_record(sprite, rel, extra={"id": container_id, "index": index})
+            )
+    return layers
+
+
+def write_pup_play_sidecars(
+    df: DFFile,
+    out_dir: Path,
+    *,
+    extract: PupExtract | None = None,
+    write_blob: bool = False,
+) -> dict[str, int]:
+    """sprites.json, per-line visemes, and scripts.json. Does not rewrite PNGs."""
+    extract = extract or extract_pup(df)
+    visemes = visemes_from_dialogue(df, extract.dialogue)
+    write_viseme_files(out_dir / "AUDIO", visemes, write_blob=write_blob)
+    write_script_manifest(out_dir, extract.scripts)
+    rest, rest_layers = rest_pose_from_visemes(visemes)
+    layers = pup_layer_records(df)
+    frames_dir = out_dir / "FRAMES"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    (frames_dir / "sprites.json").write_text(
+        json.dumps(sprite_sheet_payload(layers, rest, rest_layers), indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "visemes": len(visemes),
+        "scripts": len(extract.scripts),
+        "frames": sum(len(items) for items in layers.values()),
+    }
 
 
 def _read_dialogue(header: bytes) -> list[DialogueLine]:

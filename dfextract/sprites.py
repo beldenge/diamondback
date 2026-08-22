@@ -6,15 +6,9 @@ import json
 from pathlib import Path
 
 from container import read_df_file
-from image import ImageError, decode_trans_sprite, find_palette, pup_palette, sprite_record
+from image import ImageError, decode_trans_sprite, find_palette, sprite_record
 from prp import parse_prp_catalog
-from pup import (
-    PUP_FACE_TABLES,
-    extract_pup,
-    rest_anchors_from_df,
-    sprite_sheet_payload,
-    visemes_from_dialogue,
-)
+from pup import write_pup_play_sidecars
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
@@ -22,49 +16,9 @@ DUST = REPO / "sources" / "dust.dbgl" / "dosroot" / "0" / "dust" / "DUSTCD"
 OUT = HERE / "out"
 
 
-def pup_sidecar(df_path: Path, out_dir: Path) -> int:
-    """Decode PUP face tables and write FRAMES/sprites.json. Does not rewrite PNGs."""
-    from struct import unpack_from
-
-    df = read_df_file(df_path)
-    if len(df.containers) < 4:
-        return 0
-    header = df.containers[0].data
-    table = df.containers[3].data
-    palette = pup_palette(header)
-    layers: dict[str, list] = {}
-    written = 0
-    cursor = 22
-    for name in PUP_FACE_TABLES:
-        count, _unk, _total = unpack_from("<hhh", table, cursor)
-        locations = unpack_from("<" + "i" * 64, table, cursor + 6)
-        cursor += 6 + 256
-        if count <= 0:
-            continue
-        for index in range(count):
-            container_id = locations[index]
-            if container_id < 0 or container_id >= len(df.containers):
-                continue
-            try:
-                sprite = decode_trans_sprite(df.containers[container_id].data, palette)
-            except ImageError:
-                continue
-            rel = f"{name}/frame_{container_id}.png"
-            layers.setdefault(name, []).append(
-                sprite_record(sprite, rel, extra={"id": container_id, "index": index})
-            )
-            written += 1
-    dest = out_dir / "FRAMES" / "sprites.json"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(
-        json.dumps(
-            sprite_sheet_payload(layers, rest_anchors_from_df(df)),
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    return written
+def pup_sidecar(df_path: Path, out_dir: Path) -> dict[str, int]:
+    """Write sprites.json, per-line visemes, and scripts.json. Does not rewrite PNGs."""
+    return write_pup_play_sidecars(read_df_file(df_path), out_dir, write_blob=False)
 
 
 def house_sidecar(df_path: Path, out_dir: Path) -> int:
@@ -105,17 +59,22 @@ def house_sidecar(df_path: Path, out_dir: Path) -> int:
 
 
 def main() -> int:
-    pup = DUST / "PUPPETS" / "LEROY.PUP"
+    from cli import collect_dust_files, output_dir_for
+
     gang = DUST / "DATA" / "GANG.CST"
     house = DUST / "DATA" / "HOUSE.PRP"
-    if pup.exists():
-        n = pup_sidecar(pup, OUT / "PUP" / "_LEROY")
-        print(f"PUP Leroy sprites.json ({n} frames)")
-        df = read_df_file(pup)
-        vis = visemes_from_dialogue(df, extract_pup(df).dialogue)
-        from pup import write_viseme_files
-        write_viseme_files(OUT / "PUP" / "_LEROY" / "AUDIO", vis)
-        print(f"PUP Leroy visemes.json ({len(vis)} lines)")
+    pups = collect_dust_files([DUST], ("pup",))
+    for path in pups:
+        dest = output_dir_for(OUT, "pup", path)
+        try:
+            counts = pup_sidecar(path, dest)
+        except Exception as err:
+            print(f"FAIL {path.name}: {err}")
+            continue
+        print(
+            f"PUP {path.stem} sprites.json ({counts.get('frames', 0)} frames, "
+            f"{counts.get('visemes', 0)} visemes) -> {dest.relative_to(OUT)}"
+        )
     if gang.exists():
         # Reuse the CST writer on a temp? It also writes PNGs. Walk tables only.
         n = _cst_sidecar(gang, OUT / "CST" / "_GANG")

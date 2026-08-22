@@ -47,7 +47,7 @@ keyframes**: `len / 82` records, `durationTicks` records (the i16 at
 record+4). Each record is 82 bytes / 41 i16s: tick at +0 (60 Hz), then
 11 layer slots starting at +16 (3×i16 each, first = index into that
 face table, `-1` = hide). Last tick / 60 equals the WAV length.
-Written as `AUDIO/visemes.json`.
+Written as `AUDIO/visemes/<ident>.json` (play mode) and `AUDIO/visemes.json` (full extract blob; do not fetch that in the browser).
 
 ### Container 2 — script directory
 
@@ -113,6 +113,12 @@ record[frameCount]                @ 0x76   # 44 bytes each, first i32 = frame co
 Frames are transparent sprites. EXTRA.CST Jenix has one set `stand`
 and `frame_195`.
 
+In-world size is not 1:1 on the still except on the camera plane.
+`stdscale` / `actorscale` live in `CST/_GANG/Cast.txt` (`stdscale("town")`
+= 1450; Leroy at the sign then sets 1100). Play mode notes:
+[`src/play/README.md`](../../src/play/README.md). Contact-shadow extract
+is in [images.md](images.md).
+
 ## SND — sound banks (Dust v1)
 
 See [audio.md](audio.md). Refuse `version != 1`. Combined beds
@@ -163,11 +169,22 @@ Waypoint container (`header+34`):
 ```
 i32 count                         @ 24
 record[count]                     @ 28
-  each 50 bytes (second half unused on small maps):
-    u16 x                         @ +2
-    u16 y                         @ +4
-    Pascal name                   @ +8
+  each 50 bytes holds **two** stars:
+    slot A @ +0  (26 bytes):
+      u16 flags                   @ +0
+      u16 x                       @ +2
+      u16 y                       @ +4
+      u16 unk                     @ +6
+      Pascal name                 @ +8   # 18-byte field
+    slot B @ +26 (24 bytes):
+      same 8-byte header
+      Pascal name                 @ +8   # 16-byte field
 ```
+
+Empty slot B has Pascal length 0; leftover bytes after that are editor
+junk, not a star. Small maps (APOTH) leave every B empty. TOWN/NITE pack
+pairs: `town.leroy2` / `town.leroy1` (1740, 3536), `town.blood1` /
+`town.blood2`, and so on. Do not invent missing stars — they are in slot B.
 
 APOTH: `drugs.watson1` (190,90), `drugs.watson2` (64,82).
 

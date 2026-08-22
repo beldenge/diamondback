@@ -41,7 +41,7 @@ A script container is recognized by a first token of `4001` (`code`).
 
 ```
 u8 length
-u8 chars[length]    # latin-1
+u8 chars[length]    # Mac Roman (Cyberflix). 0xD5 = apostrophe, not latin-1 Õ.
 ```
 
 For STRING/VARIABLE, the string lives at `token_offset + info` inside

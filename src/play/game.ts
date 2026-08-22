@@ -37,15 +37,27 @@ import {
   poseLabel,
   sceneByName,
   WORLD_TOWN,
+  zUrl,
+  zUrlFromStill,
 } from "../world/set/graph";
 import { StillsView } from "../world/set/stillsView";
 import {
-  dirToDeg,
-  pickCyclic,
-  visibleOctant,
-  walkFrame,
+  actorSprite,
+  actorStillHeight,
+  cameraFromPose,
+  lerpViewCamera,
+  spriteStillTopLeft,
   worldToStill,
+  type ViewCamera,
 } from "./facing";
+import {
+  actorWorldZ,
+  blitSpriteZ,
+  sampleNearZ,
+  spriteBitsFromImageData,
+  zPlaneFromImageData,
+  type SpriteBits,
+} from "./occlude";
 import { DustHost, type WorldView } from "./host";
 import { loadScriptJson } from "./scripts";
 import {
@@ -93,11 +105,21 @@ export class PlayGame implements WorldView {
   private pending: SetTransition | null = null;
   private hqGen = 0;
   private busy = false;
+  /** `mousedown` / puppet — freeze world actors; SET walks must not. */
+  private talking = false;
   private readonly heldKeys = new Set<string>();
   private booting = true;
   private scriptsReady = false;
   private logLine = "";
   private readonly actorLayer: HTMLDivElement;
+  private readonly actorCanvas: HTMLCanvasElement;
+  private readonly actorCtx: CanvasRenderingContext2D;
+  private readonly pick = new Uint16Array(STILL_WIDTH * STILL_HEIGHT);
+  private readonly pickNames: string[] = [""];
+  private readonly spriteBits = new Map<string, SpriteBits>();
+  private readonly spriteLoading = new Map<string, Promise<SpriteBits | null>>();
+  private zPlane: Uint8Array | null = null;
+  private zKey = "";
   private readonly stageEl: HTMLDivElement;
   private readonly hudEl: HTMLDivElement;
   private readonly hudFace: HTMLImageElement;
@@ -121,6 +143,15 @@ export class PlayGame implements WorldView {
     this.hudEl.append(this.hudFace);
     this.actorLayer = document.createElement("div");
     this.actorLayer.id = "actor-layer";
+    this.actorCanvas = document.createElement("canvas");
+    this.actorCanvas.width = STILL_WIDTH;
+    this.actorCanvas.height = STILL_HEIGHT;
+    const actorCtx = this.actorCanvas.getContext("2d", { alpha: true });
+    if (!actorCtx) {
+      throw new Error("actor canvas");
+    }
+    this.actorCtx = actorCtx;
+    this.actorLayer.append(this.actorCanvas);
     this.captionEl = document.createElement("div");
     this.captionEl.id = "play-caption";
     const app = document.getElementById("app");
@@ -170,6 +201,22 @@ export class PlayGame implements WorldView {
 
   refreshActors(): void {
     this.layoutActors();
+  }
+
+  viewCamera(): ViewCamera {
+    if (this.anim && this.pending) {
+      const t = (this.anim.index + 1) / this.anim.urls.length;
+      return lerpViewCamera(
+        {
+          x: this.pending.xFrom,
+          y: this.pending.yFrom,
+          facing: this.pending.dirFrom,
+        },
+        { x: this.pending.xTo, y: this.pending.yTo, facing: this.pending.dirTo },
+        t,
+      );
+    }
+    return cameraFromPose(this.pose);
   }
 
   private layoutStage(): void {
@@ -224,6 +271,7 @@ export class PlayGame implements WorldView {
     this.host.currentScene = sceneNameOf(graph, pose.x, pose.y)?.toLowerCase() ?? "";
     this.host.currentDir = pose.facing;
     await this.showHold();
+    this.host.noticeCamera();
   }
 
   private async boot(): Promise<void> {
@@ -242,14 +290,15 @@ export class PlayGame implements WorldView {
       this.booting = false;
       this.syncHud();
       await Promise.all([
-        this.host.loadGangSprites().then(() => {
-          this.host.placeLeroyAtSign();
-          this.layoutActors();
-          this.syncHud();
-        }),
+        this.host.loadGangSprites(),
+        this.host.loadWaypoints("_NITE"),
         this.loadTalkScripts(),
       ]);
       this.scriptsReady = true;
+      await this.host.placeLeroyAtSign(this.vm);
+      this.preloadActorArt();
+      this.layoutActors();
+      this.syncHud();
       this.syncHud();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -300,9 +349,13 @@ export class PlayGame implements WorldView {
 
   private tick(): void {
     const dt = Math.min(this.clock.getDelta(), 0.05);
-    if (!this.busy) {
+    if (!this.talking && this.host.scriptPump === 0) {
       this.host.advanceActors(dt);
     }
+    this.host.tickScriptClock(dt);
+    void this.host.runQueued(this.vm);
+    this.layoutActors();
+    this.applyCursor();
     this.ui.tick(dt);
     if (this.anim) {
       this.driveAnim(this.anim, dt);
@@ -324,13 +377,15 @@ export class PlayGame implements WorldView {
   private hover: MouseEvent | null = null;
 
   private applyCursor(): void {
+    // Puppet/flat UI is arrow. `walktopuppet` sets watch only for the walk;
+    // do not keep the hourglass on the talking-head.
+    if (this.host.currentPuppet !== "none" || this.flats.open) {
+      this.setCursor("arrow");
+      return;
+    }
     const named = this.host.cursorName;
     if (named && named !== "arrow" && CURSORS[named]) {
       this.setCursor(named);
-      return;
-    }
-    if (this.host.currentPuppet !== "none" || this.flats.open) {
-      this.setCursor("arrow");
       return;
     }
     const event = this.hover;
@@ -429,23 +484,24 @@ export class PlayGame implements WorldView {
   private async talkTo(name: string): Promise<void> {
     unlockVoices();
     if (!this.scriptsReady) {
-      this.log("Loading Leroy…");
+      this.log(`Loading ${name}…`);
       return;
     }
     const actor = this.host.namedActor(name);
     this.busy = true;
+    this.talking = true;
     this.vm.object = "actor";
     this.vm.me = actor.name;
     this.vm.target = actor.name;
-    this.host.cursorName = "watch";
     this.applyCursor();
-    this.host.warmTalk();
+    this.host.warmTalk(name);
     try {
       await this.vm.evalCall("mousedown", [{ type: "num", value: 0 }]);
     } catch (err) {
       this.log(err instanceof Error ? err.message : String(err));
     } finally {
       this.busy = false;
+      this.talking = false;
       this.host.currentPuppet = "none";
       this.host.cursorName = "arrow";
       this.ui.close();
@@ -458,6 +514,11 @@ export class PlayGame implements WorldView {
   private onKey(event: KeyboardEvent): void {
     this.host.resumeBed();
     if (event.altKey || event.ctrlKey || event.metaKey || this.booting) {
+      return;
+    }
+    if (event.code === "KeyC" && !event.repeat) {
+      this.ui.toggleCaptions();
+      event.preventDefault();
       return;
     }
     this.heldKeys.add(event.code);
@@ -532,6 +593,7 @@ export class PlayGame implements WorldView {
     }
     this.clock.getDelta();
     this.needsRender = true;
+    void this.loadZPlane(zUrlFromStill(urls[0]));
   }
 
   private driveAnim(anim: StillAnim, dt: number): void {
@@ -549,6 +611,7 @@ export class PlayGame implements WorldView {
     const step = tickStillAnim(anim, dt, STILL_FRAME_SEC);
     if (step.frameChanged) {
       const next = anim.urls[anim.index];
+      void this.loadZPlane(zUrlFromStill(next));
       if (!this.view.showCached(next)) {
         anim.ready = false;
         void this.view.show(next).then(() => {
@@ -573,7 +636,7 @@ export class PlayGame implements WorldView {
       this.host.currentScene = sceneNameOf(this.graph, this.pose.x, this.pose.y)?.toLowerCase() ?? "";
       this.host.currentDir = this.pose.facing;
     }
-    this.host.faceNearby();
+    this.host.noticeCamera();
     this.syncHud();
     this.layoutActors();
     void this.showHold();
@@ -589,7 +652,12 @@ export class PlayGame implements WorldView {
       this.promptEl.textContent = "No still";
       return;
     }
-    await this.view.show(frameUrl(this.stillsFolder(), frame.frame0, frame.offset));
+    const folder = this.stillsFolder();
+    const still = frameUrl(folder, frame.frame0, frame.offset);
+    await Promise.all([
+      this.view.show(still),
+      this.loadZPlane(zUrl(folder, frame.frame0, frame.offset)),
+    ]);
     if (gen !== this.hqGen) {
       return;
     }
@@ -603,18 +671,17 @@ export class PlayGame implements WorldView {
   }
 
   private actorUnder(event: MouseEvent): string | undefined {
-    for (const node of this.actorLayer.querySelectorAll<HTMLElement>("[data-actor]")) {
-      const box = node.getBoundingClientRect();
-      if (
-        event.clientX >= box.left &&
-        event.clientX <= box.right &&
-        event.clientY >= box.top &&
-        event.clientY <= box.bottom
-      ) {
-        return node.dataset.actor;
-      }
+    const norm = this.stillNorm(event);
+    if (!norm) {
+      return undefined;
     }
-    return undefined;
+    const x = Math.min(STILL_WIDTH - 1, Math.max(0, Math.floor(norm.nx * STILL_WIDTH)));
+    const y = Math.min(STILL_HEIGHT - 1, Math.max(0, Math.floor(norm.ny * STILL_HEIGHT)));
+    const id = this.pick[y * STILL_WIDTH + x];
+    if (!id) {
+      return undefined;
+    }
+    return this.pickNames[id];
   }
 
   private stillNorm(event: MouseEvent): { nx: number; ny: number } | null {
@@ -710,66 +777,106 @@ export class PlayGame implements WorldView {
   }
 
   private layoutActors(): void {
-    const bounds = this.canvas.getBoundingClientRect();
-    this.actorLayer.style.left = "0";
-    this.actorLayer.style.top = "0";
-    this.actorLayer.style.width = `${bounds.width}px`;
-    this.actorLayer.style.height = `${bounds.height}px`;
     if (this.host.currentPuppet !== "none") {
       this.actorLayer.hidden = true;
       return;
     }
     this.actorLayer.hidden = false;
-    const camDeg = dirToDeg(this.pose.facing);
-    const seen = new Set<string>();
-    for (const actor of this.host.nearbyActors(520)) {
-      const still = worldToStill(actor, this.pose);
+    const frame = this.actorCtx.createImageData(STILL_WIDTH, STILL_HEIGHT);
+    this.pick.fill(0);
+    this.pickNames.length = 1;
+    const cam = this.viewCamera();
+    const nearZ = sampleNearZ(this.zPlane);
+    let pickId = 1;
+    for (const actor of this.host.nearbyActors()) {
+      const still = worldToStill(actor, cam);
       if (!still) {
         continue;
       }
-      seen.add(actor.name);
-      const oct = visibleOctant(actor.deg, camDeg);
-      const place =
-        actor.pose === "walk"
-          ? walkFrame(actor.walkSprites, oct, actor.walkStep)
-          : pickCyclic(actor.standSprites, oct);
-      let chip = this.actorLayer.querySelector<HTMLButtonElement>(
-        `[data-actor="${actor.name}"]`,
+      const place = actorSprite(actor, cam.deg);
+      if (!place || place.h <= 0) {
+        continue;
+      }
+      const url = this.host.spriteUrl(actor, place);
+      const bits = this.spriteBits.get(url);
+      if (!bits) {
+        void this.loadSpriteBits(url);
+        continue;
+      }
+      const stillScale = actorStillHeight(place.h, actor.scale, still.forward) / place.h;
+      const topLeft = spriteStillTopLeft(still.x, still.y, place, stillScale);
+      this.pickNames[pickId] = actor.name;
+      blitSpriteZ(
+        frame.data,
+        this.pick,
+        pickId,
+        this.zPlane,
+        actorWorldZ(still.forward, nearZ),
+        bits,
+        topLeft.x,
+        topLeft.y,
+        stillScale,
       );
-      if (!chip) {
-        chip = document.createElement("button");
-        chip.type = "button";
-        chip.className = "actor-chip";
-        chip.dataset.actor = actor.name;
-        const img = document.createElement("img");
-        img.alt = actor.name;
-        chip.append(img);
-        chip.addEventListener("click", (event) => {
-          event.stopPropagation();
-          void this.talkTo(actor.name);
-        });
-        this.actorLayer.append(chip);
+      pickId += 1;
+    }
+    this.actorCtx.putImageData(frame, 0, 0);
+  }
+
+  private preloadActorArt(): void {
+    for (const actor of this.host.actors.values()) {
+      for (const place of [
+        ...actor.standSprites,
+        ...actor.walkSprites,
+        ...actor.drinkSprites,
+      ]) {
+        void this.loadSpriteBits(this.host.spriteUrl(actor, place));
       }
-      chip.style.left = `${(still.x / STILL_WIDTH) * 100}%`;
-      chip.style.top = `${(still.y / STILL_HEIGHT) * 100}%`;
-      const img = chip.querySelector("img");
-      if (img && place) {
-        const url = this.host.spriteUrl(actor, place);
-        if (!img.src.endsWith(place.path.replaceAll("\\", "/"))) {
-          img.src = url;
+    }
+  }
+
+  private loadSpriteBits(url: string): Promise<SpriteBits | null> {
+    const hit = this.spriteBits.get(url);
+    if (hit) {
+      return Promise.resolve(hit);
+    }
+    const pending = this.spriteLoading.get(url);
+    if (pending) {
+      return pending;
+    }
+    const job = decodeStillImage(url)
+      .then((image) => {
+        const bits = spriteBitsFromImageData(image);
+        this.spriteBits.set(url, bits);
+        this.layoutActors();
+        return bits;
+      })
+      .catch(() => null)
+      .finally(() => {
+        this.spriteLoading.delete(url);
+      });
+    this.spriteLoading.set(url, job);
+    return job;
+  }
+
+  private loadZPlane(url: string): Promise<void> {
+    if (this.zKey === url) {
+      return Promise.resolve();
+    }
+    this.zKey = url;
+    return decodeStillImage(url)
+      .then((image) => {
+        if (this.zKey !== url) {
+          return;
         }
-        const distScale = 0.55 + 0.5 * (1 - Math.min(still.forward, 400) / 400);
-        img.style.height = `${place.h * (actor.scale / 1450) * distScale}px`;
-        img.style.width = "auto";
-      } else if (img && actor.standUrl && img.src !== actor.standUrl) {
-        img.src = actor.standUrl;
-      }
-    }
-    for (const node of [...this.actorLayer.children]) {
-      if (node instanceof HTMLElement && !seen.has(node.dataset.actor ?? "")) {
-        node.remove();
-      }
-    }
+        this.zPlane = zPlaneFromImageData(image);
+        this.layoutActors();
+      })
+      .catch(() => {
+        if (this.zKey === url) {
+          this.zPlane = null;
+          this.layoutActors();
+        }
+      });
   }
 
   private syncHud(): void {
@@ -780,7 +887,7 @@ export class PlayGame implements WorldView {
     const clockName = clock === 1 ? "Morning" : clock === 2 ? "Afternoon" : "Night";
     this.timeEl.textContent = `PLAY · Day ${day} · ${clockName} · $${cash}`;
     this.hudFace.hidden = clock !== 3;
-    const names = this.host.nearbyActors(520).map((a) => titleCase(a.name));
+    const names = this.host.nearbyActors().map((a) => titleCase(a.name));
     this.promptEl.textContent = names.length
       ? `${label} · ${names.join(", ")} — click to talk`
       : label;
@@ -801,6 +908,26 @@ export class PlayGame implements WorldView {
 
 function titleCase(name: string): string {
   return name.slice(0, 1).toUpperCase() + name.slice(1);
+}
+
+async function decodeStillImage(url: string): Promise<ImageData> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`${url} ${res.status}`);
+  }
+  const bitmap = await createImageBitmap(await res.blob());
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    bitmap.close();
+    throw new Error("image canvas");
+  }
+  ctx.drawImage(bitmap, 0, 0);
+  const data = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+  bitmap.close();
+  return data;
 }
 
 function keyToInput(code: string): WalkInput | null {

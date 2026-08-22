@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { VisemeFrame } from "./ui";
-import { asCenter, isFlatBackdrop, speakHangSec, spriteTopLeft, VISEME_HZ } from "./ui";
+import type { PuppetSheet, VisemeFrame } from "./ui";
+import {
+  asCenter,
+  FACE_TABLES,
+  idleLayerIndex,
+  isFlatBackdrop,
+  layerPlace,
+  speakHangSec,
+  spriteTopLeft,
+  VISEME_HZ,
+} from "./ui";
 
 function frameAt(frames: VisemeFrame[], seconds: number): VisemeFrame {
   const tick = Math.max(0, Math.round(seconds * VISEME_HZ));
@@ -67,6 +76,41 @@ describe("viseme rest centers", () => {
     expect(asCenter([249, 120])).toEqual({ x: 249, y: 120 });
     expect(asCenter({ x: 256, y: 207 })).toEqual({ x: 256, y: 207 });
     expect(asCenter(undefined)).toBeUndefined();
+  });
+});
+
+describe("face tables", () => {
+  const sheet: PuppetSheet = {
+    folder: "PUP/_KID",
+    layers: {
+      Head: [{ path: "Head/0.png", x: 0, y: 0, w: 10, h: 10 }],
+      Jaw: [{ path: "Jaw/0.png", x: 0, y: 0, w: 10, h: 10 }],
+      "Hands 1": [
+        { path: "Hands 1/0.png", x: 1, y: 2, w: 3, h: 4 },
+        { path: "Hands 1/1.png", x: 5, y: 6, w: 7, h: 8 },
+      ],
+    },
+    restLayers: { Head: 0, Jaw: 0, "Hands 1": -1 },
+  };
+
+  it("paints the head (and beard) over the body", () => {
+    expect(FACE_TABLES.indexOf("Body")).toBeLessThan(FACE_TABLES.indexOf("Head"));
+    expect(FACE_TABLES.indexOf("Head")).toBeLessThan(FACE_TABLES.indexOf("Jaw"));
+    expect(FACE_TABLES.indexOf("Jaw")).toBeLessThan(FACE_TABLES.indexOf("Hands 1"));
+  });
+
+  it("skips a missing part instead of substituting frame 0", () => {
+    expect(layerPlace(sheet, "Eyebrows", 0)).toBeUndefined();
+    expect(layerPlace(sheet, "Hands 1", -1)).toBeUndefined();
+    expect(layerPlace(sheet, "Hands 1", 4)).toBeUndefined();
+    expect(layerPlace(sheet, "Hands 1", 1)?.path).toBe("Hands 1/1.png");
+  });
+
+  it("hides hands at rest when the viseme rest index is -1", () => {
+    expect(idleLayerIndex("Hands 1", sheet.restLayers)).toBe(-1);
+    expect(idleLayerIndex("Jaw", sheet.restLayers)).toBe(0);
+    expect(idleLayerIndex("Hands 1")).toBe(-1);
+    expect(idleLayerIndex("Head")).toBe(0);
   });
 });
 

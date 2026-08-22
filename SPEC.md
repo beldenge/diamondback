@@ -168,3 +168,13 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 | 2026-08-20 | Extract holes closed this pass: PUP `animLogic` in `texts.csv`; script `*.json` AST (Dust names); `out/catalog.json`; SET Z-plane decode (`--z`); `DF.EXE` cursors/menu/strings via `dustdecompile --rsrc`; save filter is `*.rtd`. |
 | 2026-08-21 | Play mode uses Dust’s 512×384 stage: SET stills 512×264 on top, `FLT/_NEW/frame_3.png` HUD below (not an overlay). CST `actordeg` 0=south, 8 stand / 64 walk frames. Talk runs `walktopuppet`. PUP layers composite from `FRAMES/sprites.json`; jaw cycles while speech plays. Sprite `pos_x`/`pos_y` dumped. |
 | 2026-08-21 | Play speech is Web Audio + `decodePcmWav` (8-bit 11025 Hz). Firefox/Windows ~10s after first `AudioContext.resume()` before output; visemes are wall-clock, not the audio playhead. `<audio>` does not play these WAVs (`currentTime` stays 0). Notes: [`src/play/README.md`](src/play/README.md). |
+| 2026-08-21 | Play puppets are generic: all 11 PUP face tables including hands, skip missing parts, per-PUP `sprites.json` / visemes / `scripts.json`. |
+| 2026-08-21 | CST foot blobs are contact shadows (GANG index 131 maroon → translucent black). Not studio dirt. |
+| 2026-08-21 | PUP paint order is Body then Head (beard is on the Head). Body-over-Head left a static beard ring that did not turn. |
+| 2026-08-21 | Dialog chrome: full-width black speech bar over the still; five `butbevel` slots replace the HUD (not overlays above it). |
+| 2026-08-21 | Choice boxes are HOUSE `butbevel` + GDI Arial, not OS buttons. Labels left-aligned. Hole fill is the rim’s `(111,56,38)`. |
+| 2026-08-21 | CST town sprites blit from the header hotspot (256, 192), not bbox feet/center. World X is the same 1/z as scale. |
+| 2026-08-21 | PUP text is Mac Roman (apostrophe 0xD5). `forceupdate` is the only actor clock during script walks. Town approach faces `currentdeg+128`. |
+| 2026-08-21 | CST town sprites: `stdscale(town)=1450`, Leroy sign `actorscale 1100`, 1/z as `256/(256+forward)`. Native ~200px is camera-plane 1:1. Actor layer is the still, under the HUD. |
+| 2026-08-21 | SET 50-byte waypoints hold two stars. `town.leroy1` is slot B of `town.leroy2` at (1740, 3536). Do not invent star xyz. |
+| 2026-08-21 | Leroy idle/drink/pivot is `leroyidle` via `makeloop`, not a remake fidget. Talk walk faces `playerxyz` (`walktopuppet`). |

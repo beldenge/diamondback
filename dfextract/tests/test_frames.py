@@ -15,14 +15,15 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 from container import read_df_file
-from cst import write_cst_frames
-from image import decode_trans_sprite, pup_palette
+from cst import detect_contact_shadows, write_cst_frames
+from image import CONTACT_SHADOW_ALPHA, cst_palette, decode_trans_sprite, pup_palette
 from pup import write_pup_frames
 
 REPO = HERE.parent
 DUST = REPO / "sources" / "dust.dbgl" / "dosroot" / "0" / "dust"
 BOLIVAR = DUST / "DUSTCD" / "PUPPETS" / "BOLIVAR.PUP"
 EXTRA = DUST / "DUSTCD" / "DATA" / "EXTRA.CST"
+GANG = DUST / "DUSTCD" / "DATA" / "GANG.CST"
 
 
 class TestFrames(unittest.TestCase):
@@ -54,7 +55,51 @@ class TestFrames(unittest.TestCase):
             rest = payload.get("rest") or {}
             if rest:
                 self.assertEqual(rest["Background"], [256, 132])
+            rest_layers = payload.get("restLayers") or {}
+            if rest_layers:
+                self.assertGreaterEqual(rest_layers["Hands 1"], 0)
         self.assertEqual(written, 58)
+
+    def test_leroy_foot_matte_is_contact_shadow(self) -> None:
+        if not GANG.exists():
+            self.skipTest("GANG.CST not present")
+        df = read_df_file(GANG)
+        palette = cst_palette(df.containers[0].data)
+        shadows = detect_contact_shadows(df, palette, [68])
+        self.assertIn(131, shadows)
+        sprite = decode_trans_sprite(df.containers[68].data, palette, shadows)
+        opaque = 0
+        shadow = 0
+        for i in range(0, len(sprite.rgba), 4):
+            red, green, blue, alpha = sprite.rgba[i : i + 4]
+            if alpha == 0:
+                continue
+            if (
+                red == 0
+                and green == 0
+                and blue == 0
+                and alpha == CONTACT_SHADOW_ALPHA
+            ):
+                shadow += 1
+            elif alpha == 255:
+                opaque += 1
+        self.assertGreater(shadow, 700)
+        self.assertGreater(opaque, 4000)
+        # Chest/skin stays fully opaque — not the maroon pancake.
+        mid = sprite.height // 2
+        row = sprite.rgba[mid * sprite.width * 4 : (mid + 1) * sprite.width * 4]
+        maroon = 0
+        cheek = 0
+        for i in range(0, len(row), 4):
+            if row[i : i + 3] == b"\x19\x11\x11" and row[i + 3] == 255:
+                maroon += 1
+            if (
+                row[i : i + 3] == b"\x00\x00\x00"
+                and row[i + 3] == CONTACT_SHADOW_ALPHA
+            ):
+                cheek += 1
+        self.assertEqual(maroon, 0)
+        self.assertEqual(cheek, 0)
 
     def test_extra_jenix_stand_writes(self) -> None:
         if not EXTRA.exists():

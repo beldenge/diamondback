@@ -81,18 +81,26 @@ class Sprite:
     rgba: bytes  # height * width * 4, top-to-bottom
 
 
-def decode_trans_sprite(container: bytes, palette: Palette) -> Sprite:
+# CST foot mattes are a dark maroon (GANG index 131 = 25,17,17). Dust
+# painted them as contact shadows; opaque RGB looks like studio dirt.
+CONTACT_SHADOW_ALPHA = 120
+TRANSPARENT_INDEX = 255
+
+
+def decode_trans_indices(container: bytes) -> tuple[int, int, int, int, bytes]:
+    """Palette indices, 255 = codec transparency. Same RLE as decode_trans_sprite."""
     if len(container) < 8:
         raise ImageError("sprite container smaller than header")
     height, width, raw_y, raw_x = struct.unpack_from("<hhhh", container, 0)
     if width <= 0 or height <= 0 or width > 4096 or height > 4096:
         raise ImageError(f"implausible sprite size {width}x{height}")
 
-    # DFET hard-codes 512x384 screen space for these two fields.
     pos_y = 384 // 2 - raw_y
     pos_x = 512 // 2 - raw_x
 
-    pixels = bytearray(width * height * 4)
+    indices = bytearray(width * height)
+    for i in range(len(indices)):
+        indices[i] = TRANSPARENT_INDEX
     src = 8
     dst = 0
     row = 0
@@ -104,44 +112,116 @@ def decode_trans_sprite(container: bytes, palette: Palette) -> Sprite:
         if segment_size < 0 or src + segment_size > len(container):
             raise ImageError(f"row {row}: segment overruns container")
         end = src + segment_size
-        row_end = (row + 1) * width * 4
+        row_end = (row + 1) * width
         while src < end:
             flag = container[src]
             src += 1
             copy = flag >> 2
-            if dst + copy * 4 > row_end:
-                # A few Dust sprites overrun the row by a pixel; clip.
-                copy = max(0, (row_end - dst) // 4)
+            if dst + copy > row_end:
+                copy = max(0, row_end - dst)
             if flag & 1:
                 if flag & 2:
                     for _ in range(copy):
                         if src >= end:
                             raise ImageError(f"row {row}: mode-4 ran out of input")
-                        pixels[dst : dst + 4] = palette.rgba(container[src])
+                        indices[dst] = container[src]
                         src += 1
-                        dst += 4
+                        dst += 1
                 else:
-                    pixels[dst : dst + copy * 4] = b"\x00" * (copy * 4)
-                    dst += copy * 4
+                    dst += copy
             elif flag & 2:
                 if src >= end:
                     raise ImageError(f"row {row}: mode-repeat ran out of input")
-                color = palette.rgba(container[src])
+                color = container[src]
                 src += 1
                 for _ in range(copy):
-                    pixels[dst : dst + 4] = color
-                    dst += 4
+                    if dst >= row_end:
+                        break
+                    indices[dst] = color
+                    dst += 1
             else:
-                prev = dst - width * 4
+                prev = dst - width
                 if prev < 0:
                     raise ImageError(f"row {row}: copy-from-previous on first row")
-                pixels[dst : dst + copy * 4] = pixels[prev : prev + copy * 4]
-                dst += copy * 4
+                indices[dst : dst + copy] = indices[prev : prev + copy]
+                dst += copy
         row += 1
-        # If a row ended short, leave the rest transparent and continue.
-        dst = row * width * 4
+        dst = row * width
 
-    return Sprite(width=width, height=height, pos_x=pos_x, pos_y=pos_y, rgba=bytes(pixels))
+    return width, height, pos_x, pos_y, bytes(indices)
+
+
+def contact_shadow_mask(
+    width: int, height: int, indices: bytes, shadow_indices: set[int] | frozenset[int]
+) -> set[int]:
+    """Shadow-index pixels 4-connected to the bottom edge (the foot blob)."""
+    if not shadow_indices:
+        return set()
+    queue: list[int] = []
+    y = height - 1
+    row = y * width
+    for x in range(width):
+        i = row + x
+        if indices[i] in shadow_indices:
+            queue.append(i)
+    seen: set[int] = set()
+    while queue:
+        i = queue.pop()
+        if i in seen:
+            continue
+        seen.add(i)
+        x = i % width
+        y = i // width
+        for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            nx = x + dx
+            ny = y + dy
+            if 0 <= nx < width and 0 <= ny < height:
+                j = ny * width + nx
+                if j not in seen and indices[j] in shadow_indices:
+                    queue.append(j)
+    return seen
+
+
+def colorize_sprite(
+    width: int,
+    height: int,
+    pos_x: int,
+    pos_y: int,
+    indices: bytes,
+    palette: Palette,
+    shadow_indices: frozenset[int] | set[int] | None = None,
+) -> Sprite:
+    shadows = shadow_indices or frozenset()
+    foot = contact_shadow_mask(width, height, indices, shadows)
+    pixels = bytearray(width * height * 4)
+    for i, index in enumerate(indices):
+        if index == TRANSPARENT_INDEX:
+            continue
+        dest = i * 4
+        if index in shadows:
+            if i in foot:
+                pixels[dest : dest + 4] = bytes((0, 0, 0, CONTACT_SHADOW_ALPHA))
+            # Isolated specks of the matte on the body are leftover chroma.
+            continue
+        red, green, blue, alpha = palette.rgba(index)
+        pixels[dest] = red
+        pixels[dest + 1] = green
+        pixels[dest + 2] = blue
+        pixels[dest + 3] = alpha
+    return Sprite(
+        width=width, height=height, pos_x=pos_x, pos_y=pos_y, rgba=bytes(pixels)
+    )
+
+
+def decode_trans_sprite(
+    container: bytes,
+    palette: Palette,
+    shadow_indices: frozenset[int] | set[int] | None = None,
+) -> Sprite:
+    width, height, pos_x, pos_y, indices = decode_trans_indices(container)
+    return colorize_sprite(
+        width, height, pos_x, pos_y, indices, palette, shadow_indices
+    )
 
 
 def write_png(path: Path, sprite: Sprite) -> None:
