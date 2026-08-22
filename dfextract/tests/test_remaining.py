@@ -17,7 +17,7 @@ from container import read_df_file
 from image import decode_indexed_image, find_palette, write_indexed_png
 from mov import is_audio_container
 from script import binary_script_to_text
-from set import extract_set_metadata, looks_like_script, strip_frame_name, write_set_extract
+from set import _read_star_paths, extract_set_metadata, looks_like_script, strip_frame_name, write_set_extract
 
 REPO = HERE.parent
 DUST = REPO / "sources" / "dust.dbgl" / "dosroot" / "0" / "dust" / "DUSTCD"
@@ -63,6 +63,22 @@ class TestRemaining(unittest.TestCase):
         if NITE.exists():
             nite = {w.name: w for w in extract_set_metadata(read_df_file(NITE))[1]}
             self.assertEqual((nite["town.leroy1"].x, nite["town.leroy1"].y), (1740, 3536))
+
+    def test_nite_leroy_star_path(self) -> None:
+        """Waypoint +0x18 is a SET container of {x,y,z,seg} hops, not BFS."""
+        if not NITE.exists():
+            self.skipTest("NITE.SET not present")
+        import struct
+
+        df = read_df_file(NITE)
+        wp_id = struct.unpack_from("<h", df.containers[0].data, 34)[0]
+        paths = _read_star_paths(df, wp_id)
+        pair = next(p for p in paths if p.b == "town.leroy1")
+        self.assertEqual(pair.a, "town.leroy2")
+        self.assertEqual(pair.length, 1795)
+        self.assertEqual((pair.points[0]["x"], pair.points[0]["y"]), (2656, 2720))
+        self.assertEqual((pair.points[-1]["x"], pair.points[-1]["y"]), (1740, 3536))
+        self.assertEqual((pair.points[-2]["x"], pair.points[-2]["y"]), (1664, 3476))
 
     def test_town_full_grid_not_g_o_suffix(self) -> None:
         """TOWN/NITE/TARGET are 15×15 (A–O). A 129-cell G–O suffix also

@@ -524,7 +524,7 @@ Walk an actor to a named star.
 - **Args:** actor, star name **or** `"x,y,z"` string
 - **Blocks:** async walk; Dust waits with `while iswalk { forceupdate }`
 - **Calls in dump:** 66  arities [2]
-- Named dest: Dust never calls `walkonroad`; `DF.EXE` does that inside `walktostar` on the SET 52-tile walk graph. Play BFS those streets, then the star. First snap is a walk edge, not nearest tile center (`town.leroy1` rounds to N7). Hop algorithm in the EXE is not decompiled.
+- Named dest: `DF.EXE` `0x424000` loads the SET polyline at waypoint +0x18. Reverse when going B→A. `town.leroy2`/`leroy1` is container 262. No pair, or explicit `"x,y,z"`, is a beeline. `actorspeed` is units per 20 Hz game frame (boot `framerate (3)`); CST walk poses use setInfo +0x2e.
 - Explicit `"x,y,z"` (town `walktopuppet`) is a beeline.
 - Example: `walktostar (name, numtostring (x) @ "," @ numtostring (y) @ "," @ numtostring (z))`  (CST/_EXTRA/bird1/Script.txt:234)
 - Example: `walktostar (me, where)`  (CST/_EXTRA/birdcage/Script.txt:20)
@@ -827,7 +827,7 @@ Fade down.
 
 - Exact `delay (n)` units; SET walk fps (~24) is from play, not DF.EXE. `framerate (3)` with `hasattention` is 60/3 script Hz (inferred).
 - MOV reel timing / audio cues (see dfextract reconstruction-gaps §4a).
-- `walktostar` hop algorithm in `DF.EXE` (scripts wait with `while iswalk { forceupdate }`; named dest uses the SET walk graph). `actorxyz` is SET units (256/tile in the EXE; scripts often `/ 256`).
+- `walktostar` named dest uses the SET polyline at waypoint +0x18 (not BFS). Scripts wait with `while iswalk { forceupdate }`. `actorxyz` is SET units (256/tile in the EXE; scripts often `/ 256`). `actorspeed` is units per 20 Hz game frame.
 - Save file layout (`savegame` / `opengame`).
 - `pluginfx("checkmove", …)` encoding inside CHECKERS.DLL (scripts already parse the returned string).
 - UI chrome besides cursors (bevel / inventory layout). Cursors:

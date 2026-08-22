@@ -68,17 +68,19 @@ name looks missing — 50-byte records hold two stars; `town.leroy1` is
 slot B of `town.leroy2`.
 
 Named `walktostar` (Leroy `walkout` → `town.leroy2` at the range) does
-**not** beeline. Dust scripts never call `walkonroad` / `walkonpath`;
-`DF.EXE` does that inside `walktostar` on the SET walk graph (52 camera
-tiles). **Authored:** those streets and the dest pin (2656, 2720) at
-K11. **Remake:** BFS hop count, then the star. First snap is onto a
-walk *edge* (sign → N7–O7 street at y=3536), not N7’s center — that
-center is northwest of the sign and read as a cemetery cut once X was
-a pinhole. Explicit `x,y,z` strings stay a beeline (town talk). Road
-hops use `calcdeg` to the next tile, even if that center is the
-player’s tile (L7 moonwalk). `currentdeg + 128` is only the talk
-beeline. Do not freeze screen XY on an in-place turn (O7 east planted
-him in the desert photo).
+**not** beeline and does **not** BFS camera tiles. `DF.EXE` `0x424000`
+loads the SET polyline in the waypoint record’s +0x18 container
+(`town.leroy2` / `town.leroy1` → container **262**). Points run A→B
+(range → sign); walkout reverses them. First hop from the sign is
+**(1664, 3476)**, then **(1632, 3388)** north along x=1632 — not N7’s
+center (1664, 3456) and not a due-west edge snap at y=3536. Extract:
+`SET/_NITE/paths.json`. Explicit `x,y,z` strings stay a beeline (town
+talk). Hops use `calcdeg` to the next vertex. `currentdeg + 128` is
+only the talk beeline. `actorspeed` is world units per **game frame**
+(town `stdspeed` **3**). Boot `framerate (3)` waits 3 ticks of the 60 Hz
+`timeGetTime` counter (`0x40e1d2`) → **20 Hz**, so 60 units/s, not 180.
+Walk poses use CST setInfo +0x2e (Leroy **16** slots, two frames per
+pose) on that same 20 Hz draw, not one cycle per 256-unit tile.
 
 CST sprites: native frames are ~200px with hotspot (256, 192) on the 384
 stage — that is 1:1 **on the camera plane**. `stdscale("town")` is **1450**
@@ -187,9 +189,10 @@ the picket fence is Z=3, so his body does not show through it; gaps in
 the fence (Z≥5) can still leak slivers. `python cli.py --type set --z`
 writes `FRAMES/z/` without rewriting color stills.
 
-Walk poses advance by **distance** (one 8-frame cycle per 256-unit
-tile), not a 0.08 s treadmill. Drink is the 8×4 CST strip, one pose
-every 6 script frames (`toidle` waits 25), held on the last pose.
+Walk poses advance on the **20 Hz game frame** from CST setInfo +0x2e
+(Leroy 16 slots: two frames per pose → 0.8 s cycle). Not distance, not
+a 60 Hz treadmill. Drink is still the 8×4 CST strip, one pose every 6
+script frames (`toidle` waits 25), held on the last pose.
 
 The actor layer **is** the still (top 264 of the 384 stage), `overflow:
 hidden`, under the HUD. Town sprites never paint into the dashboard.
@@ -207,10 +210,11 @@ this. Re-dump: `python cli.py --type cst --frames`.
 `openpuppetfile` is up, the talking-head uses **arrow** (choices use
 pointer). Do not leave the hourglass on the puppet window.
 
-Leroy’s first walk on talk is about **198 `forceupdate` frames (~1.2s)**, then
-`turntodeg` + `openpuppet` + `puppetspeak` on the same tick. Do not cap the
-`while iswalk { forceupdate }` loop so low that the walk never finishes
-(256 was too small; 2048 is enough). Do not also `advanceActors` from the
+Leroy’s first walk on talk is **64 `forceupdate` ticks** (dist ~192 /
+`actorspeed` 3), then `turntodeg` + `openpuppet` + `puppetspeak` on the
+same tick (`startWalk` already faces `currentdeg+128`, so the turn is
+a no-op). Do not cap the `while iswalk { forceupdate }` loop so low
+that the walk never finishes (256 was too small; 2048 is enough). Do not also `advanceActors` from the
 rAF tick during `forceupdate` — that doubles the approach. Town
 `walktopuppet` dest is `playerxyz`; face `currentdeg + 128` so he walks
 straight-on, not the sub-tile diagonal.

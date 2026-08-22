@@ -13,7 +13,7 @@ if str(HERE) not in sys.path:
 
 from boot import extract_boot
 from container import read_df_file
-from cst import extract_cst, write_cst_scripts
+from cst import extract_cst, extract_cst_timing, write_cst_scripts
 from snd import extract_snd
 
 REPO = HERE.parent
@@ -53,6 +53,14 @@ class TestKnownTypes(unittest.TestCase):
             text = (dest / "Cast.txt").read_text(encoding="utf-8")
         self.assertIn("code initactors ()", text)
         self.assertIn("code runpuppet (pupname)", text)
+
+    def test_gang_walk_timing_table(self) -> None:
+        gang = DUST / "DUSTCD" / "DATA" / "GANG.CST"
+        if not gang.exists():
+            self.skipTest("GANG.CST not present")
+        timing = extract_cst_timing(read_df_file(gang))
+        self.assertEqual(timing["Leroy"]["walk"], [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8])
+        self.assertEqual(timing["Leroy"]["stand"], [1])
 
     def test_town_snd_decodes(self) -> None:
         if not TOWN_SND.exists():

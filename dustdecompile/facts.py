@@ -416,9 +416,9 @@ OPCODES: list[dict] = [
         "blocking": "async walk; scripts wait with while iswalk { forceupdate }",
         "confidence": "proven-scripts",
         "notes": [
-            "Named dest: Dust never calls walkonroad; DF.EXE does that inside walktostar on the SET 52-tile walk graph.",
-            "Play BFS those streets, then the star. First snap is a walk edge, not nearest tile center (town.leroy1 rounds to N7).",
-            "Hop algorithm in the EXE is not decompiled. Explicit x,y,z (town walktopuppet) is a beeline.",
+            "Named dest: DF.EXE 0x424000 loads the SET polyline at waypoint-record +0x18 (a container of {x,y,z,seg} int16s). Reverse when going slot B→A. Dust scripts never call walkonroad.",
+            "town.leroy2/leroy1 is container 262: range (2656,2720) … (1664,3476) … sign (1740,3536). Walkout reverses that. No path pair is a beeline to the star xyz.",
+            "Explicit x,y,z (town walktopuppet) is a beeline. actorspeed is world units per game frame. Boot framerate (3) waits 3 ticks of the 60 Hz timeGetTime counter (0x40e1d2) → 20 Hz, town stdspeed 3 → 60 units/s. CST walk pose table is setInfo +0x2e, length +0x70 (Leroy 16 slots, two frames per pose).",
         ],
     },
     {

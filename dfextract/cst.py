@@ -227,4 +227,59 @@ def write_cst_frames(df: DFFile, out_dir: Path) -> int:
         json.dumps({"screen": [512, 384], "actors": actors}, indent=2) + "\n",
         encoding="utf-8",
     )
+    write_cst_timing(df, out_dir)
     return written
+
+
+def extract_cst_timing(df: DFFile) -> dict[str, dict[str, list[int]]]:
+    """CST setInfo +0x2e pose table, length at +0x70 (DF.EXE 0x4154c0)."""
+    if not df.containers:
+        return {}
+    header = df.containers[0].data
+    if len(header) < 0x93C:
+        return {}
+    count = struct.unpack_from("<i", header, 0x938)[0]
+    out: dict[str, dict[str, list[int]]] = {}
+    cursor = 0x93C
+    for _ in range(count):
+        if cursor + 4 > len(header):
+            break
+        logic_index = struct.unpack_from("<i", header, cursor)[0]
+        cursor += 16
+        if logic_index < 0 or logic_index >= len(df.containers):
+            continue
+        logic = df.containers[logic_index].data
+        if len(logic) < 0x5E:
+            continue
+        actor_name = pascal_string(logic, 0x2A)
+        set_count = struct.unpack_from("<i", logic, 0x5A)[0]
+        set_cursor = 0x5E
+        poses: dict[str, list[int]] = {}
+        for _set in range(set_count):
+            if set_cursor + 32 > len(logic):
+                break
+            set_info = struct.unpack_from("<i", logic, set_cursor)[0]
+            set_name = pascal_string(logic, set_cursor + 16)
+            set_cursor += 32
+            if set_info < 0 or set_info >= len(df.containers):
+                continue
+            info = df.containers[set_info].data
+            if len(info) < 0x72:
+                continue
+            seq = struct.unpack_from("<h", info, 0x70)[0]
+            if seq < 1 or seq > 256:
+                continue
+            table = [struct.unpack_from("<h", info, 0x2E + i * 2)[0] for i in range(seq)]
+            poses[set_name] = table
+        if poses:
+            out[actor_name] = poses
+    return out
+
+
+def write_cst_timing(df: DFFile, out_dir: Path) -> int:
+    timing = extract_cst_timing(df)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "timing.json").write_text(
+        json.dumps(timing, indent=2) + "\n", encoding="utf-8"
+    )
+    return sum(len(v) for v in timing.values())

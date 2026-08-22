@@ -76,12 +76,13 @@ describe("actor walk wait", () => {
     expect(actor.y).toBe(3712);
   });
 
-  it("advances walk poses by distance, not a 0.08s treadmill", () => {
+  it("advances walk poses one CST table slot per game frame", () => {
     const host = new DustHost({} as PuppetUi);
     const actor = host.namedActor("leroy");
     actor.x = 1740;
     actor.y = 3536;
     actor.speed = 3;
+    actor.walkTiming = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8];
     actor.walkSprites = Array.from({ length: 64 }, (_, i) => ({
       path: `w${i}`,
       x: 0,
@@ -90,15 +91,26 @@ describe("actor walk wait", () => {
       h: 1,
     }));
     host.startWalk(actor, 1664, 3712, 0);
-    let frames = 0;
-    while (actor.walkStep === 0 && actor.walking && frames < 2048) {
-      host.advanceActors(1 / 60);
-      frames += 1;
-    }
+    host.advanceActorsOnce();
     expect(actor.walking).toBe(true);
-    expect(actor.walkStep).toBeGreaterThanOrEqual(1);
-    // 32 units/pose at 72 units/s ≈ 27 frames, not 5 (the old 0.08s clock).
-    expect(frames).toBeGreaterThan(20);
+    expect(actor.walkStep).toBe(1);
+    host.advanceActorsOnce();
+    expect(actor.walkStep).toBe(2);
+  });
+
+  it("moves actorspeed units once per game frame, not per 60 Hz rAF", () => {
+    const host = new DustHost({} as PuppetUi);
+    const actor = host.namedActor("leroy");
+    actor.x = 0;
+    actor.y = 0;
+    actor.speed = 3;
+    host.startWalk(actor, 300, 0, 0);
+    host.advanceActors(1 / 60);
+    expect(actor.x).toBe(0);
+    host.advanceActors(2 / 60);
+    expect(actor.x).toBeCloseTo(3, 5);
+    host.advanceActorsOnce();
+    expect(actor.x).toBeCloseTo(6, 5);
   });
 
   it("routes walktostar to town.leroy2 along the street", () => {
@@ -120,15 +132,20 @@ describe("actor walk wait", () => {
       refreshActors() {},
     };
     host.waypoints.set("town.leroy2", { x: 2656, y: 2720, name: "town.leroy2" });
+    const pathsPath = resolve("dfextract/out/SET/_NITE/paths.json");
+    if (existsSync(pathsPath)) {
+      host.paths = JSON.parse(readFileSync(pathsPath, "utf8"));
+    }
     const actor = host.namedActor("leroy");
     actor.x = 1740;
     actor.y = 3536;
+    actor.star = "town.leroy1";
     actor.speed = 3;
     void host.call("walktostar", ["leroy", "town.leroy2"], {} as VM);
     expect(actor.walking).toBe(true);
     expect(actor.route.length).toBeGreaterThan(3);
-    expect(actor.destX).toBeCloseTo(6 * 256 + 128, 0);
-    expect(actor.destY).toBeCloseTo(3536, 0);
+    expect(actor.destX).toBeCloseTo(1664, 0);
+    expect(actor.destY).toBeCloseTo(3476, 0);
     expect(actor.route.at(-1)).toEqual({ x: 2656, y: 2720, z: 0 });
   });
 });

@@ -1,9 +1,26 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildSetGraph } from "./graph";
-import { roadRoute, TILE_SPAN, worldToTile } from "./path";
-import type { SceneRecord, TransitionRecord } from "./types";
+import { routeToStar, TILE_SPAN, worldToTile, type StarPath } from "./path";
+
+const LEROY_PATH: StarPath = {
+  a: "town.leroy2",
+  b: "town.leroy1",
+  container: 262,
+  length: 1795,
+  points: [
+    { x: 2656, y: 2720, z: 0 },
+    { x: 2020, y: 2696, z: 0 },
+    { x: 1832, y: 2700, z: 0 },
+    { x: 1744, y: 2728, z: 0 },
+    { x: 1692, y: 2788, z: 0 },
+    { x: 1652, y: 2856, z: 0 },
+    { x: 1632, y: 2956, z: 0 },
+    { x: 1632, y: 3388, z: 0 },
+    { x: 1664, y: 3476, z: 0 },
+    { x: 1740, y: 3536, z: 0 },
+  ],
+};
 
 describe("world tiles", () => {
   it("maps town.leroy1/2 onto N7 and K11", () => {
@@ -16,50 +33,45 @@ describe("world tiles", () => {
   });
 });
 
-describe("SET road route", () => {
-  const scenesPath = resolve("dfextract/out/SET/_NITE/scenes.json");
-  const transPath = resolve("dfextract/out/SET/_NITE/transitions.json");
-
-  it("walks the main street then east to the range, not through the fence", () => {
-    if (!existsSync(scenesPath) || !existsSync(transPath)) {
-      return;
-    }
-    const scenes = JSON.parse(readFileSync(scenesPath, "utf8")) as SceneRecord[];
-    const records = JSON.parse(readFileSync(transPath, "utf8")) as TransitionRecord[];
-    const graph = buildSetGraph(scenes, records);
-    const path = roadRoute(graph, 1740, 3536, 2656, 2720);
+describe("SET star paths", () => {
+  it("reverses the leroy2→leroy1 polyline for walkout", () => {
+    const path = routeToStar(
+      [LEROY_PATH],
+      "town.leroy1",
+      "town.leroy2",
+      1740,
+      3536,
+      { x: 2656, y: 2720, z: 0 },
+    );
+    expect(path[0]).toEqual({ x: 1664, y: 3476, z: 0 });
+    expect(path[1]).toEqual({ x: 1632, y: 3388, z: 0 });
     expect(path.at(-1)).toEqual({ x: 2656, y: 2720, z: 0 });
-    const turnEast = path.findIndex((p) => p.x > 1800);
-    expect(turnEast).toBeGreaterThan(0);
-    for (const p of path.slice(0, turnEast)) {
-      expect(p.x).toBeCloseTo(6 * TILE_SPAN + 128, 0);
-    }
-    // Sign is east of the road; first hop is west onto the N7–O7 street,
-    // not northwest to N7's center (that cut toward the cemetery).
-    expect(path[0].x).toBeCloseTo(6 * TILE_SPAN + 128, 0);
-    expect(path[0].y).toBeCloseTo(3536, 0);
-    const ys = path.map((p) => p.y);
-    expect(Math.min(...ys)).toBeLessThanOrEqual(10 * TILE_SPAN + 128);
+    // Stays west of the east-side shops, not through the cemetery.
+    expect(Math.max(...path.map((p) => p.x))).toBe(2656);
+    expect(path[0].y).toBeLessThan(3536);
   });
 
-  it("beelines when start and dest share a camera tile", () => {
-    const graph = buildSetGraph(
-      [],
-      [
-        {
-          x_from: 6,
-          y_from: 14,
-          dir_from: 1,
-          x_to: 6,
-          y_to: 13,
-          dir_to: 1,
-          dir_from_name: "N",
-          dir_to_name: "N",
-          frame0: 1,
-        },
-      ],
-    );
-    const path = roadRoute(graph, 1664, 3712, 1700, 3600);
-    expect(path).toEqual([{ x: 1700, y: 3600, z: 0 }]);
+  it("beelines when the stars are not a path pair", () => {
+    const path = routeToStar([LEROY_PATH], "town.leroy1", "town.help", 1740, 3536, {
+      x: 1760,
+      y: 3034,
+      z: 0,
+    });
+    expect(path).toEqual([{ x: 1760, y: 3034, z: 0 }]);
+  });
+
+  it("matches extracted NITE paths.json", () => {
+    const rel = resolve("dfextract/out/SET/_NITE/paths.json");
+    if (!existsSync(rel)) {
+      return;
+    }
+    const paths = JSON.parse(readFileSync(rel, "utf8")) as StarPath[];
+    const hops = routeToStar(paths, "town.leroy1", "town.leroy2", 1740, 3536, {
+      x: 2656,
+      y: 2720,
+      z: 0,
+    });
+    expect(hops[0]).toEqual({ x: 1664, y: 3476, z: 0 });
+    expect(hops.at(-1)).toEqual({ x: 2656, y: 2720, z: 0 });
   });
 });

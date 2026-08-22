@@ -3,7 +3,7 @@ import { num, str, VM, type OpcodeHost, type Value } from "../vm/runtime";
 import { extractUrl } from "../world/set/extract";
 import type { Dir, SetGraph, WalkerPose } from "../world/set/types";
 import { loadSetGraph, parseDir, sceneByName, tileKey, WORLD_TOWN } from "../world/set/graph";
-import { roadRoute, type RoutePoint } from "../world/set/path";
+import { routeToStar, type RoutePoint, type StarPath } from "../world/set/path";
 import {
   calcDeg,
   calcVect,
@@ -12,8 +12,8 @@ import {
   degDelta,
   dirToDeg,
   DRINK_HOLD_FRAMES,
+  gameFrameSec,
   playerWorldPoint,
-  walkStride,
   worldToStill,
   wrapDeg,
 } from "./facing";
@@ -54,6 +54,8 @@ export interface ActorState {
   degTarget: number;
   walkStep: number;
   walkAcc: number;
+  /** CST setInfo +0x2e table for the current walk strip (1-based pose ids). */
+  walkTiming: number[];
   zclip: number;
   standSprites: SpritePlace[];
   walkSprites: SpritePlace[];
@@ -126,6 +128,7 @@ export class DustHost implements OpcodeHost {
   readonly actors = new Map<string, ActorState>();
   readonly props = new Map<string, { owner: string; visible: boolean }>();
   waypoints = new Map<string, Waypoint>();
+  paths: StarPath[] = [];
   currentSet = "none";
   currentSetFile = "";
   currentScene = "";
@@ -290,9 +293,9 @@ export class DustHost implements OpcodeHost {
       case "forceupdate":
         this.scriptPump += 1;
         try {
-          this.advanceActors(1 / 60);
+          this.advanceActorsOnce();
           await this.runQueued(ctx);
-          await nextFrame();
+          await waitGameFrame(this.framerateValue);
         } finally {
           this.scriptPump -= 1;
         }
@@ -629,39 +632,29 @@ export class DustHost implements OpcodeHost {
       return 0;
     }
     const star = str(args[1]);
+    const fromStar = actor.star;
     actor.star = star;
     const point = this.starPoint(star);
     if (point) {
-      this.walkToPoint(actor, point.x, point.y, point.z);
+      const destPt = { x: point.x, y: point.y, z: point.z };
+      const hops = routeToStar(this.paths, fromStar, star, actor.x, actor.y, destPt);
+      const first = hops[0] ?? destPt;
+      actor.route = hops.slice(1);
+      this.startWalk(actor, first.x, first.y, first.z);
     }
     return 0;
   }
 
-  /**
-   * Named `walktostar` follows the SET walk graph (52 camera tiles).
-   * Dust scripts never call `walkonroad`; DF.EXE does that inside
-   * `walktostar`. Explicit `x,y,z` strings (town `walktopuppet`) stay a
-   * beeline.
-   */
-  private walkToPoint(actor: ActorState, x: number, y: number, z: number): void {
-    const graph = this.view?.graph;
-    const hops =
-      graph && graph.cameraTiles.size > 0
-        ? roadRoute(graph, actor.x, actor.y, x, y, z)
-        : [{ x, y, z }];
-    const first = hops[0] ?? { x, y, z };
-    actor.route = hops.slice(1);
-    this.startWalk(actor, first.x, first.y, first.z);
-  }
-
-  startWalk(actor: ActorState, x: number, y: number, z: number): void {
+  startWalk(actor: ActorState, x: number, y: number, z: number, continueCycle = false): void {
     actor.destX = x;
     actor.destY = y;
     actor.destZ = z;
     actor.walking = true;
     actor.pose = "walk";
-    actor.walkStep = 0;
-    actor.walkAcc = 0;
+    if (!continueCycle) {
+      actor.walkStep = 0;
+      actor.walkAcc = 0;
+    }
     const dx = x - actor.x;
     const dy = y - actor.y;
     if (dx !== 0 || dy !== 0) {
@@ -673,10 +666,9 @@ export class DustHost implements OpcodeHost {
   /**
    * Town `walktopuppet` walks to `playerxyz`. Face the camera
    * (`currentdeg + 128`) so the approach is straight-on, not the
-   * sub-tile diagonal (Leroy 76 east of O7). Road hops are tile
-   * centers — if the player is on that tile, hypot&lt;2 used to fire
-   * this too, so he moonwalked past L7. Only the final beeline to
-   * the player (empty route) uses the camera.
+   * sub-tile diagonal (Leroy 76 east of O7). Path hops use `calcdeg`
+   * to the next vertex. Only the final beeline to the player (empty
+   * route) uses the camera.
    */
   private facingForWalk(actor: ActorState, x: number, y: number): number {
     const pose = this.view?.pose;
@@ -701,21 +693,24 @@ export class DustHost implements OpcodeHost {
     this.view?.refreshActors();
   }
 
-  advanceActors(dt: number): void {
+  private actorClock = 0;
+
+  /** One DF game frame: `actorspeed` / `actorturn` / one CST pose-table slot. */
+  advanceActorsOnce(): void {
     let moved = false;
     for (const actor of this.actors.values()) {
       if (actor.walking) {
         const dx = actor.destX - actor.x;
         const dy = actor.destY - actor.y;
         const dist = Math.hypot(dx, dy);
-        const step = Math.max(4, actor.speed * 24) * dt;
+        const step = actor.speed;
         if (dist <= step) {
           actor.x = actor.destX;
           actor.y = actor.destY;
           actor.z = actor.destZ;
           if (actor.route.length > 0) {
             const next = actor.route.shift()!;
-            this.startWalk(actor, next.x, next.y, next.z);
+            this.startWalk(actor, next.x, next.y, next.z, true);
           } else {
             actor.walking = false;
             actor.pose = "stand";
@@ -724,19 +719,13 @@ export class DustHost implements OpcodeHost {
         } else {
           actor.x += (dx / dist) * step;
           actor.y += (dy / dist) * step;
-          // One CST walk cycle per 256-unit tile, not a 0.08s treadmill.
-          const stride = walkStride(actor.walkSprites.length);
-          actor.walkAcc += step;
-          while (actor.walkAcc >= stride) {
-            actor.walkAcc -= stride;
-            actor.walkStep += 1;
-          }
         }
+        actor.walkStep += 1;
         moved = true;
       }
       if (actor.turning) {
         const delta = degDelta(actor.deg, actor.degTarget);
-        const step = Math.max(6, actor.turnSpeed * 24) * dt;
+        const step = Math.max(1, actor.turnSpeed);
         if (Math.abs(delta) <= step) {
           actor.deg = actor.degTarget;
           actor.turning = false;
@@ -749,6 +738,18 @@ export class DustHost implements OpcodeHost {
     }
     if (moved) {
       this.view?.refreshActors();
+    }
+  }
+
+  /** Wall-clock catch-up to boot `framerate (3)` → 20 Hz game frames. */
+  advanceActors(dt: number): void {
+    this.actorClock += Math.max(0, dt);
+    const period = gameFrameSec(this.framerateValue);
+    let n = 0;
+    while (this.actorClock >= period && n < 8) {
+      this.actorClock -= period;
+      this.advanceActorsOnce();
+      n += 1;
     }
   }
 
@@ -930,6 +931,7 @@ export class DustHost implements OpcodeHost {
         degTarget: 0,
         walkStep: 0,
         walkAcc: 0,
+        walkTiming: [],
         zclip: 32,
         standSprites: [],
         walkSprites: [],
@@ -1055,12 +1057,16 @@ export class DustHost implements OpcodeHost {
       actors?: Record<string, Record<string, SpritePlace[]>>;
     }>(extractUrl("CST/_GANG/sprites.json")).catch(() => null);
     this.gangSprites = data?.actors ?? {};
+    const timing = await fetchJson<Record<string, Record<string, number[]>>>(
+      extractUrl("CST/_GANG/timing.json"),
+    ).catch(() => ({} as Record<string, Record<string, number[]>>));
     for (const [name, poses] of Object.entries(this.gangSprites)) {
       const actor = this.namedActor(name);
       actor.spriteRoot = "CST/_GANG";
       actor.standSprites = poses.stand ?? [];
       actor.walkSprites = poses.walk ?? [];
       actor.drinkSprites = poses.drink ?? [];
+      actor.walkTiming = timing[name]?.walk ?? timing[name.toLowerCase()]?.walk ?? [];
     }
   }
 
@@ -1301,6 +1307,9 @@ export class DustHost implements OpcodeHost {
       () => [] as Waypoint[],
     );
     this.waypoints = new Map(waypoints.map((w) => [w.name.toLowerCase(), w]));
+    this.paths = await fetchJson<StarPath[]>(extractUrl(`SET/${folder}/paths.json`)).catch(
+      () => [] as StarPath[],
+    );
   }
 
   log(message: string): void {
@@ -1489,6 +1498,18 @@ function nextFrame(): Promise<void> {
       setTimeout(resolve, 16);
     }
   });
+}
+
+/** Pace `forceupdate` to one game frame (`framerate` ticks of the 60 Hz clock). */
+async function waitGameFrame(framerate: number): Promise<void> {
+  const ms = gameFrameSec(framerate) * 1000;
+  const t0 = performance.now();
+  await nextFrame();
+  const left = ms - (performance.now() - t0);
+  const inVitest = typeof process !== "undefined" && Boolean(process.env?.VITEST);
+  if (!inVitest && left > 1) {
+    await sleep(left);
+  }
 }
 
 async function fetchJson<T>(url: string): Promise<T> {

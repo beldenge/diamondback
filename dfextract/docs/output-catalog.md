@@ -32,6 +32,7 @@ first PUP-only runs. Those are stale. Use `out/PUP/_JENIX`.
 | Play HUD chrome | `FLT/_NEW/frame_3.png` (512×384 dashboard). HOUSE `FRAMES/avatar/nitefaces` overlays the portrait at night |
 | Location map + hotspots | `SET/_<PLACE>/scenes.json` |
 | NPC / item stand points | `SET/_<PLACE>/waypoints.json` |
+| NPC walk polylines | `SET/_<PLACE>/paths.json` |
 | Walk / turn filmstrips | `SET/_<PLACE>/transitions.json` + `FRAMES/<frame0>_<offset>.png` |
 | Door / click logic for a tile | `SET/_<PLACE>/Scene A2.txt` (name from `scenes.json`) |
 | Town / night outdoor map | `SET/_TOWN`, `SET/_NITE` |
@@ -95,6 +96,7 @@ Puppet folder names (39): `_BLOOD`, `_BOLIVAR`, `_BUICK`, `_COBB`, `_DEAD`, `_DE
 |---|---|
 | `<Actor>/Script.txt` | In-world actor logic (`setupactor`, `mousedown`, schedules). Leroy `setupactor("sign")` does `stdactor` then `actorscale (me, 1100)`. |
 | `Cast.txt` | Cast library: `initactors`, `runpuppet`, `walktopuppet`, `stdactor`, `stdscale` (town **1450**, interiors 2400–5800), `hotdist` (town **384**) |
+| `timing.json` | CST setInfo +0x2e pose tables (Leroy walk 16 slots) |
 | `sprites.json` | Per-actor stand/walk placement (`x,y,w,h`) on the 512×384 stage |
 | `<Actor>/<anim>/frame_<id>.png` | Body sprites. Foot blobs are contact shadows (translucent black), not maroon studio dirt. |
 
@@ -115,6 +117,7 @@ No scripts. Folder stem matches the `.SND` file (`TOWN.SND` → `_TOWN`).
 |---|---|
 | `scenes.json` | Grid tiles. Fields: `x`, `y`, `interact` (hotspot), `blocked`, `unknown_c`, `unknown_e`, `name` (`Scene A2`), `script_container` |
 | `waypoints.json` | Stand / walk-to points. Fields: `x`, `y` (absolute; 256 units per tile in `DF.EXE`), `name` (`drugs.watson1`). Both slots of each 50-byte SET record. |
+| `paths.json` | Named `walktostar` polylines. Pair `a`/`b` plus `{x,y,z,seg}` hops from waypoint +0x18. Leroy 262: range (2656,2720) ↔ sign (1740,3536). |
 | `transitions.json` | One walk/turn filmstrip. Fields: `x_from`, `y_from`, `dir_from`, `x_to`, `y_to`, `dir_to`, `dir_*_name` (`N/S/E/W`), `frame0` (first of 6 stills) |
 | `Boot Script.txt` | Set-level script (cursor defaults, etc.) if present |
 | `<Scene name>.txt` | Per-tile script **only if** that container actually holds a `code` script (blocked tiles are often empty) |

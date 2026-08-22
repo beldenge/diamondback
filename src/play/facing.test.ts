@@ -19,8 +19,9 @@ import {
   SPRITE_HOTSPOT_X,
   stillGroundY,
   visibleOctant,
+  gameFrameSec,
+  poseFromTable,
   walkFrame,
-  walkStride,
   worldToStill,
 } from "./facing";
 import { TILE_SPAN } from "../world/set/path";
@@ -52,6 +53,7 @@ function actor(x: number, y: number, deg = 0): ActorState {
     degTarget: 0,
     walkStep: 0,
     walkAcc: 0,
+    walkTiming: [],
     zclip: 32,
     standSprites: [],
     walkSprites: [],
@@ -109,9 +111,18 @@ describe("actordeg octants", () => {
     expect(degDelta(10, 250)).toBe(-16);
   });
 
-  it("covers one walk cycle per 256-unit tile", () => {
-    expect(walkStride(64)).toBe(32);
-    expect(walkStride(32)).toBe(64);
+  it("maps boot framerate 3 to a 20 Hz game frame", () => {
+    expect(gameFrameSec(3)).toBeCloseTo(3 / 60, 10);
+    expect(gameFrameSec(1)).toBeCloseTo(1 / 60, 10);
+  });
+
+  it("holds Leroy walk poses two engine ticks each", () => {
+    const table = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8];
+    expect(poseFromTable(table, 0, 8)).toBe(0);
+    expect(poseFromTable(table, 1, 8)).toBe(0);
+    expect(poseFromTable(table, 2, 8)).toBe(1);
+    expect(poseFromTable(table, 15, 8)).toBe(7);
+    expect(poseFromTable(table, 16, 8)).toBe(0);
   });
 
   it("stores 8 facings per walk pose, not 8 poses per facing", () => {

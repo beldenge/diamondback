@@ -112,13 +112,24 @@ export function walkFrame<T>(
   octant: number,
   step: number,
   perDir = 8,
+  table?: number[],
 ): T | undefined {
   if (frames.length < perDir) {
     return pickCyclic(frames, octant);
   }
   const poses = Math.max(1, Math.floor(frames.length / perDir));
-  const pose = step % poses;
+  const pose = poseFromTable(table, step, poses);
   return frames[pose * perDir + (octant % perDir)];
+}
+
+/** CST setInfo +0x2e is 1-based pose ids, length at +0x70. One slot per engine tick. */
+export function poseFromTable(table: number[] | undefined, step: number, poses: number): number {
+  const n = Math.max(1, poses);
+  if (table && table.length > 0) {
+    const raw = table[((step % table.length) + table.length) % table.length] ?? 1;
+    return ((raw - 1) % n + n) % n;
+  }
+  return ((step % n) + n) % n;
 }
 
 /**
@@ -176,7 +187,19 @@ export function stillGroundY(forward: number): number {
   return STILL_HORIZON_Y + (STILL_NEAR_Y - STILL_HORIZON_Y) * actorPerspective(forward);
 }
 
-/** World units per walk pose. One CST cycle covers a 256-unit tile. */
+/**
+ * `timeGetTime * 3 / 50` (`0x438210`) is a 60 Hz counter. The frame loop
+ * (`0x40e1d2`) waits `framerate` of those ticks — boot `framerate (3)` →
+ * **20 Hz** game frames. `actorspeed` is units per game frame. CST draw
+ * (`0x415040`) is on that same frame, so the +0x2e pose table is 20 Hz too.
+ */
+export const TIME_TICK_HZ = 60;
+
+export function gameFrameSec(framerate: number): number {
+  return Math.max(1, Math.trunc(framerate) || 1) / TIME_TICK_HZ;
+}
+
+/** @deprecated Distance-based stride was a remake guess. CST +0x2e is time-based. */
 export function walkStride(frameCount: number, perDir = 8): number {
   const poses = Math.max(1, Math.floor(frameCount / perDir));
   return ACTOR_TILE / poses;
@@ -328,7 +351,7 @@ export function actorSprite(
   const oct = visibleOctant(actor.deg, cameraDeg);
   if (actor.pose === "walk") {
     return (
-      walkFrame(actor.walkSprites, oct, actor.walkStep) ??
+      walkFrame(actor.walkSprites, oct, actor.walkStep, 8, actor.walkTiming) ??
       pickCyclic(actor.standSprites, oct)
     );
   }

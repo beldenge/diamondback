@@ -191,12 +191,19 @@ record[count]                     @ 28
     slot B @ +26 (24 bytes):
       same 8-byte header
       Pascal name                 @ +8   # 16-byte field
+    i32 path container            @ +0x18  # 0 = no polyline; else SET container
 ```
 
-Empty slot B has Pascal length 0; leftover bytes after that are editor
-junk, not a star. Small maps (APOTH) leave every B empty. TOWN/NITE pack
-pairs: `town.leroy2` / `town.leroy1` (1740, 3536), `town.blood1` /
-`town.blood2`, and so on. Do not invent missing stars — they are in slot B.
++0x18 sits after name A’s 16-byte field (before slot B xyz). Non-zero
+is a SET container: `i32 count` @0, `i32` total length @4, then
+`count` points at +16 of `{i16 x, y, z, seg}` (8 bytes). `DF.EXE`
+`0x424000` loads that polyline for named `walktostar`; reverse when
+going B→A. Extract: `paths.json`.
+
+Empty slot B has Pascal length 0. Small maps (APOTH) leave every B
+empty. TOWN/NITE pack pairs: `town.leroy2` / `town.leroy1` (1740, 3536)
+with path container **262**, `town.blood1` / `town.blood2`, and so on.
+Do not invent missing stars — they are in slot B.
 
 APOTH: `drugs.watson1` (190,90), `drugs.watson2` (64,82).
 

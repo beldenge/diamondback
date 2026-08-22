@@ -46,6 +46,17 @@ class SetWaypoint:
 
 
 @dataclass
+class SetStarPath:
+    """Authored polyline between a 50-byte waypoint pair (DF.EXE 0x424000)."""
+
+    a: str
+    b: str
+    container: int
+    length: int
+    points: list[dict]
+
+
+@dataclass
 class SetTransition:
     x_from: int
     y_from: int
@@ -93,6 +104,12 @@ def write_set_extract(
     (out_dir / "waypoints.json").write_text(
         json.dumps([asdict(w) for w in waypoints], indent=2) + "\n", encoding="utf-8"
     )
+    waypoint_id = struct.unpack_from("<h", df.containers[0].data, 34)[0] if df.containers else -1
+    paths = _read_star_paths(df, waypoint_id)
+    (out_dir / "paths.json").write_text(
+        json.dumps([asdict(p) for p in paths], indent=2) + "\n", encoding="utf-8"
+    )
+    counts["paths"] = len(paths)
     (out_dir / "transitions.json").write_text(
         json.dumps(
             [
@@ -209,6 +226,55 @@ def _read_waypoints(df: DFFile, container_id: int) -> list[SetWaypoint]:
             if star is not None:
                 points.append(star)
     return points
+
+
+def _read_star_paths(df: DFFile, container_id: int) -> list[SetStarPath]:
+    """Polylines at waypoint record +0x18 (SET container id). 0 = no path."""
+    if container_id < 0 or container_id >= len(df.containers):
+        return []
+    data = df.containers[container_id].data
+    if len(data) < 28:
+        return []
+    count = struct.unpack_from("<i", data, 24)[0]
+    if count < 0 or count > 10_000:
+        return []
+    paths: list[SetStarPath] = []
+    for index in range(count):
+        rec = data[28 + index * 50 : 28 + index * 50 + 50]
+        if len(rec) < 50:
+            break
+        path_id = struct.unpack_from("<I", rec, 0x18)[0]
+        if path_id == 0 or path_id >= len(df.containers):
+            continue
+        name_a = pascal_string(rec, 8)
+        name_b = pascal_string(rec, 34)
+        if not name_a or not name_b:
+            continue
+        points, length = _read_path_container(df.containers[path_id].data)
+        if len(points) < 2:
+            continue
+        paths.append(
+            SetStarPath(a=name_a, b=name_b, container=path_id, length=length, points=points)
+        )
+    return paths
+
+
+def _read_path_container(blob: bytes) -> tuple[list[dict], int]:
+    """count @0, total length @4, points @16 as {x,y,z,seg} int16s (DF.EXE 0x411f50)."""
+    if len(blob) < 24:
+        return [], 0
+    count = struct.unpack_from("<i", blob, 0)[0]
+    length = struct.unpack_from("<i", blob, 4)[0]
+    if count < 2 or count > 500:
+        return [], 0
+    points: list[dict] = []
+    for i in range(count):
+        off = 16 + i * 8
+        if off + 8 > len(blob):
+            break
+        x, y, z, seg = struct.unpack_from("<hhhh", blob, off)
+        points.append({"x": x, "y": y, "z": z, "seg": seg})
+    return points, length
 
 
 def _waypoint_slot(rec: bytes, offset: int) -> SetWaypoint | None:
