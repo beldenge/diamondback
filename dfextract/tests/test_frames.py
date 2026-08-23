@@ -178,24 +178,44 @@ class TestFrames(unittest.TestCase):
         self.assertGreater(written, 100)
 
     def test_inven_index_0_is_white_not_a_hole(self) -> None:
-        """Unused pal 0 8.8 is 0xFFFF → white. CST Help stays unused→black."""
+        """DF.EXE 0x423e59 sar-8 of unused 0xFFFF is white, not a knockout.
+
+        Pal 0 is sampled (HELP counters, gun flecks). Codec skip stays
+        alpha 0 (gun outline). CST Help legs stay unused→black
+        (SET VGA index 0).
+        """
         if not INVEN.exists():
             self.skipTest("INVEN.PRP not present")
         df = read_df_file(INVEN)
-        palette = find_palette(df.containers[0].data, unused_rgb=(255, 255, 255))
+        palette = find_palette(df.containers[0].data)
         assert palette is not None
         self.assertEqual(palette.colors[0], (255, 255, 255))
         gun = decode_trans_sprite(df.containers[407].data, palette)
         white = 0
         opaque_black = 0
+        trans = 0
         for i in range(0, len(gun.rgba), 4):
             red, green, blue, alpha = gun.rgba[i : i + 4]
             if (red, green, blue, alpha) == (255, 255, 255, 255):
                 white += 1
             if (red, green, blue, alpha) == (0, 0, 0, 255):
                 opaque_black += 1
+            if alpha == 0:
+                trans += 1
         self.assertGreater(white, 200)
         self.assertEqual(opaque_black, 0)
+        self.assertGreater(trans, 1000)
+        helpbut = decode_trans_sprite(df.containers[421].data, palette)
+        help_white = 0
+        help_trans = 0
+        for i in range(0, len(helpbut.rgba), 4):
+            red, green, blue, alpha = helpbut.rgba[i : i + 4]
+            if (red, green, blue, alpha) == (255, 255, 255, 255):
+                help_white += 1
+            if alpha == 0:
+                help_trans += 1
+        self.assertGreater(help_white, 20)
+        self.assertEqual(help_trans, 0)
 
 
 if __name__ == "__main__":

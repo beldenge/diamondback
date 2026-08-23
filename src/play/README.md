@@ -73,13 +73,16 @@ so `adjscene` can walk the pen instead of falling through to the player tile.
 World sprites paint far-to-near (Leroy in front of the dog/jug). The
 held item (`#play-hand`) is a canvas stamped from decoded sprite bits
 (so a new item is not the previous bitmap stretched to the new size).
-INVEN unused palette **index 0** is 8.8 `0xFFFF` (high byte white), not
-a knockout and not CST Help-black. HUD holes that **sample pal 0** (gun
-trigger, HELP counters) are opaque cream/white. Play remaps leftover
-`(0,0,0)` on `PRP/_INVEN` sprites to white and skips the CST foot-shadow
-alpha pass on them. The HUD ring's inner disk is codec skip (unwritten
-index 255), not pal 0 — Dust leaves the framebuffer there.
-It hides during puppet UI and inventory. Inventory places owned INVEN
+INVEN unused palette **index 0** is 8.8 `0xFFFF`. DF.EXE `0x423e59`
+`sar r16, 8` makes that **white**, not a knockout and not CST Help-black.
+HUD holes that **sample pal 0** (HELP letter counters, gun leather flecks)
+are opaque white. DFET wrote unused as `(0,0,0)` (black spots); keying
+that through the HUD was a second wrong fix. Codec skip (unwritten
+index 255) stays transparent — Dust leaves the framebuffer there
+(gun outline, butbevel hole, ring center). World CST keeps unused→black
+because those sprites index-blit onto the SET still (VGA 0 = black;
+Help’s legs are pal 0). The held item hides during puppet UI and
+inventory. Inventory places owned INVEN
 props via `moveyoself` on the avatar flat (`panel`, or `hilite` for
 `handitem`). Click an item to run `stdmouse` (that prop becomes the
 HUD `handitem`). EXAMINE is `sendtoprop (handitem, infoyoself ())` →
@@ -140,6 +143,7 @@ falls through to the SET keydown (walk), not to `new.flt`’s options
 | `closesetfile` without the old scene’s `closescene` | Street door still visible; the close plays later on pans. |
 | `loadedScriptFiles` blocking reinstall after `removePrefix("set"\|"scene:")` | Town `keydown` gone; walk freeze on shop exit. Reinstall when `!index.has(key)`. |
 | Prefetch two viseme JSON files | Choice-line jaw lags while the WAV plays (Leroy and Help). Warm **every** ident; `puppetspeak` awaits the track before `play()`. |
+| Uncapped SET still + all-CST sprite decode | Turn/walk hangs 1–2s or eats the key. Current strip is high-priority; neighbor strips prefetch at depth 2; shared inflight cap 8. Do not skip plates. |
 | New face blit per 60 Hz tick (`paintGen` drops in-flight jaws) | Idle head, then a late jump. One blit; queue the latest pose; share one `Image` onload. |
 | Avatar EXAMINE on DOM `click` after `#play-stage` `pointerdown` | First press lost. Dust is button `mousedown` + `trackbut`. Overlay fires on **pointerdown**; HUD buttons win over item sprites. |
 | `infoyoself` on boot `handitem` `helpbut` | Empty shop `infoyoself`. `addinven ("helpbut")` is chrome, not an inspect target. |
@@ -430,7 +434,8 @@ Drink is still the 8×4 CST strip, one pose every 6 script frames
 The brown pancake under feet is a **contact shadow**, not studio dirt.
 Detect **per actor** from stand frames: a dark maroon index (`8 ≤
 max(rgb) ≤ 50`) with ≥80% of its pixels in the bottom quarter. Skip
-unused/black — Help's robe is index 0 and must stay opaque. GANG
+unused/black — Help's legs are pal 0 (SET VGA black) and must stay
+opaque; the robe is other greens. GANG
 Leroy/Jones/Marie use index **131** RGB `(25, 17, 17)`; Todd/Oona/Watson
 use **132**. Flood-fill from the bottom edge; write the blob as
 translucent black (`alpha` 120). Same-index pixels on the body stay

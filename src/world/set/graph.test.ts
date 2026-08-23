@@ -11,6 +11,8 @@ import {
   swipeWalkInput,
   transitionForInput,
   turnFacing,
+  walkInputFromCode,
+  walkInputFromKeys,
   walkInputKey,
 } from "./walker";
 import { framesToPlay, type SceneRecord, type TransitionRecord } from "./types";
@@ -126,6 +128,10 @@ describe("walker", () => {
     expect(walkInputKey("forward")).toBe("uparrow");
     expect(walkInputKey("left")).toBe("leftarrow");
     expect(walkInputKey("right")).toBe("rightarrow");
+    expect(walkInputFromCode("KeyW")).toBe("forward");
+    expect(walkInputFromCode("KeyA")).toBe("left");
+    expect(walkInputFromCode("KeyD")).toBe("right");
+    expect(walkInputFromKeys(["KeyW", "KeyA"])).toBe("forward");
     expect(isSwipePointer("touch")).toBe(true);
     expect(isSwipePointer("pen")).toBe(true);
     expect(isSwipePointer("mouse")).toBe(false);

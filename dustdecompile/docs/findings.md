@@ -541,6 +541,7 @@ Capstone on `.text` (not Ghidra). Addresses are VAs, image base
 | `0x415271` | Dest size: `actorscale * setInfo+0x2a / 1000`, then `idiv` by **lens-forward** (`[esp+0x12]` is the `ax` from `0x40dcd0`; skip if `< 32`). Dest Mac Rect at out+0x10: top/left = projected hotspot minus scaled header hotspot. Clip `0x40ab50`. GANG +0x2a = **114**; INVEN jug = **96**. |
 | `0x427fa0` / `0x4280d0` | PRP draw / per-prop helper. Clone of CST (`prop+0x4e` zclip, `prop+0x2c` scale). Record stride **0xa4**. Same `0x40dcd0`. |
 | `0x411d50` / `0x411d20` | `calcdeg` / atan2 on the 256-circle (0=S, 64=E, 128=N, 192=W). CST helper mixes that with look-deg for the sprite octant. `0xC0` here is **west**, not focal 192. |
+| `0x423e59` | ColorPalette 8.8 → GDI. `mov dx,[esi+2]` R, `mov ax,[esi+4]` G, `mov cx,[esi+6]` B; `sar dx,8` / `sar ax,8`. Unused slot is `0xFFFF`; arithmetic shift keeps `0xFF` in the low byte (**white**). No unused→black and no unused→transparent. DFET’s `(0,0,0)` for `0xFFFF` was an extract bug (INVEN HUD black spots). Codec skip is the trans-sprite “don’t write” run, not pal 0. |
 
 SET container 0 (every Dust map we dumped):
 

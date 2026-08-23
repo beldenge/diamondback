@@ -97,6 +97,7 @@ describe("SET Z vs actor", () => {
     );
     expect([...bits.data.slice(0, 4)]).toEqual([255, 255, 255, 255]);
     expect(bits.data[7]).toBe(255);
+    // Codec skip stays transparent — silhouette / ring hole.
     expect(bits.data[11]).toBe(0);
   });
 

@@ -17,13 +17,21 @@ i16 index
 i16 R, G, B     # 8.8 fixed point; we take the high byte
 ```
 
-`R == G == B == -1` (`0xFFFF`) means “unused”; we emit black.
+`R == G == B == -1` (`0xFFFF`) means “unused”. DF.EXE `0x423e59` does
+`sar r16, 8` on those 8.8 channels, so the high byte is **255 (white)**.
+DFET wrote unused as `(0,0,0)` — that was the INVEN HUD “black spots”
+(HELP letter counters, gun leather flecks). Trans sprites now follow
+the EXE (white) unless a caller passes `unused_rgb=(0,0,0)`.
 
 SET/MOV/FLT **stills** follow DFET’s BMP VGA ends: index **0 is always
 black**, index **255 is always white**. Dust stores 255 as `(0,0,0)` in
 the ColorPalette; using that value made the O7 ox skull a black hole
 while `_NITE` (which paints the skull with real tan/gray indices) looked
-fine. Transparent sprites (PUP/CST) do **not** apply that override.
+fine. CST world actors keep unused→black: they index-blit onto that
+8-bit still (Help’s legs are pal 0). INVEN HUD items are RGB-expanded
+and sample pal 0 as white. Codec skip (unwritten index 255) stays
+transparent — Dust leaves the framebuffer there (gun outline, butbevel
+hole). Do not key pal 0 through the HUD.
 
 Where it lives:
 
@@ -78,10 +86,11 @@ and EXTRA writes Jenix `stand/frame_195.png`.
 CST in-world bodies include a photographed **contact shadow** under the
 feet. Detect **per actor** from stand frames: a dark maroon index
 (`8 ≤ max(rgb) ≤ 50`) with ≥80% of its pixels in the bottom quarter.
-Skip unused/black (`max(rgb) < 8`) — Help's robe is palette index 0
-`(0,0,0)` and is clothes, not a matte. **INVEN** HUD items sample unused
-pal 0 as 8.8 `0xFFFF` → white (gun trigger fill, HELP letter counters) —
-opaque, not a hole through the HUD. CST Help’s robe keeps unused→black.
+Skip unused/black (`max(rgb) < 8`) — Help's **legs** are palette index 0
+(unused 0xFFFF, collapsed to black on the SET still) and are clothes,
+not a matte. The robe body is other greens. **INVEN** HUD items sample
+unused pal 0 as 8.8 `0xFFFF` → white (HELP letter counters, gun flecks) —
+opaque, not a hole through the HUD.
 HOUSE avatar pupils stay. GANG Leroy/Jones use
 index **131** RGB `(25, 17, 17)`; Todd/Oona/Watson use **132**. Flood-fill
 from the bottom edge of the sprite; write that blob as translucent

@@ -191,6 +191,7 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 | 2026-08-23 | MOV inspect wait is frame rec+0 (`actionframe`), not the `spotmovie` wrapper. WARNING/BONE wait on that still; DOG1 is all 0 and auto-closes so G12 can spawn Help. |
 | 2026-08-23 | During `puppetspeak` the cursor is `watch` and dialogue bevels do not hover or click. After the line, arrow + live choices (`puppetevent`). |
 | 2026-08-23 | INVEN HUD unused pal 0 is white (8.8 0xFFFF), not transparent and not Help-black. Escape skips remaining `puppetspeak` until choices. |
+| 2026-08-23 | DF.EXE `0x423e59` `sar 8` of ColorPalette unused `0xFFFF` is white. DFET unused→black was the HUD black spots; keying pal 0 through the leather was the second miss. Codec skip (index 255 unwritten) is the real hole. CST unused stays black (SET VGA 0; Help legs). |
 | 2026-08-23 | Dog1 two A1 cues 100 ms apart: two sequential still+audio passes (one growl each). One pass + channel retrigger cuts the first growl at 100 ms (one bark). |
 | 2026-08-23 | `gotointerior` spawn is SET header +48, not the street cell. Mapping `scene g8`/`g12` onto saloon/chin graphs freezes on the facade (music plays). `currentview` is the word `east`, not `E`. |
 | 2026-08-23 | Interior camZ is SET +26 (chin **230**). Hardcoded 62 floats Help. Help **behind** the counter is SET Z (`FRAMES/z/`, `spriteZ ≤ stillZ`), not a second Y. |
@@ -200,6 +201,7 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 | 2026-08-23 | Avatar EXAMINE is first `pointerdown` (`mousedown`/`trackbut`). Boot `helpbut` is not an inspect target. Actionframe dismiss must not `skipNextClick` the next real click. |
 | 2026-08-23 | `pointinactor` / hover `touch` use CST dest Mac Rect (`0x415271`), not an 80px box on the feet hotspot (missed heads; chin scale 5800). |
 | 2026-08-23 | Map HOUSE `cross` at 0-based `tile*20+(222,93)`; blink `1,1,1,2,2,2` (no frame 2). 1-based `scenerow` puts g15 off the still. Nite counts as town; interiors use `townscene`. Traps: [`src/play/README.md`](src/play/README.md) § Interiors, HUD, clicks. |
+| 2026-08-23 | SET filmstrip hitch: play was not prefetching neighbor strips; uncapped sprite/still decode starved the plate on screen; cache 80 evicted the next turn. Shared priority gate (max 8), depth-2 idle prefetch, dest neighborhood on step, retain current strip, cache 256. Do not skip frames. Dust `keyrepeat` + one pending tap. |
 | 2026-08-21 | PUP paint order is Body then Head (beard is on the Head). Body-over-Head left a static beard ring that did not turn. |
 | 2026-08-21 | Dialog chrome: full-width black speech bar over the still; five `butbevel` slots replace the HUD (not overlays above it). |
 | 2026-08-21 | Choice boxes are HOUSE `butbevel` + GDI Arial, not OS buttons. Labels left-aligned. Hole fill is the rim’s `(111,56,38)`. |

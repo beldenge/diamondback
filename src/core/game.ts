@@ -18,14 +18,16 @@ import {
   stillClickPixel,
   swipeWalkInput,
   transitionForInput,
+  walkInputFromCode,
+  walkInputFromKeys,
   type WalkInput,
 } from "../world/set/walker";
+import { neighborStillUrls, poseHqUrl, transitionStillUrls } from "../world/set/film";
 import { createStillAnim, tickStillAnim, type StillAnim } from "../world/set/playback";
 import {
   STILL_FRAME_SEC,
   STILL_HEIGHT,
   STILL_WIDTH,
-  framesToPlay,
   type SetTransition,
   type WalkerPose,
 } from "../world/set/types";
@@ -71,6 +73,7 @@ export class Game {
     busy: boolean;
   } | null = null;
   private readonly heldKeys = new Set<string>();
+  private pendingInput: WalkInput | null = null;
   private skipNextClick = false;
   private swipe: { id: number; x: number; y: number } | null = null;
 
@@ -272,14 +275,11 @@ export class Game {
       this.applyClockState({ ...this.state, clock: next.clock });
       return;
     }
-    const input = keyToInput(event.code);
+    const input = walkInputFromCode(event.code);
     if (!input) {
       return;
     }
     event.preventDefault();
-    if (event.repeat) {
-      return;
-    }
     this.tryMove(input);
   }
 
@@ -289,8 +289,10 @@ export class Game {
       return;
     }
     if (session.busy) {
+      this.pendingInput = input;
       return;
     }
+    this.pendingInput = null;
     session.hqGen += 1;
     if (input === "forward") {
       const auto = this.autoWalkAhead();
@@ -332,7 +334,13 @@ export class Game {
     this.revealHq();
     this.syncDoorOverlay();
     this.preloadNeighbors();
-    const held = heldWalkInput(this.heldKeys);
+    const pending = this.pendingInput;
+    this.pendingInput = null;
+    if (pending) {
+      this.tryMove(pending);
+      return;
+    }
+    const held = walkInputFromKeys(this.heldKeys);
     if (held) {
       this.tryMove(held);
     }
@@ -361,13 +369,18 @@ export class Game {
     }
     session.busy = true;
     session.pending = tr;
-    const urls = transitionUrls(tr, this.stillsFolder());
+    const folder = this.stillsFolder();
+    const urls = transitionStillUrls(tr, folder);
     const dest = applyTransition(tr);
-    const destHq = hqFrame(session.graph, dest);
+    const destHq = poseHqUrl(session.graph, dest, folder);
+    const nextMoves = neighborStillUrls(session.graph, dest, folder, 1);
+    const keep = destHq ? [...urls, destHq, ...nextMoves] : [...urls, ...nextMoves];
+    session.view.retain(keep);
     if (destHq) {
-      session.view.preload([frameUrl(this.stillsFolder(), destHq.frame0, destHq.offset)]);
+      session.view.preload([destHq], "high");
     }
-    session.view.preload(urls);
+    session.view.preload(urls, "high");
+    session.view.preload(nextMoves, "high");
     const anim = createStillAnim(urls);
     session.anim = anim;
     if (session.view.showCached(urls[0])) {
@@ -459,37 +472,7 @@ export class Game {
     if (!session) {
       return;
     }
-    const folder = this.stillsFolder();
-    const urls: string[] = [];
-    const seen = new Set<string>();
-    const queue: { pose: WalkerPose; depth: number }[] = [{ pose: origin, depth: 0 }];
-    while (queue.length > 0) {
-      const item = queue.shift();
-      if (!item) {
-        break;
-      }
-      const key = `${item.pose.x},${item.pose.y},${item.pose.facing}`;
-      if (seen.has(key)) {
-        continue;
-      }
-      seen.add(key);
-      const hq = hqFrame(session.graph, item.pose);
-      if (hq !== undefined) {
-        urls.push(frameUrl(folder, hq.frame0, hq.offset));
-      }
-      if (item.depth >= 1) {
-        continue;
-      }
-      for (const input of ["left", "right", "forward"] as const) {
-        const tr = transitionForInput(session.graph, item.pose, input);
-        if (!tr) {
-          continue;
-        }
-        urls.push(...transitionUrls(tr, folder));
-        queue.push({ pose: applyTransition(tr), depth: item.depth + 1 });
-      }
-    }
-    session.view.preload(urls);
+    session.view.preload(neighborStillUrls(session.graph, origin, this.stillsFolder(), 2), "low");
   }
 
   private applyClockState(state: GlobalState): void {
@@ -714,37 +697,4 @@ export class Game {
   }
 }
 
-function heldWalkInput(keys: Set<string>): WalkInput | null {
-  if (keys.has("ArrowUp") || keys.has("KeyW")) {
-    return "forward";
-  }
-  if (keys.has("ArrowLeft") || keys.has("KeyA")) {
-    return "left";
-  }
-  if (keys.has("ArrowRight") || keys.has("KeyD")) {
-    return "right";
-  }
-  return null;
-}
 
-function keyToInput(code: string): WalkInput | null {
-  if (code === "ArrowLeft" || code === "KeyA") {
-    return "left";
-  }
-  if (code === "ArrowRight" || code === "KeyD") {
-    return "right";
-  }
-  if (code === "ArrowUp" || code === "KeyW") {
-    return "forward";
-  }
-  return null;
-}
-
-function transitionUrls(tr: SetTransition, folder: string): string[] {
-  const urls: string[] = [];
-  const count = framesToPlay(tr);
-  for (let i = 0; i < count; i += 1) {
-    urls.push(frameUrl(folder, tr.frame0, i));
-  }
-  return urls;
-}

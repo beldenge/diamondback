@@ -7,9 +7,13 @@ import {
   stillClickPixel,
   swipeWalkInput,
   transitionForInput,
+  walkInputFromCode,
+  walkInputFromKeys,
   walkInputKey,
   type WalkInput,
 } from "../world/set/walker";
+import { neighborStillUrls, poseHqUrl, transitionStillUrls } from "../world/set/film";
+import { mediaGate, type MediaPriority } from "../world/set/media";
 import {
   createStillAnim,
   displayedFilmstripIndex,
@@ -141,6 +145,7 @@ export class PlayGame implements WorldView {
    */
   private talking = false;
   private readonly heldKeys = new Set<string>();
+  private pendingWalk: WalkInput | null = null;
   private booting = true;
   private scriptsReady = false;
   private logLine = "";
@@ -285,6 +290,7 @@ export class PlayGame implements WorldView {
     });
     window.addEventListener("keydown", (event) => this.onKey(event));
     window.addEventListener("keyup", (event) => this.heldKeys.delete(event.code));
+    window.addEventListener("blur", () => this.heldKeys.clear());
     window.addEventListener("resize", () => this.layoutStage());
   }
 
@@ -364,6 +370,10 @@ export class PlayGame implements WorldView {
 
   walk(kind: "strait" | "left" | "right"): void {
     const input: WalkInput = kind === "strait" ? "forward" : kind;
+    if (this.busy) {
+      this.pendingWalk = input;
+      return;
+    }
     this.tryMove(input);
   }
 
@@ -376,6 +386,7 @@ export class PlayGame implements WorldView {
     this.host.currentScene = this.host.sceneNameForPose(graph, pose.x, pose.y);
     this.host.currentDir = pose.facing;
     await this.showHold();
+    this.preloadNeighbors();
     this.host.noticeCamera();
   }
 
@@ -573,9 +584,9 @@ export class PlayGame implements WorldView {
         await this.vm.inObject("boot", "", () => this.vm.runProc(boot));
       }
       this.scriptsReady = true;
-      this.preloadActorArt();
       this.layoutActors();
       this.booting = false;
+      this.preloadNeighbors();
       await this.host.onArrive(this.vm);
       this.syncHud();
     } catch (err) {
@@ -984,10 +995,17 @@ export class PlayGame implements WorldView {
       return;
     }
     const input = swipeWalkInput(event.clientX - swipe.x, event.clientY - swipe.y);
-    if (!input || this.inputBlocked() || !this.scriptsReady) {
+    if (!input || !this.scriptsReady) {
       return;
     }
     this.skipNextClick = true;
+    if (this.busy && !this.talking) {
+      this.pendingWalk = input;
+      return;
+    }
+    if (this.inputBlocked()) {
+      return;
+    }
     this.talking = true;
     try {
       await this.host.dispatchKey(this.vm, walkInputKey(input));
@@ -1062,14 +1080,25 @@ export class PlayGame implements WorldView {
     if (this.flats.open) {
       return;
     }
-    if (this.inputBlocked() || !this.scriptsReady) {
-      return;
-    }
     const arg = keyToScriptArg(event.code);
-    if (!arg || event.repeat) {
+    if (!arg) {
       return;
     }
     event.preventDefault();
+    if (this.busy && !this.talking && this.scriptsReady) {
+      const input = walkInputFromCode(event.code);
+      if (input) {
+        this.pendingWalk = input;
+      }
+      return;
+    }
+    if (this.inputBlocked() || !this.scriptsReady) {
+      return;
+    }
+    this.dispatchWalkKey(arg);
+  }
+
+  private dispatchWalkKey(arg: string): void {
     this.talking = true;
     void this.host.dispatchKey(this.vm, arg).finally(() => {
       this.talking = false;
@@ -1078,8 +1107,12 @@ export class PlayGame implements WorldView {
 
   private tryMove(input: WalkInput): void {
     if (this.busy || !this.graph) {
+      if (this.busy) {
+        this.pendingWalk = input;
+      }
       return;
     }
+    this.pendingWalk = null;
     this.hqGen += 1;
     if (input === "forward") {
       const door = doorOnPose(
@@ -1119,12 +1152,13 @@ export class PlayGame implements WorldView {
     this.busy = true;
     this.pending = tr;
     const folder = this.stillsFolder();
-    const urls = [0, 1, 2, 3, 4].map((offset) => frameUrl(folder, tr.frame0, offset));
-    const destHq = hqFrame(this.graph, dest);
-    if (destHq) {
-      urls.push(frameUrl(folder, destHq.frame0, destHq.offset));
-    }
-    this.view.preload(urls);
+    const motion = transitionStillUrls(tr, folder);
+    const destHq = poseHqUrl(this.graph, dest, folder);
+    const urls = destHq ? [...motion, destHq] : motion;
+    const nextMoves = neighborStillUrls(this.graph, dest, folder, 1);
+    this.view.retain([...urls, ...nextMoves]);
+    this.view.preload(urls, "high");
+    this.view.preload(nextMoves, "high");
     const anim = createStillAnim(urls);
     this.anim = anim;
     if (this.view.showCached(urls[0])) {
@@ -1139,7 +1173,7 @@ export class PlayGame implements WorldView {
     }
     this.clock.getDelta();
     this.needsRender = true;
-    void this.loadZPlane(zUrlFromStill(urls[0]));
+    void this.loadZPlane(zUrlFromStill(urls[0]), "high");
   }
 
   private driveAnim(anim: StillAnim, dt: number): void {
@@ -1157,7 +1191,7 @@ export class PlayGame implements WorldView {
     const step = tickStillAnim(anim, dt, STILL_FRAME_SEC);
     if (step.frameChanged) {
       const next = anim.urls[anim.index];
-      void this.loadZPlane(zUrlFromStill(next));
+      void this.loadZPlane(zUrlFromStill(next), "high");
       if (!this.view.showCached(next)) {
         anim.ready = false;
         void this.view.show(next).then(() => {
@@ -1188,11 +1222,43 @@ export class PlayGame implements WorldView {
     // Dest HQ is the last plate of the strip (already on screen when
     // preloaded). Do not layout dest sprites before that still is up —
     // that was the end-of-move teleport.
-    void this.showHold().then(() => {
-      if (tileStep) {
-        return this.host.onArrive(this.vm);
-      }
-    });
+    const gen = this.hqGen;
+    void this.afterStillMove(tileStep, gen);
+  }
+
+  private async afterStillMove(tileStep: boolean, gen: number): Promise<void> {
+    await this.showHold();
+    if (tileStep) {
+      await this.host.onArrive(this.vm);
+    }
+    if (this.hqGen !== gen) {
+      return;
+    }
+    this.preloadNeighbors();
+    this.continueWalk();
+  }
+
+  private continueWalk(): void {
+    if (this.inputBlocked()) {
+      return;
+    }
+    const pending = this.pendingWalk;
+    this.pendingWalk = null;
+    if (pending) {
+      this.tryMove(pending);
+      return;
+    }
+    const held = walkInputFromKeys(this.heldKeys);
+    if (held) {
+      this.dispatchWalkKey(walkInputKey(held));
+    }
+  }
+
+  private preloadNeighbors(): void {
+    if (!this.graph) {
+      return;
+    }
+    this.view.preload(neighborStillUrls(this.graph, this.pose, this.stillsFolder(), 2), "low");
   }
 
   private async showHold(): Promise<void> {
@@ -1275,6 +1341,7 @@ export class PlayGame implements WorldView {
       this.host.currentSet = this.world;
       this.host.currentScene = this.host.sceneNameForPose(this.graph, this.pose.x, this.pose.y);
       await this.showHold();
+      this.preloadNeighbors();
     } finally {
       this.busy = false;
     }
@@ -1464,8 +1531,6 @@ export class PlayGame implements WorldView {
     const hx = prop.x || HAND_SLOT.x;
     const hy = prop.y || HAND_SLOT.y;
     if (this.handSrc !== url) {
-      // Stamp decoded pixels. An <img> src swap keeps the previous bitmap
-      // stretched to the new size until the PNG loads (jug-shaped helpbut).
       this.handEl.width = bits.w;
       this.handEl.height = bits.h;
       const stamp = this.handCtx.createImageData(bits.w, bits.h);
@@ -1480,24 +1545,6 @@ export class PlayGame implements WorldView {
     this.handEl.style.height = `${place.h * scale}px`;
   }
 
-  private preloadActorArt(): void {
-    for (const actor of this.host.actors.values()) {
-      for (const place of [
-        ...actor.standSprites,
-        ...actor.walkSprites,
-        ...actor.drinkSprites,
-        ...Object.values(actor.sprites ?? {}).flat(),
-      ]) {
-        void this.loadSpriteBits(this.host.spriteUrl(actor, place));
-      }
-    }
-    for (const prop of this.host.props.values()) {
-      for (const place of Object.values(prop.sprites).flat()) {
-        void this.loadSpriteBits(extractUrl(`${prop.spriteRoot}/${place.path}`));
-      }
-    }
-  }
-
   private loadSpriteBits(url: string): Promise<SpriteBits | null> {
     const hit = this.spriteBits.get(url);
     if (hit) {
@@ -1507,7 +1554,7 @@ export class PlayGame implements WorldView {
     if (pending) {
       return pending;
     }
-    const job = decodeStillImage(url)
+    const job = decodeStillImage(url, "low")
       .then((image) => {
         const inven = /\/PRP\/_INVEN\//i.test(url);
         const bits = spriteBitsFromImageData(
@@ -1526,12 +1573,12 @@ export class PlayGame implements WorldView {
     return job;
   }
 
-  private loadZPlane(url: string): Promise<void> {
+  private loadZPlane(url: string, priority: MediaPriority = "low"): Promise<void> {
     if (this.zKey === url) {
       return Promise.resolve();
     }
     this.zKey = url;
-    return decodeStillImage(url)
+    return decodeStillImage(url, priority)
       .then((image) => {
         if (this.zKey !== url) {
           return;
@@ -1618,8 +1665,36 @@ function preloadMovieImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-async function decodeStillImage(url: string): Promise<ImageData> {
-  const res = await fetch(url);
+const stillImageLoads = new Map<string, Promise<ImageData>>();
+
+function decodeStillImage(url: string, priority: MediaPriority = "low"): Promise<ImageData> {
+  const hit = stillImageLoads.get(url);
+  if (hit) {
+    if (priority === "high") {
+      mediaGate.prefer(`bits:${url}`);
+    }
+    return hit;
+  }
+  const promise = new Promise<ImageData>((resolve, reject) => {
+    mediaGate.enqueue(`bits:${url}`, priority, async () => {
+      try {
+        resolve(await fetchStillImageData(url, priority));
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }).finally(() => {
+    stillImageLoads.delete(url);
+  });
+  stillImageLoads.set(url, promise);
+  return promise;
+}
+
+async function fetchStillImageData(url: string, priority: MediaPriority): Promise<ImageData> {
+  const res = await fetch(url, {
+    cache: "force-cache",
+    priority: priority === "high" ? "high" : "low",
+  });
   if (!res.ok) {
     throw new Error(`${url} ${res.status}`);
   }
@@ -1648,25 +1723,8 @@ async function decodeStillImage(url: string): Promise<ImageData> {
 }
 
 function keyToScriptArg(code: string): string | null {
-  if (code === "ArrowUp") {
-    return "uparrow";
-  }
-  if (code === "ArrowLeft") {
-    return "leftarrow";
-  }
-  if (code === "ArrowRight") {
-    return "rightarrow";
-  }
-  if (code === "KeyW") {
-    return "W";
-  }
-  if (code === "KeyA") {
-    return "A";
-  }
-  if (code === "KeyD") {
-    return "D";
-  }
-  return null;
+  const input = walkInputFromCode(code);
+  return input ? walkInputKey(input) : null;
 }
 
 function numGlobal(vm: VM, name: string): number {

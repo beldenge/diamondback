@@ -28,7 +28,7 @@ class Palette:
         data: bytes,
         offset: int,
         count: int = 256,
-        unused_rgb: tuple[int, int, int] = (0, 0, 0),
+        unused_rgb: tuple[int, int, int] | None = None,
     ) -> "Palette":
         needed = offset + count * 8
         if needed > len(data):
@@ -37,9 +37,13 @@ class Palette:
         for index in range(count):
             _idx, red, green, blue = struct.unpack_from("<hhhh", data, offset + index * 8)
             if red == -1 and green == -1 and blue == -1:
-                # Unused 8.8 is 0xFFFF. High byte is 255; CST Help's robe
-                # needs the collapse to black, INVEN HUD holes need white.
-                colors.append(unused_rgb)
+                # Unused 8.8 is 0xFFFF. DF.EXE 0x423e59 `sar r16, 8` on
+                # ColorPalette RGB; high byte of 0xFFFF is 255 (white).
+                # DFET wrote (0,0,0) instead — INVEN HUD "black spots".
+                # CST world actors keep unused→black: they index-blit onto
+                # the SET 8-bit still, whose VGA index 0 is black (Help's
+                # legs are pal 0). Pass unused_rgb=(0,0,0) for that path.
+                colors.append(unused_rgb if unused_rgb is not None else (255, 255, 255))
             else:
                 colors.append(
                     ((red >> 8) & 0xFF, (green >> 8) & 0xFF, (blue >> 8) & 0xFF)
@@ -100,7 +104,7 @@ TRANSPARENT_INDEX = 255
 
 
 def decode_trans_indices(container: bytes) -> tuple[int, int, int, int, bytes]:
-    """Palette indices, 255 = codec transparency. Same RLE as decode_trans_sprite."""
+    """Palette indices, 255 = codec skip (alpha 0). Same RLE as decode_trans_sprite."""
     if len(container) < 8:
         raise ImageError("sprite container smaller than header")
     height, width, raw_y, raw_x = struct.unpack_from("<hhhh", container, 0)
@@ -272,17 +276,23 @@ def sprite_record(
 
 
 def pup_palette(header: bytes) -> Palette:
-    return Palette.from_container(header, 58)
+    return Palette.from_container(header, 58, unused_rgb=(0, 0, 0))
 
 
 def cst_palette(header: bytes) -> Palette:
-    return Palette.from_container(header, 36)
+    """CST pal 0 is unused 0xFFFF. World actors blit indices onto SET
+    stills (VGA 0 = black); Help's legs are that slot. Not HUD white."""
+    return Palette.from_container(header, 36, unused_rgb=(0, 0, 0))
 
 
 def find_palette(
-    data: bytes, unused_rgb: tuple[int, int, int] = (0, 0, 0)
+    data: bytes, unused_rgb: tuple[int, int, int] | None = None
 ) -> Palette | None:
-    """Find a 256-entry ColorPalette by incrementing index 0,1,2."""
+    """Find a 256-entry ColorPalette by incrementing index 0,1,2.
+
+    Default unused 8.8 (0xFFFF) follows DF.EXE ``sar 8`` → white.
+    Stills still force VGA ends via ``still_rgba`` / ``still_plte``.
+    """
     limit = len(data) - 24
     for offset in range(0, min(limit, 4096), 2):
         if (

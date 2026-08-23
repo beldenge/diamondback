@@ -93,17 +93,25 @@ O7 north spawn HQ is `1640_5.png`.
 | Motion rate | `STILL_FRAME_SEC = 1/24` (~24 fps). Five motion frames ≈ 210 ms. |
 | Hitch policy | Advance **one** frame per interval. Never skip. If a PNG is not ready, hold until it is. |
 | HQ delay | `HQ_REVEAL_DELAY_SEC = 0.5`. Last LQ frame stays up; dest HQ after that. A new step cancels it. |
-| Input while busy | Ignored **during the strip**. After the strip, input is live (including during the HQ wait). Hold-to-repeat after the step if the key is still down. |
+| Input while busy | One pending tap (latest wins). After the strip, input is live (including during the HQ wait). Hold-to-repeat is Dust `keyrepeat`. |
 | Dead / unfilmed move | No-op (no transition in the graph). |
 
 On keydown the first motion frame paints immediately if it is already
-decoded. While you stand, we prefetch depth-1 neighbors (left / right /
-forward strips + their dest HQs). The rest of the current strip loads
-in the background. If a PNG is missing when the clock wants it, **wait**
-— do not skip. Textures are `ImageBitmap`s; the GPU cache evicts after
-80 stills (~42 MB RGBA). That is not the film: `TOWN.SET` is ~60 MB of
-8-bit deltas; the PNG dump is ~115 MB; keeping every town still as RGBA
-would be ~1.7 GB.
+decoded. While you stand, we prefetch **depth-2** neighbors (this
+pose’s left / right / forward strips, then each dest’s next strips)
+at low priority. Starting a walk/turn promotes **that strip + the dest
+pose’s depth-1 neighborhood** so the next tap does not wait on a cold
+PNG. A shared decode gate (max 8 inflight) keeps CST/PRP sprite loads
+from starving the film; the current plate is always high priority.
+If a PNG is missing when the clock wants it, **wait** — do not skip.
+Textures are `ImageBitmap`s; the GPU cache evicts after 256 stills
+(~138 MB RGBA) and will not drop the retained current/next strip.
+That is not the film: `TOWN.SET` is ~60 MB of 8-bit deltas; the PNG
+dump is ~115 MB; keeping every town still as RGBA would be ~1.7 GB.
+
+A tap during the strip is remembered once (latest wins). After the
+strip, Dust `keyrepeat` fires if the key is still down. Play mode
+uses the same walker/prefetch as the sandbox.
 
 Locally, Vite serves extract files at `/extract/…` →
 `../../../dfextract/out/…` with `Cache-Control: no-store` so a re-dump
@@ -264,7 +272,9 @@ do not swap (except you entered court at night).
 | `extract.ts` | `/extract` locally, `VITE_EXTRACT_BASE` when hosted |
 | `walker.ts` | Input → filmed transition |
 | `playback.ts` | One-frame-per-tick strip clock (no catch-up) |
-| `stillsView.ts` | Ortho blit + texture cache (no priority queue) |
+| `stillsView.ts` | Ortho blit + texture cache (priority decode gate) |
+| `media.ts` | Shared inflight cap: current strip before prefetch/sprites |
+| `film.ts` | Motion URLs + neighbor prefetch lists |
 | `graph.test.ts` | Spawn, G11 HQs, 52 camera tiles |
 | `doors.ts` | Hand-ported hitboxes, locks, SET hops |
 | `sfx.ts` | `UNILIB` knock / door WAVs |

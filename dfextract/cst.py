@@ -111,7 +111,8 @@ def detect_contact_shadows(
     Stand frames put the photographed shadow in the bottom quarter. A
     dark maroon index (8 ≤ max(rgb) ≤ 50) with ≥80% of its pixels there
     is that matte (GANG 131 = 25,17,17 on Leroy/Jones/…). Skip unused
-    black — Help's robe is index 0. Do not apply this to PUP faces.
+    black — Help's **legs** are pal 0 (unused 0xFFFF, SET VGA black);
+    the robe is other greens. Do not apply this to PUP faces.
     """
     from collections import Counter
 

@@ -1,5 +1,4 @@
 import {
-  ImageBitmapLoader,
   Mesh,
   MeshBasicMaterial,
   NearestFilter,
@@ -9,13 +8,11 @@ import {
   SRGBColorSpace,
   Texture,
 } from "three";
+import { mediaGate, type MediaPriority } from "./media";
 import { STILL_HEIGHT, STILL_WIDTH } from "./types";
 
-const bitmapLoader = new ImageBitmapLoader();
-bitmapLoader.setOptions({ imageOrientation: "flipY" });
-
-/** ~80 stills × 512×264 RGBA. Older GPU uploads are disposed. */
-const CACHE_MAX = 80;
+/** ~256 stills × 512×264 RGBA. Older GPU uploads are disposed. */
+const CACHE_MAX = 256;
 
 export class StillsView {
   readonly scene = new Scene();
@@ -24,6 +21,7 @@ export class StillsView {
   private readonly material: MeshBasicMaterial;
   private readonly cache = new Map<string, Texture>();
   private readonly loading = new Map<string, Promise<Texture>>();
+  private readonly retainSet = new Set<string>();
   private displayed: string | null = null;
 
   private readonly overlay: Mesh;
@@ -86,13 +84,24 @@ export class StillsView {
   }
 
   async show(url: string): Promise<void> {
-    this.apply(url, await this.load(url));
+    this.apply(url, await this.load(url, "high"));
   }
 
-  /** Decode in the background. Local extract files; no inflight cap. */
-  preload(urls: string[]): void {
+  /**
+   * Decode in the background. High = current strip / dest HQ (jumps the
+   * queue). Low = neighbor prefetch. Shared inflight cap with sprites.
+   */
+  preload(urls: string[], priority: MediaPriority = "low"): void {
     for (const url of urls) {
-      void this.load(url);
+      void this.load(url, priority);
+    }
+  }
+
+  /** Do not GPU-evict these (current strip + next-move neighborhood). */
+  retain(urls: string[]): void {
+    this.retainSet.clear();
+    for (const url of urls) {
+      this.retainSet.add(url);
     }
   }
 
@@ -108,7 +117,7 @@ export class StillsView {
   async showOverlay(url: string, cx: number, cy: number): Promise<void> {
     const gen = this.overlayGen + 1;
     this.overlayGen = gen;
-    const texture = await this.load(url);
+    const texture = await this.load(url, "high");
     if (this.overlayGen !== gen) {
       return;
     }
@@ -130,7 +139,7 @@ export class StillsView {
     this.material.needsUpdate = true;
   }
 
-  private load(url: string): Promise<Texture> {
+  private load(url: string, priority: MediaPriority): Promise<Texture> {
     const hit = this.cache.get(url);
     if (hit) {
       this.touch(url);
@@ -138,27 +147,25 @@ export class StillsView {
     }
     const pending = this.loading.get(url);
     if (pending) {
+      if (priority === "high") {
+        mediaGate.prefer(`tex:${url}`);
+      }
       return pending;
     }
-    const promise = bitmapLoader
-      .loadAsync(url)
-      .then((bitmap) => {
-        const texture = new Texture(bitmap);
-        texture.colorSpace = SRGBColorSpace;
-        texture.flipY = false;
-        texture.magFilter = NearestFilter;
-        texture.minFilter = NearestFilter;
-        texture.generateMipmaps = false;
-        texture.needsUpdate = true;
-        this.cache.set(url, texture);
-        this.loading.delete(url);
-        this.evict();
-        return texture;
-      })
-      .catch((err: unknown) => {
-        this.loading.delete(url);
-        throw err;
+    const promise = new Promise<Texture>((resolve, reject) => {
+      mediaGate.enqueue(`tex:${url}`, priority, async () => {
+        try {
+          const texture = await decodeStillTexture(url, priority);
+          this.cache.set(url, texture);
+          this.loading.delete(url);
+          this.evict();
+          resolve(texture);
+        } catch (err) {
+          this.loading.delete(url);
+          reject(err);
+        }
       });
+    });
     this.loading.set(url, promise);
     return promise;
   }
@@ -176,10 +183,11 @@ export class StillsView {
     while (this.cache.size > CACHE_MAX) {
       let victim: string | undefined;
       for (const key of this.cache.keys()) {
-        if (key !== this.displayed && !this.loading.has(key)) {
-          victim = key;
-          break;
+        if (key === this.displayed || this.retainSet.has(key) || this.loading.has(key)) {
+          continue;
         }
+        victim = key;
+        break;
       }
       if (victim === undefined) {
         return;
@@ -194,4 +202,33 @@ export class StillsView {
       image?.close?.();
     }
   }
+}
+
+async function decodeStillTexture(url: string, priority: MediaPriority): Promise<Texture> {
+  const res = await fetch(url, {
+    cache: "force-cache",
+    priority: priority === "high" ? "high" : "low",
+  });
+  if (!res.ok) {
+    throw new Error(`${url} ${res.status}`);
+  }
+  const blob = await res.blob();
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(blob, {
+      imageOrientation: "flipY",
+      premultiplyAlpha: "none",
+      colorSpaceConversion: "none",
+    });
+  } catch {
+    bitmap = await createImageBitmap(blob, { imageOrientation: "flipY" });
+  }
+  const texture = new Texture(bitmap);
+  texture.colorSpace = SRGBColorSpace;
+  texture.flipY = false;
+  texture.magFilter = NearestFilter;
+  texture.minFilter = NearestFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+  return texture;
 }

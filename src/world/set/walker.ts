@@ -90,6 +90,35 @@ export function walkInputKey(input: WalkInput): "uparrow" | "leftarrow" | "right
   return input === "left" ? "leftarrow" : "rightarrow";
 }
 
+/** Arrow keys and WASD. Boot remaps configured keys onto uparrow/left/right. */
+export function walkInputFromCode(code: string): WalkInput | null {
+  if (code === "ArrowLeft" || code === "KeyA") {
+    return "left";
+  }
+  if (code === "ArrowRight" || code === "KeyD") {
+    return "right";
+  }
+  if (code === "ArrowUp" || code === "KeyW") {
+    return "forward";
+  }
+  return null;
+}
+
+/** Hold-to-repeat: Dust `keyrepeat` → `keydown` while the key is still down. */
+export function walkInputFromKeys(keys: Iterable<string>): WalkInput | null {
+  const set = keys instanceof Set ? keys : new Set(keys);
+  if (set.has("ArrowUp") || set.has("KeyW")) {
+    return "forward";
+  }
+  if (set.has("ArrowLeft") || set.has("KeyA")) {
+    return "left";
+  }
+  if (set.has("ArrowRight") || set.has("KeyD")) {
+    return "right";
+  }
+  return null;
+}
+
 /** Finger / stylus. Mouse keeps click-to-inspect; keys still walk. */
 export function isSwipePointer(pointerType: string): boolean {
   return pointerType === "touch" || pointerType === "pen";
