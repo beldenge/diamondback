@@ -55,18 +55,22 @@ export interface SetTransition {
   frame0: number;
 }
 
+export interface WalkerPose {
+  x: number;
+  y: number;
+  facing: Dir;
+}
+
 export interface SetGraph {
   scenes: Map<string, SceneRecord>;
   /** Camera nodes that have at least one filmed transition. */
   cameraTiles: Set<string>;
   transitions: SetTransition[];
   byFrom: Map<string, SetTransition[]>;
-}
-
-export interface WalkerPose {
-  x: number;
-  y: number;
-  facing: Dir;
+  /** SET header +48 camera spawn (framelist space). */
+  spawn?: WalkerPose;
+  /** SET header +26 camera Z. Town/nite 62; interiors 90–260. */
+  cameraZ?: number;
 }
 
 /** One still inside a 6-frame strip (`FRAMES/{frame0}_{offset}.png`). */

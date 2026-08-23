@@ -40,6 +40,16 @@ export function movieFrameWaitsForClick(action: number | undefined): boolean {
   return (action ?? 0) !== 0;
 }
 
+/**
+ * After `actionframe`, swallow a leftover `click` only when we finished
+ * on pointerup (the click still fires). `pointerdown` + preventDefault
+ * and a captured `click` already consumed that press — skipNextClick
+ * would eat the next real EXAMINE / world click.
+ */
+export function movieWaitSetsSkipClick(eventType: string): boolean {
+  return eventType === "pointerup";
+}
+
 export function frameUrl(folder: string, container: number): string {
   return extractUrl(`${folder}/FRAMES/frame_${container}.png`);
 }

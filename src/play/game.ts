@@ -3,6 +3,7 @@ import { VM, type Point } from "../vm/runtime";
 import {
   applyTransition,
   isSwipePointer,
+  isTileStep,
   stillClickPixel,
   swipeWalkInput,
   transitionForInput,
@@ -72,20 +73,29 @@ import { DustHost, type PropState, type WorldView } from "./host";
 import { extractUrl } from "../world/set/extract";
 import {
   AVATAR_SLOT,
+  examineHandName,
   FlatOverlay,
   HAND_SLOT,
   hitMacRect,
   inventorySpriteView,
   MAINPANEL_BUTTONS,
+  mapCrossHotspot,
   propViewFrame,
   stageFromClient,
   stageFromHudClick,
   type FlatItem,
 } from "./hud";
 import { playStageRect } from "./stage";
+import { parseScriptScene } from "./sceneName";
 import { PLAY_HUD_CHROME, PuppetUi } from "./ui";
 import { worldInputBlocked } from "./lock";
-import { movieClipsStarting, movieFrameWaitsForClick, movieIndexAt, planMoviePasses } from "./movies";
+import {
+  movieClipsStarting,
+  movieFrameWaitsForClick,
+  movieIndexAt,
+  movieWaitSetsSkipClick,
+  planMoviePasses,
+} from "./movies";
 import { unlockVoices, voices } from "./speech";
 
 const CURSORS: Record<string, string> = {
@@ -121,6 +131,7 @@ export class PlayGame implements WorldView {
   private openDoor: DoorDef | null = null;
   private anim: StillAnim | null = null;
   private pending: SetTransition | null = null;
+  private pendingTileStep = false;
   private hqGen = 0;
   private busy = false;
   /**
@@ -282,19 +293,21 @@ export class PlayGame implements WorldView {
   }
 
   viewCamera(): ViewCamera {
+    const camZ = this.graph?.cameraZ;
     const strip = this.filmstrip();
     if (strip) {
-      return lerpViewCamera(strip.from, strip.to, strip.t);
+      return lerpViewCamera(strip.from, strip.to, strip.t, camZ);
     }
-    return cameraFromPose(this.pose);
+    return cameraFromPose(this.pose, camZ);
   }
 
   projectWorld(obj: { x: number; y: number; z?: number }): StillHit | null {
+    const camZ = this.graph?.cameraZ;
     const strip = this.filmstrip();
     if (strip) {
-      return worldToStillFilmstrip(obj, strip.from, strip.to, strip.t);
+      return worldToStillFilmstrip(obj, strip.from, strip.to, strip.t, camZ);
     }
-    return worldToStill(obj, cameraFromPose(this.pose));
+    return worldToStill(obj, cameraFromPose(this.pose, camZ));
   }
 
   private filmstrip(): {
@@ -462,16 +475,13 @@ export class PlayGame implements WorldView {
       const finish = (event: Event): void => {
         event.preventDefault();
         event.stopPropagation();
-        window.removeEventListener("pointerdown", onDown, true);
-        window.removeEventListener("click", finish, true);
-        this.skipNextClick = true;
+        window.removeEventListener("pointerdown", finish, true);
+        // preventDefault on pointerdown suppresses the synthetic click.
+        // skipNextClick would eat the next real EXAMINE / world press.
+        this.skipNextClick = movieWaitSetsSkipClick(event.type);
         resolve();
       };
-      const onDown = (event: Event): void => {
-        event.stopPropagation();
-      };
-      window.addEventListener("pointerdown", onDown, true);
-      window.addEventListener("click", finish, true);
+      window.addEventListener("pointerdown", finish, true);
     });
   }
 
@@ -784,7 +794,8 @@ export class PlayGame implements WorldView {
   private async openHudFlat(name: string): Promise<void> {
     const cash = numGlobal(this.vm, "playercash");
     if (name === "map") {
-      this.flats.show("map", cash);
+      this.host.currentFlatName = "map";
+      this.flats.show("map", cash, this.mapCrossIcon());
       return;
     }
     if (name === "horn") {
@@ -793,9 +804,48 @@ export class PlayGame implements WorldView {
     }
     if (name === "self") {
       this.host.currentFlatName = "avatar";
+      this.flats.show("avatar", cash, []);
       const items = await this.inventoryIcons();
-      this.flats.show("avatar", cash, items);
+      if (this.flats.open) {
+        this.flats.setItems(items);
+      }
     }
+  }
+
+  /**
+   * NEW.FLT map `cross`. Town uses `currentscene`; interiors use
+   * `townscene` (the street cell `gotointerior` saved).
+   */
+  private mapCrossIcon(): FlatItem[] {
+    const scene =
+      this.host.currentSet === "town"
+        ? this.host.currentScene
+        : String(this.vm.globals.get("townscene") ?? "");
+    const pose = parseScriptScene(scene);
+    if (!pose) {
+      return [];
+    }
+    const at = mapCrossHotspot(pose.x, pose.y);
+    const prop = this.host.props.get("cross");
+    const raw = prop?.sprites.base?.[0];
+    const place = raw ?? {
+      path: "FRAMES/cross/base/00_c553.png",
+      x: 253,
+      y: 188,
+      w: 7,
+      h: 7,
+    };
+    const root = prop?.spriteRoot || "PRP/_HOUSE";
+    return [
+      {
+        name: "cross",
+        url: extractUrl(`${root}/${place.path}`),
+        x: at.x + place.x - SPRITE_HOTSPOT_X,
+        y: at.y + place.y - SPRITE_HOTSPOT_Y,
+        w: place.w,
+        h: place.h,
+      },
+    ];
   }
 
   private ownedInventory(): PropState[] {
@@ -836,7 +886,7 @@ export class PlayGame implements WorldView {
 
   /** INVEN `stdmouse`: panel/hilite click sets `handitem` and the hilite sprite. */
   private async selectInventoryItem(name: string): Promise<void> {
-    if (!name || !this.scriptsReady || this.talking || this.busy) {
+    if (!name || !this.scriptsReady || this.busy) {
       return;
     }
     await this.vm.inObject("prop", name, () => this.vm.evalCall("mousedown", []));
@@ -846,8 +896,9 @@ export class PlayGame implements WorldView {
 
   /** Avatar EXAMINE: `infoyoself` → `invenmovie` / `playmovie`. */
   private async examineHeldItem(): Promise<void> {
-    const hand = String(this.vm.globals.get("handitem") ?? "");
-    if (!hand || !this.scriptsReady || this.talking || this.busy) {
+    const owned = this.ownedInventory().map((prop) => prop.name);
+    const hand = examineHandName(String(this.vm.globals.get("handitem") ?? ""), owned);
+    if (!hand || !this.scriptsReady || this.busy) {
       return;
     }
     this.talking = true;
@@ -1060,12 +1111,16 @@ export class PlayGame implements WorldView {
   }
 
   private playTransition(tr: SetTransition): void {
-    void this.host.onLeave(this.vm);
+    const dest = applyTransition(tr);
+    this.pendingTileStep = isTileStep(this.pose, dest);
+    if (this.pendingTileStep) {
+      void this.host.onLeave(this.vm);
+    }
     this.busy = true;
     this.pending = tr;
     const folder = this.stillsFolder();
     const urls = [0, 1, 2, 3, 4].map((offset) => frameUrl(folder, tr.frame0, offset));
-    const destHq = hqFrame(this.graph, applyTransition(tr));
+    const destHq = hqFrame(this.graph, dest);
     if (destHq) {
       urls.push(frameUrl(folder, destHq.frame0, destHq.offset));
     }
@@ -1119,8 +1174,10 @@ export class PlayGame implements WorldView {
 
   private finishMove(): void {
     const tr = this.pending;
+    const tileStep = this.pendingTileStep;
     this.anim = null;
     this.pending = null;
+    this.pendingTileStep = false;
     this.busy = false;
     if (tr) {
       this.pose = applyTransition(tr);
@@ -1131,7 +1188,11 @@ export class PlayGame implements WorldView {
     // Dest HQ is the last plate of the strip (already on screen when
     // preloaded). Do not layout dest sprites before that still is up —
     // that was the end-of-move teleport.
-    void this.showHold().then(() => this.host.onArrive(this.vm));
+    void this.showHold().then(() => {
+      if (tileStep) {
+        return this.host.onArrive(this.vm);
+      }
+    });
   }
 
   private async showHold(): Promise<void> {

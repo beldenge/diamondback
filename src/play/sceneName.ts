@@ -10,6 +10,9 @@
  * that matches Pascal `Scene G15` at (14, 6).
  */
 
+import { parseDir, resolveSpawn, sceneByName, tileKey } from "../world/set/graph";
+import type { SetGraph, WalkerPose } from "../world/set/types";
+
 const LETTERS = "abcdefghijklmno";
 
 export function isTownGridSize(sceneCount: number): boolean {
@@ -43,4 +46,32 @@ export function scriptSceneName(x: number, y: number): string {
 export function pascalSceneName(x: number, y: number): string {
   const letter = LETTERS[y] ?? "a";
   return `scene ${letter}${x + 1}`;
+}
+
+/**
+ * Camera pose after `opensetfile`. Town script names (`scene g8`) are
+ * not tiles on an interior graph — `gotointerior` stands at the SET
+ * spawn (header +48), not the street cell you left.
+ */
+export function poseForOpenedSet(
+  graph: SetGraph,
+  sceneName: string,
+  facing: string,
+): WalkerPose {
+  const dir = parseDir(facing) ?? graph.spawn?.facing ?? "N";
+  if (isTownGridSize(graph.scenes.size)) {
+    const parsed = parseScriptScene(sceneName);
+    if (parsed && graph.cameraTiles.has(tileKey(parsed.x, parsed.y))) {
+      return { x: parsed.x, y: parsed.y, facing: dir };
+    }
+  } else {
+    const rec = sceneByName(graph, sceneName);
+    if (rec && graph.cameraTiles.has(tileKey(rec.x, rec.y))) {
+      return { x: rec.x, y: rec.y, facing: dir };
+    }
+  }
+  if (graph.spawn && graph.cameraTiles.has(tileKey(graph.spawn.x, graph.spawn.y))) {
+    return graph.spawn;
+  }
+  return resolveSpawn(graph);
 }

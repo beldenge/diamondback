@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   AVATAR_BUTTONS,
   AVATAR_SLOT,
+  avatarFlatAction,
+  examineHandName,
   HAND_SLOT,
   hitMacRect,
   hitsHandSlot,
   inventorySpriteView,
   MAINPANEL_BUTTONS,
+  mapCrossHotspot,
+  mapCrossLit,
   propViewFrame,
   stageFromClient,
   stageFromHudClick,
@@ -81,6 +85,43 @@ describe("avatar inventory Mac rects", () => {
     expect(inventorySpriteView("bone", "bone")).toBe("hilite");
     expect(inventorySpriteView("jug", "bone")).toBe("panel");
     expect(inventorySpriteView("bone", "")).toBe("panel");
+  });
+
+  it("hits EXAMINE on the first pointer even if an item sprite overlaps the HUD", () => {
+    expect(avatarFlatAction(200, 330, "bone")).toEqual({ kind: "info" });
+    expect(avatarFlatAction(300, 330, "bone")).toEqual({ kind: "ok" });
+    expect(avatarFlatAction(400, 180, "bone")).toEqual({ kind: "item", name: "bone" });
+  });
+
+  it("EXAMINE skips helpbut and uses the first owned item when the hand is empty", () => {
+    expect(examineHandName("bone", ["jug", "bone"])).toBe("bone");
+    expect(examineHandName("", ["bone", "jug"])).toBe("bone");
+    expect(examineHandName("helpbut", ["bone"])).toBe("bone");
+    expect(examineHandName("helpbut", [])).toBe("");
+  });
+});
+
+describe("map location cross", () => {
+  it("places the south-gate start on the parchment, not off the still", () => {
+    // scene g15 = tile (6, 14). 1-based *20+93 would be y=393.
+    const g15 = mapCrossHotspot(6, 14);
+    expect(g15).toEqual({ x: 342, y: 373 });
+    expect(g15.y).toBeLessThan(STAGE_HEIGHT);
+    const a1 = mapCrossHotspot(0, 0);
+    expect(a1).toEqual({ x: 222, y: 93 });
+    const saloon = mapCrossHotspot(6, 7);
+    const jail = mapCrossHotspot(6, 11);
+    expect(saloon.x).toBe(jail.x);
+    expect(saloon.y).toBeLessThan(jail.y);
+    expect(jail.y).toBeLessThan(g15.y);
+  });
+
+  it("blinks with HOUSE cross timing (frame 2 has no sprite)", () => {
+    expect(mapCrossLit(0)).toBe(true);
+    expect(mapCrossLit(2)).toBe(true);
+    expect(mapCrossLit(3)).toBe(false);
+    expect(mapCrossLit(5)).toBe(false);
+    expect(mapCrossLit(6)).toBe(true);
   });
 });
 

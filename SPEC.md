@@ -192,6 +192,14 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 | 2026-08-23 | During `puppetspeak` the cursor is `watch` and dialogue bevels do not hover or click. After the line, arrow + live choices (`puppetevent`). |
 | 2026-08-23 | INVEN HUD unused pal 0 is white (8.8 0xFFFF), not transparent and not Help-black. Escape skips remaining `puppetspeak` until choices. |
 | 2026-08-23 | Dog1 two A1 cues 100 ms apart: two sequential still+audio passes (one growl each). One pass + channel retrigger cuts the first growl at 100 ms (one bark). |
+| 2026-08-23 | `gotointerior` spawn is SET header +48, not the street cell. Mapping `scene g8`/`g12` onto saloon/chin graphs freezes on the facade (music plays). `currentview` is the word `east`, not `E`. |
+| 2026-08-23 | Interior camZ is SET +26 (chin **230**). Hardcoded 62 floats Help. Help **behind** the counter is SET Z (`FRAMES/z/`, `spriteZ ≤ stillZ`), not a second Y. |
+| 2026-08-23 | `closescene`/`openscene` are tile steps, not in-place pans (A2 doorclose every turn). `closesetfile` must run the old scene’s `closescene`. |
+| 2026-08-23 | `opensetfile` `removePrefix` must reinstall SET/scene scripts when the index key is gone or town `keydown` never returns (exit freeze). |
+| 2026-08-23 | Choice visemes: prefetch **all** line JSON, await viseme before WAV, one coalesced blit + shared Image onload. Two files + 60 Hz paintGen drop lagged Leroy/Help jaws. |
+| 2026-08-23 | Avatar EXAMINE is first `pointerdown` (`mousedown`/`trackbut`). Boot `helpbut` is not an inspect target. Actionframe dismiss must not `skipNextClick` the next real click. |
+| 2026-08-23 | `pointinactor` / hover `touch` use CST dest Mac Rect (`0x415271`), not an 80px box on the feet hotspot (missed heads; chin scale 5800). |
+| 2026-08-23 | Map HOUSE `cross` at 0-based `tile*20+(222,93)`; blink `1,1,1,2,2,2` (no frame 2). 1-based `scenerow` puts g15 off the still. Nite counts as town; interiors use `townscene`. Traps: [`src/play/README.md`](src/play/README.md) § Interiors, HUD, clicks. |
 | 2026-08-21 | PUP paint order is Body then Head (beard is on the Head). Body-over-Head left a static beard ring that did not turn. |
 | 2026-08-21 | Dialog chrome: full-width black speech bar over the still; five `butbevel` slots replace the HUD (not overlays above it). |
 | 2026-08-21 | Choice boxes are HOUSE `butbevel` + GDI Arial, not OS buttons. Labels left-aligned. Hole fill is the rim’s `(111,56,38)`. |

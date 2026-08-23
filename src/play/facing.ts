@@ -356,11 +356,62 @@ export function spriteStillTopLeft(
   };
 }
 
+/**
+ * CST/PRP dest Mac Rect (`0x415271`): projected hotspot minus the
+ * scaled header hotspot, then header `w`×`h`. `pointinactor` /
+ * `hittest` use this, not a chest-high 80px box around the feet.
+ */
+export function spriteDestRect(
+  hx: number,
+  hy: number,
+  place: { x: number; y: number; w: number; h: number },
+  stillScale: number,
+): { left: number; top: number; right: number; bottom: number } {
+  const tl = spriteStillTopLeft(hx, hy, place, stillScale);
+  return {
+    left: tl.x,
+    top: tl.y,
+    right: tl.x + place.w * stillScale,
+    bottom: tl.y + place.h * stillScale,
+  };
+}
+
+export function pointInSpriteDest(
+  px: number,
+  py: number,
+  rect: { left: number; top: number; right: number; bottom: number },
+): boolean {
+  return px >= rect.left && px < rect.right && py >= rect.top && py < rect.bottom;
+}
+
+/** World click/hover: dest rect when the frame is known; hotspot box if not. */
+export function worldSpriteHitsPoint(
+  px: number,
+  py: number,
+  hx: number,
+  hy: number,
+  place: { x: number; y: number; w: number; h: number } | undefined,
+  actorScale: number,
+  lensForward: number,
+  field: number,
+): boolean {
+  if (!place || place.w <= 0 || place.h <= 0) {
+    return Math.abs(hx - px) < 40 && hy - py < 80 && py <= hy + 10;
+  }
+  return pointInSpriteDest(
+    px,
+    py,
+    spriteDestRect(hx, hy, place, engineStillScale(actorScale, lensForward, field)),
+  );
+}
+
 /** World-space camera: tile center + `actordeg` (0=S). */
 export interface ViewCamera {
   x: number;
   y: number;
   deg: number;
+  /** SET header +26. Town 62; Help's shop 230. */
+  z?: number;
 }
 
 /** Projected hotspot on the 512×264 still. */
@@ -379,9 +430,12 @@ export const CAMERA_HEIGHT = 62;
 /** Mac dest-rect half-height. DF.EXE `0x40d279`. */
 export const STILL_CENTER_Y = STILL_HEIGHT / 2;
 
-export function cameraFromPose(pose: { x: number; y: number; facing: string }): ViewCamera {
+export function cameraFromPose(
+  pose: { x: number; y: number; facing: string },
+  cameraZ: number = CAMERA_HEIGHT,
+): ViewCamera {
   const feet = playerWorldPoint(pose);
-  return { x: feet.x, y: feet.y, deg: dirToDeg(pose.facing as Dir) };
+  return { x: feet.x, y: feet.y, deg: dirToDeg(pose.facing as Dir), z: cameraZ };
 }
 
 function clamp01(t: number): number {
@@ -406,21 +460,27 @@ export function lerpViewCamera(
   from: { x: number; y: number; facing: string },
   to: { x: number; y: number; facing: string },
   t: number,
+  cameraZ: number = CAMERA_HEIGHT,
 ): ViewCamera {
-  const a = cameraFromPose(from);
-  const b = cameraFromPose(to);
+  const a = cameraFromPose(from, cameraZ);
+  const b = cameraFromPose(to, cameraZ);
   const u = clamp01(t);
   return {
     x: a.x + (b.x - a.x) * u,
     y: a.y + (b.y - a.y) * u,
     deg: wrapDeg(a.deg + degDelta(a.deg, b.deg) * u),
+    z: cameraZ,
   };
 }
 
 /** DF.EXE `0x40dcd0` Y: `centerY − focal*(objZ − camZ)/lensForward` (`idiv`). */
-export function enginePinholeY(objZ: number, lensForward: number): number {
+export function enginePinholeY(
+  objZ: number,
+  lensForward: number,
+  cameraZ: number = CAMERA_HEIGHT,
+): number {
   const fwd = lensForward === 0 ? 1 : lensForward;
-  return STILL_CENTER_Y - Math.trunc((CAMERA_FOCAL * (objZ - CAMERA_HEIGHT)) / fwd);
+  return STILL_CENTER_Y - Math.trunc((CAMERA_FOCAL * (objZ - cameraZ)) / fwd);
 }
 
 interface RawProject {
@@ -452,10 +512,11 @@ function rawProject(
   const lensForward = dx * f.x + dy * f.y;
   const right = dx * -f.y + dy * f.x;
   const objZ = actor.z ?? 0;
+  const camZ = cam.z ?? CAMERA_HEIGHT;
   if (lensForward <= 0) {
     return {
       x: SPRITE_HOTSPOT_X + right,
-      y: enginePinholeY(objZ, SCALE_MIN_FORWARD),
+      y: enginePinholeY(objZ, SCALE_MIN_FORWARD, camZ),
       forward: 0,
       lensForward,
       right,
@@ -463,7 +524,7 @@ function rawProject(
   }
   return {
     x: SPRITE_HOTSPOT_X + Math.trunc((CAMERA_FOCAL * right) / lensForward),
-    y: enginePinholeY(objZ, lensForward),
+    y: enginePinholeY(objZ, lensForward, camZ),
     forward: Math.max(0, feetForward),
     lensForward,
     right,
@@ -502,7 +563,8 @@ function cullStill(hit: RawProject): StillHit | null {
  * after yaw-rotate (TRIG/16384) with lens set back SET +24 (64).
  *
  * **Y** is the same `0x40dcd0` pinhole:
- *   y = 132 − 310 * (objZ − 62) / forward
+ *   y = 132 − 310 * (objZ − camZ) / forward
+ * camZ is SET +26 (town 62, chin 230). Do not hardcode 62 indoors.
  * Ground z=0 at N7 E lands the jug hotspot at **279** (sprite sits on
  * the HUD). Do not clamp Y into the still — a hotspot below 264 still blits.
  */
@@ -524,8 +586,9 @@ export function worldToStillFilmstrip(
   from: { x: number; y: number; facing: string },
   to: { x: number; y: number; facing: string },
   t: number,
+  cameraZ: number = CAMERA_HEIGHT,
 ): StillHit | null {
-  return worldToStill(actor, lerpViewCamera(from, to, t));
+  return worldToStill(actor, lerpViewCamera(from, to, t, cameraZ));
 }
 
 /**

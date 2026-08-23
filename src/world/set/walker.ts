@@ -37,6 +37,11 @@ export function applyTransition(tr: SetTransition): WalkerPose {
   return { x: tr.xTo, y: tr.yTo, facing: tr.dirTo };
 }
 
+/** Tile change, not an in-place turn. Dust `closescene` / `openscene` are this. */
+export function isTileStep(from: WalkerPose, to: WalkerPose): boolean {
+  return from.x !== to.x || from.y !== to.y;
+}
+
 /**
  * Remake still-click bands (left 22% / right 22% / top 48%).
  * Play and the town sandbox no longer walk from these — Dust used

@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseScript, type ScriptFile } from "../vm/ast";
 import { VM } from "../vm/runtime";
-import { buildSetGraph } from "../world/set/graph";
+import { buildSetGraph, SET_SPAWN } from "../world/set/graph";
 import type { SceneRecord, TransitionRecord } from "../world/set/types";
 import { dirWord, DustHost, puppetFolder } from "./host";
 import type { PuppetUi } from "./ui";
@@ -13,6 +13,105 @@ function loadProcs(rel: string) {
   const file = JSON.parse(raw) as ScriptFile;
   return parseScript(file.tokens ?? []);
 }
+
+describe("SET script reload", () => {
+  it("reinstalls nite SET scripts after removePrefix from an interior hop", async () => {
+    const rel = "SET/_NITE/Boot Script.json";
+    const disk = resolve("dfextract/out", rel);
+    if (!existsSync(disk)) {
+      return;
+    }
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes("Boot Script.json")) {
+        return orig(input);
+      }
+      return {
+        ok: true,
+        json: async () => JSON.parse(readFileSync(disk, "utf8")),
+      } as Response;
+    }) as typeof fetch;
+    try {
+      const host = new DustHost({} as PuppetUi);
+      const intern = host as unknown as {
+        addScriptFile(key: string, rel: string): Promise<void>;
+      };
+      await intern.addScriptFile("set", rel);
+      expect(host.index.lookup(["set"], "keydown")).toBeDefined();
+      host.index.removePrefix("set");
+      expect(host.index.lookup(["set"], "keydown")).toBeUndefined();
+      await intern.addScriptFile("set", rel);
+      expect(host.index.lookup(["set"], "keydown")).toBeDefined();
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
+});
+
+describe("closesetfile hides the street door", () => {
+  it("runs closescene so doorclose plays once on interior arrive, not on turns", async () => {
+    const calls: string[] = [];
+    const host = new DustHost({} as PuppetUi);
+    host.currentScene = "scene g12";
+    host.index.add("scene:scene g12", {
+      name: "closescene",
+      params: [],
+      body: [{ type: "call", call: { type: "call", name: "hidethedoor", args: [] } }],
+    }, "scene");
+    const vm = new VM({
+      async call(name) {
+        calls.push(name);
+        return 0;
+      },
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    await host.call("closesetfile", [], vm);
+    expect(calls).toContain("hidethedoor");
+    expect(host.currentSet).toBe("none");
+  });
+});
+
+describe("choice-line visemes", () => {
+  it("waits for the per-line viseme track before starting the WAV", async () => {
+    const spoken: unknown[] = [];
+    const host = new DustHost({
+      skipLine() {},
+      clear() {},
+      addBevel() {},
+      async speak(_text: string, _wav: string | undefined, viseme: unknown) {
+        spoken.push(viseme);
+      },
+    } as unknown as PuppetUi);
+    const intern = host as unknown as {
+      currentPuppetFolder: string;
+      puppetLines: Map<string, { text: string; wav: string; viseme?: unknown }>;
+      speak(ident: string): Promise<void>;
+    };
+    intern.currentPuppetFolder = "PUP/_LEROY";
+    intern.puppetLines.set("leroy.12", { text: "Howdy", wav: "/extract/x.wav" });
+    const viseme = { ticks: 10, frames: [{ t: 0, layers: { Jaw: 3 } }] };
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes("visemes/leroy.12.json")) {
+        return orig(input);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return {
+        ok: true,
+        json: async () => viseme,
+      } as Response;
+    }) as typeof fetch;
+    try {
+      await intern.speak("leroy.12");
+    } finally {
+      globalThis.fetch = orig;
+    }
+    expect(spoken).toEqual([viseme]);
+  });
+});
 
 describe("skip remaining speech", () => {
   it("drops later puppetspeak until puppetclear", async () => {
@@ -189,6 +288,62 @@ describe("currentview words", () => {
     expect(dirWord("N")).toBe("north");
     expect(await host.call("currentview", [], vm)).toBe("north");
     expect(await host.call("currentdir", [], vm)).toBe("north");
+  });
+
+  it("accepts east as a facing, not only E", async () => {
+    const host = new DustHost({} as PuppetUi);
+    const poses: { facing: string }[] = [];
+    host.view = {
+      pose: { x: 6, y: 7, facing: "W" },
+      world: "town",
+      graph: { scenes: new Map(), cameraTiles: new Set(), transitions: [], byFrom: new Map() },
+      walk() {},
+      async setPose(_world, pose) {
+        host.view!.pose = pose;
+        poses.push(pose);
+      },
+      log() {},
+      refreshActors() {},
+    };
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    await host.call("currentview", ["east"], vm);
+    expect(host.currentDir).toBe("E");
+    expect(host.view.pose.facing).toBe("E");
+    expect(poses).toEqual([expect.objectContaining({ x: 6, y: 7, facing: "E" })]);
+  });
+});
+
+describe("interior scene lookup", () => {
+  it("does not map street g8 onto the saloon grid", () => {
+    const scenesPath = resolve("dfextract/out/SET/_SALLOWER/scenes.json");
+    const transPath = resolve("dfextract/out/SET/_SALLOWER/transitions.json");
+    if (!existsSync(scenesPath) || !existsSync(transPath)) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    const scenes = JSON.parse(readFileSync(scenesPath, "utf8")) as SceneRecord[];
+    const records = JSON.parse(readFileSync(transPath, "utf8")) as TransitionRecord[];
+    const graph = buildSetGraph(scenes, records, SET_SPAWN._SALLOWER);
+    expect(host.scenePose("scene g8", graph)).toBeUndefined();
+    expect(host.scenePose("scene d1", graph)).toEqual({ x: 3, y: 0 });
+  });
+});
+
+describe("fade does not halt theme", () => {
+  it("leaves playtheme running through gotospecial's visualeffect", async () => {
+    const host = new DustHost({} as PuppetUi);
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    await host.call("playtheme", ["saloonsep.snd"], vm);
+    expect(host.currentTheme).toBe("saloonsep.snd");
+    await host.call("visualeffect", ["plain", 0], vm);
+    await host.call("screentoblack", ["current", 30], vm);
+    expect(host.currentTheme).toBe("saloonsep.snd");
+    await host.call("halttheme", [], vm);
+    expect(host.currentTheme).toBe("none");
   });
 });
 

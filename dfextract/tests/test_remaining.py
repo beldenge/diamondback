@@ -47,6 +47,15 @@ class TestRemaining(unittest.TestCase):
         self.assertEqual(transitions[0].dir_from, 1)
         self.assertEqual(transitions[0].dir_to, 3)
 
+    def test_set_header_spawn(self) -> None:
+        if not APOTH.exists():
+            self.skipTest("APOTH.SET not present")
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            write_set_extract(read_df_file(APOTH), dest, write_scripts=False)
+            header = json.loads((dest / "header.json").read_text(encoding="utf-8"))
+            self.assertEqual(header, {"x": 2, "y": 1, "facing": "W", "cameraZ": 140})
+
     def test_town_second_slot_has_leroy1(self) -> None:
         """50-byte waypoint records hold two stars. town.leroy1 is slot B
         of the town.leroy2 record — not missing, and not a guessed xyz."""

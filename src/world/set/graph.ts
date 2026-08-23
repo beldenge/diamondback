@@ -18,18 +18,112 @@ export function tileKey(x: number, y: number): string {
   return `${x},${y}`;
 }
 
+const DIR_FROM_WORD: Record<string, Dir> = {
+  N: "N",
+  S: "S",
+  E: "E",
+  W: "W",
+  NORTH: "N",
+  SOUTH: "S",
+  EAST: "E",
+  WEST: "W",
+};
+
 export function parseDir(value: number | string): Dir | null {
   if (typeof value === "number") {
     return DIR_FROM_CODE[value] ?? null;
   }
-  const upper = value.toUpperCase();
-  if (upper === "N" || upper === "S" || upper === "E" || upper === "W") {
-    return upper;
-  }
-  return null;
+  return DIR_FROM_WORD[value.trim().toUpperCase()] ?? null;
 }
 
-export function buildSetGraph(scenes: SceneRecord[], records: TransitionRecord[]): SetGraph {
+/**
+ * SET header +48/+50/+52 (1=N 2=S 3=E 4=W). Camera / framelist space,
+ * not the scene table (interiors may transpose names onto these tiles).
+ * `gotointerior` does not pass a scene; Dust stands here.
+ */
+export const SET_SPAWN: Record<string, WalkerPose> = {
+  _APOTH: { x: 2, y: 1, facing: "W" },
+  _BANK: { x: 3, y: 1, facing: "W" },
+  _CHIN: { x: 0, y: 1, facing: "E" },
+  _COURT: { x: 2, y: 4, facing: "N" },
+  _DOCTOR1: { x: 1, y: 0, facing: "W" },
+  _DOCTOR2: { x: 0, y: 0, facing: "W" },
+  _FLUTE: { x: 1, y: 3, facing: "N" },
+  _HOTLOWER: { x: 0, y: 0, facing: "E" },
+  _HOTROOM: { x: 1, y: 0, facing: "W" },
+  _HOTUPPER: { x: 3, y: 0, facing: "N" },
+  _HUB: { x: 3, y: 6, facing: "N" },
+  _JAIL: { x: 0, y: 0, facing: "E" },
+  _LIVERY: { x: 3, y: 1, facing: "W" },
+  _MAYDINE: { x: 3, y: 1, facing: "E" },
+  _MAYHALL: { x: 2, y: 3, facing: "N" },
+  _MAYROOM: { x: 0, y: 1, facing: "N" },
+  _MAYSTUDY: { x: 1, y: 1, facing: "W" },
+  _MAYUPPER: { x: 2, y: 0, facing: "N" },
+  _MINE: { x: 2, y: 4, facing: "N" },
+  _NITE: { x: 6, y: 14, facing: "N" },
+  _NITECOUR: { x: 2, y: 4, facing: "N" },
+  _NITESCHO: { x: 1, y: 1, facing: "N" },
+  _PADRE: { x: 0, y: 1, facing: "W" },
+  _PAPER: { x: 1, y: 1, facing: "W" },
+  _SALLOWER: { x: 3, y: 0, facing: "W" },
+  _SALROOM: { x: 1, y: 0, facing: "W" },
+  _SALUPPER: { x: 0, y: 3, facing: "W" },
+  _SCHOOL: { x: 1, y: 1, facing: "N" },
+  _SNAKE: { x: 1, y: 3, facing: "N" },
+  _STAGE: { x: 0, y: 1, facing: "E" },
+  _STORE: { x: 3, y: 1, facing: "W" },
+  _TARGET: { x: 10, y: 11, facing: "S" },
+  _TBIRD: { x: 1, y: 3, facing: "N" },
+  _TOWN: { x: 6, y: 14, facing: "N" },
+  _UNDERTAK: { x: 0, y: 1, facing: "E" },
+};
+
+/** SET header +26. Used as camZ in `0x40dcd0` Y. */
+export const SET_CAMERA_Z: Record<string, number> = {
+  _APOTH: 140,
+  _BANK: 140,
+  _CHIN: 230,
+  _COURT: 90,
+  _DOCTOR1: 95,
+  _DOCTOR2: 95,
+  _FLUTE: 100,
+  _HOTLOWER: 160,
+  _HOTROOM: 150,
+  _HOTUPPER: 140,
+  _HUB: 115,
+  _JAIL: 140,
+  _LIVERY: 160,
+  _MAYDINE: 120,
+  _MAYHALL: 130,
+  _MAYROOM: 130,
+  _MAYSTUDY: 130,
+  _MAYUPPER: 130,
+  _MINE: 150,
+  _NITE: 62,
+  _NITECOUR: 90,
+  _NITESCHO: 115,
+  _PADRE: 115,
+  _PAPER: 260,
+  _SALLOWER: 180,
+  _SALROOM: 140,
+  _SALUPPER: 150,
+  _SCHOOL: 115,
+  _SNAKE: 64,
+  _STAGE: 150,
+  _STORE: 160,
+  _TARGET: 72,
+  _TBIRD: 150,
+  _TOWN: 62,
+  _UNDERTAK: 220,
+};
+
+export function buildSetGraph(
+  scenes: SceneRecord[],
+  records: TransitionRecord[],
+  spawn?: WalkerPose,
+  cameraZ?: number,
+): SetGraph {
   const transitions: SetTransition[] = [];
   const byFrom = new Map<string, SetTransition[]>();
   const cameraTiles = new Set<string>();
@@ -67,7 +161,7 @@ export function buildSetGraph(scenes: SceneRecord[], records: TransitionRecord[]
     sceneMap.set(tileKey(scene.x, scene.y), scene);
   }
 
-  return { scenes: sceneMap, cameraTiles, transitions, byFrom };
+  return { scenes: sceneMap, cameraTiles, transitions, byFrom, spawn, cameraZ };
 }
 
 /**
@@ -178,6 +272,11 @@ export function holdFrame(graph: SetGraph, pose: WalkerPose): FrameRef | undefin
 }
 
 export function resolveSpawn(graph: SetGraph): WalkerPose {
+  if (graph.spawn && graph.cameraTiles.has(tileKey(graph.spawn.x, graph.spawn.y))) {
+    if (hqFrame(graph, graph.spawn) !== undefined) {
+      return graph.spawn;
+    }
+  }
   const named = sceneByName(graph, TOWN_SPAWN_SCENE);
   if (named && graph.cameraTiles.has(tileKey(named.x, named.y))) {
     const pose = { x: named.x, y: named.y, facing: TOWN_SPAWN_FACING };
@@ -220,7 +319,32 @@ export async function loadSetGraph(
   }
   const scenes = (await scenesRes.json()) as SceneRecord[];
   const transitions = (await transRes.json()) as TransitionRecord[];
-  return buildSetGraph(scenes, transitions);
+  return buildSetGraph(
+    scenes,
+    transitions,
+    SET_SPAWN[folder] ?? (await loadSetSpawn(folder, fetchImpl)),
+    SET_CAMERA_Z[folder],
+  );
+}
+
+async function loadSetSpawn(
+  folder: string,
+  fetchImpl: typeof fetch,
+): Promise<WalkerPose | undefined> {
+  try {
+    const res = await fetchImpl(extractUrl(`SET/${folder}/header.json`));
+    if (!res.ok) {
+      return undefined;
+    }
+    const raw = (await res.json()) as { x?: unknown; y?: unknown; facing?: unknown };
+    const facing = parseDir(String(raw.facing ?? ""));
+    if (typeof raw.x === "number" && typeof raw.y === "number" && facing) {
+      return { x: raw.x, y: raw.y, facing };
+    }
+  } catch {
+    /* optional sidecar */
+  }
+  return undefined;
 }
 
 export async function loadTownGraph(fetchImpl: typeof fetch = fetch): Promise<SetGraph> {

@@ -10,6 +10,7 @@ import {
   calcDeg,
   calcVect,
   CAMERA_FOCAL,
+  CAMERA_HEIGHT,
   CAMERA_SETBACK,
   cameraFromPose,
   cameraWorldPoint,
@@ -18,8 +19,10 @@ import {
   lerpViewCamera,
   degToOctant,
   dirToDeg,
+  spriteDestRect,
   spriteStillTopLeft,
   SPRITE_HOTSPOT_X,
+  worldSpriteHitsPoint,
   visibleOctant,
   angularDistance,
   pickCstFrame,
@@ -275,12 +278,49 @@ describe("worldToStill", () => {
     expect(enginePinholeY(0, 240)).toBe(212);
   });
 
+  it("drops Help onto the shop floor when camZ is SET +26, not town 62", () => {
+    const chin = cameraFromPose({ x: 0, y: 1, facing: "E" }, 230);
+    const help = worldToStill({ x: 708, y: 220, z: 0 }, chin);
+    expect(help).not.toBeNull();
+    const townY = enginePinholeY(0, help!.lensForward, CAMERA_HEIGHT);
+    expect(help!.y).toBe(enginePinholeY(0, help!.lensForward, 230));
+    expect(help!.y).toBeGreaterThan(townY);
+    expect(help!.y).toBeGreaterThan(220);
+  });
+
   it("blits CST frames from the header hotspot, not bbox center", () => {
     const front = spriteStillTopLeft(256, 192, { x: 220, y: 9 }, 1);
     expect(front).toEqual({ x: 220, y: 9 });
     const threeQ = spriteStillTopLeft(256, 192, { x: 215, y: 9 }, 1);
     expect(threeQ.x).toBe(215);
     expect(threeQ.x).not.toBe(220);
+  });
+
+  it("click-tests the dest rect so the head hits and the ground below the feet does not", () => {
+    // Leroy stand: header (219, 14, 72×200), hotspot (256, 192). O7 N
+    // scale 1450 / forward 240. A chest-high 80px box misses the hat.
+    const place = { x: 219, y: 14, w: 72, h: 200 };
+    const hx = 354;
+    const hy = 212;
+    const scale = engineStillScale(1450, 240);
+    const rect = spriteDestRect(hx, hy, place, scale);
+    expect(rect.top).toBeLessThan(hy - 80);
+    expect(worldSpriteHitsPoint(hx, rect.top + 8, hx, hy, place, 1450, 240, CST_SCALE_FIELD)).toBe(
+      true,
+    );
+    expect(worldSpriteHitsPoint(hx, hy - 80, hx, hy, place, 1450, 240, CST_SCALE_FIELD)).toBe(true);
+    expect(worldSpriteHitsPoint(hx, rect.bottom + 12, hx, hy, place, 1450, 240, CST_SCALE_FIELD)).toBe(
+      false,
+    );
+    // Chin Help: actorscale 5800. Same 80px box starts at the chest.
+    const help = { x: 232, y: 57, w: 47, h: 138 };
+    const helpScale = engineStillScale(5800, 200);
+    const helpRect = spriteDestRect(256, 230, help, helpScale);
+    expect(helpRect.top).toBeLessThan(230 - 80);
+    expect(worldSpriteHitsPoint(256, 40, 256, 230, help, 5800, 200, CST_SCALE_FIELD)).toBe(true);
+    expect(worldSpriteHitsPoint(256, helpRect.bottom + 8, 256, 230, help, 5800, 200, CST_SCALE_FIELD)).toBe(
+      false,
+    );
   });
 
   it("hides someone behind the camera", () => {

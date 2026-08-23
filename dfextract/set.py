@@ -98,6 +98,7 @@ def write_set_extract(
     scenes, waypoints, transitions = extract_set_metadata(df)
     counts = {"scenes": len(scenes), "waypoints": len(waypoints), "transitions": len(transitions)}
 
+    _write_set_header(df, out_dir)
     (out_dir / "scenes.json").write_text(
         json.dumps([asdict(s) for s in scenes], indent=2) + "\n", encoding="utf-8"
     )
@@ -137,6 +138,19 @@ def write_set_extract(
         if write_z:
             counts["z"] = n
     return {key: value for key, value in counts.items() if value}
+
+
+def _write_set_header(df: DFFile, out_dir: Path) -> None:
+    """SET container 0 +48 spawn, in framelist / camera space."""
+    header = df.containers[0].data
+    if len(header) < 54:
+        return
+    x, y, facing = struct.unpack_from("<hhh", header, 48)
+    cam_z = struct.unpack_from("<h", header, 26)[0] if len(header) >= 28 else 62
+    payload = {"x": x, "y": y, "facing": DIRS.get(facing, "N"), "cameraZ": cam_z}
+    (out_dir / "header.json").write_text(
+        json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def _read_grid(header: bytes) -> list[SetScene]:

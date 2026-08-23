@@ -193,6 +193,7 @@ body.play #viewport {
   z-index: 60;
   background: #000;
   cursor: pointer;
+  touch-action: none;
 }
 
 #play-flat > img {
@@ -212,6 +213,23 @@ body.play #viewport {
   position: absolute;
   image-rendering: pixelated;
   pointer-events: auto;
+}
+
+/* HOUSE `cross`: timing 1,1,1,2,2,2 at 20 Hz (frame 2 is empty). */
+#play-flat-items img[data-item="cross"] {
+  pointer-events: none;
+  animation: play-map-cross 0.3s steps(1) infinite;
+}
+
+@keyframes play-map-cross {
+  0%,
+  49.9% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
 }
 
 #play-movie {

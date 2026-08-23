@@ -23,6 +23,49 @@ export const AVATAR_BUTTONS: MacRect[] = [
   { name: "ok", top: 321, left: 266, bottom: 345, right: 367 },
 ];
 
+export type AvatarFlatAction =
+  | { kind: "info" }
+  | { kind: "ok" }
+  | { kind: "item"; name: string };
+
+/**
+ * Avatar-flat hit. Buttons win over item sprites (Dust `hittest` kind
+ * `button` before `prop`). EXAMINE/OK must not wait for a second click
+ * because an inventory PNG's box covered the HUD.
+ */
+export function avatarFlatAction(
+  x: number,
+  y: number,
+  itemName?: string,
+): AvatarFlatAction | undefined {
+  const hit = hitMacRect(AVATAR_BUTTONS, x, y);
+  if (hit?.name === "info") {
+    return { kind: "info" };
+  }
+  if (hit?.name === "ok") {
+    return { kind: "ok" };
+  }
+  if (itemName) {
+    return { kind: "item", name: itemName };
+  }
+  return undefined;
+}
+
+/**
+ * Avatar EXAMINE `handitem`. Boot `addinven ("helpbut")` parks the HELP
+ * chrome as the held prop — that object's `infoyoself` is empty. Skip it
+ * and fall back to the first real owned item so EXAMINE plays on the
+ * first pointer, without a prior panel click.
+ */
+export function examineHandName(handitem: string, owned: string[]): string {
+  const skip = (name: string) => !name || name.toLowerCase() === "helpbut";
+  const hand = handitem.trim();
+  if (!skip(hand)) {
+    return hand;
+  }
+  return owned.find((name) => !skip(name)) ?? "";
+}
+
 /** Avatar-flat INVEN view. `stdmouse` hilite is the HUD `handitem`. */
 export function inventorySpriteView(name: string, handitem: string): "hilite" | "panel" {
   const who = name.toLowerCase();
@@ -35,6 +78,29 @@ export const FLAT_STILL: Record<string, string> = {
   avatar: extractUrl("FLT/_NEW/frame_9.png"),
   score: extractUrl("FLT/_NEW/frame_12.png"),
 };
+
+/**
+ * Map `cross` hotspot. NEW.FLT `openflat`: `scenecol * 20 + 222`,
+ * `scenerow * 20 + 93`. Pass **0-based** tiles (`scene a1` = 0,0):
+ * 1-based opcode values would put `scene g15` at y=393, off the still.
+ * PRP `_HOUSE` cross timing is `1,1,1,2,2,2` (frame 2 missing = blink).
+ */
+export const MAP_CROSS_ORIGIN = { x: 222, y: 93 };
+export const MAP_CROSS_CELL = 20;
+export const MAP_CROSS_TIMING = [1, 1, 1, 2, 2, 2];
+/** 6 game frames at boot `framerate (3)` = 20 Hz → 300 ms on/off. */
+export const MAP_CROSS_FLASH_SEC = 0.3;
+
+export function mapCrossHotspot(col0: number, row0: number): { x: number; y: number } {
+  return {
+    x: col0 * MAP_CROSS_CELL + MAP_CROSS_ORIGIN.x,
+    y: row0 * MAP_CROSS_CELL + MAP_CROSS_ORIGIN.y,
+  };
+}
+
+export function mapCrossLit(animTick: number, timing = MAP_CROSS_TIMING): boolean {
+  return (timing[animTick % timing.length] ?? 1) === 1;
+}
 
 export function hitMacRect(rects: MacRect[], x: number, y: number): MacRect | undefined {
   return rects.find((r) => x >= r.left && x < r.right && y >= r.top && y < r.bottom);
@@ -136,7 +202,10 @@ export class FlatOverlay {
     this.itemsEl = document.createElement("div");
     this.itemsEl.id = "play-flat-items";
     this.root.append(this.img, this.itemsEl, this.cash);
-    this.root.addEventListener("click", (event) => this.onClick(event));
+    // Dust FLT buttons are `mousedown` + `trackbut`. A `click` after
+    // `#play-stage` pointerdown can lose the first press (no click, or
+    // the leftover click is skipNextClick). Fire on pointerdown.
+    this.root.addEventListener("pointerdown", (event) => this.onPointerDown(event));
   }
 
   get open(): boolean {
@@ -153,7 +222,7 @@ export class FlatOverlay {
     this.root.hidden = false;
     this.cash.hidden = kind !== "avatar";
     this.cash.textContent = kind === "avatar" ? `$${cash}` : "";
-    this.setItems(kind === "avatar" ? items : []);
+    this.setItems(items);
   }
 
   setItems(items: FlatItem[]): void {
@@ -181,21 +250,25 @@ export class FlatOverlay {
     this.onClose?.();
   }
 
-  private onClick(event: MouseEvent): void {
+  private onPointerDown(event: PointerEvent): void {
+    if (event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
     if (this.kind === "avatar") {
-      const target = event.target;
-      if (target instanceof HTMLElement && target.dataset.item) {
-        this.onSelect?.(target.dataset.item);
-        return;
-      }
       const bounds = this.root.getBoundingClientRect();
       const x = ((event.clientX - bounds.left) / bounds.width) * STAGE_WIDTH;
       const y = ((event.clientY - bounds.top) / bounds.height) * STAGE_HEIGHT;
-      const hit = hitMacRect(AVATAR_BUTTONS, x, y);
-      if (hit?.name === "ok") {
+      const item =
+        event.target instanceof HTMLElement ? event.target.dataset.item : undefined;
+      const action = avatarFlatAction(x, y, item);
+      if (action?.kind === "ok") {
         this.close();
-      } else if (hit?.name === "info") {
+      } else if (action?.kind === "info") {
         this.onInfo?.();
+      } else if (action?.kind === "item") {
+        this.onSelect?.(action.name);
       }
       return;
     }

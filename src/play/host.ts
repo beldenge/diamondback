@@ -5,16 +5,20 @@ import type { Dir, SetGraph, WalkerPose } from "../world/set/types";
 import { loadSetGraph, parseDir, sceneByName, tileKey, WORLD_TOWN } from "../world/set/graph";
 import { routeToStar, TILE_SPAN, type RoutePoint, type StarPath } from "../world/set/path";
 import {
+  actorSprite,
   calcDeg,
   calcVect,
   cameraFromPose,
   cameraWorldPoint,
+  CST_SCALE_FIELD,
   degDelta,
   dirToDeg,
   DRINK_HOLD_FRAMES,
   gameFrameSec,
   playerWorldPoint,
+  PRP_SCALE_FIELD,
   timingForPose,
+  worldSpriteHitsPoint,
   worldToStill,
   wrapDeg,
   type StillHit,
@@ -37,7 +41,7 @@ import {
   movieFolder,
   type MovieTimeline,
 } from "./movies";
-import { isTownGridSize, parseScriptScene, scriptSceneName } from "./sceneName";
+import { isTownGridSize, parseScriptScene, poseForOpenedSet, scriptSceneName } from "./sceneName";
 
 export interface Waypoint {
   x: number;
@@ -199,6 +203,7 @@ export class DustHost implements OpcodeHost {
     { text: string; wav: string; viseme?: VisemeLine }
   >();
   private visemeLines = new Map<string, VisemeLine>();
+  private visemeLoads = new Map<string, Promise<VisemeLine | undefined>>();
   private currentPuppetFolder = "";
   private loadedPuppets = new Set<string>();
   private puppetSheets = new Map<string, PuppetSheet>();
@@ -317,6 +322,7 @@ export class DustHost implements OpcodeHost {
       case "plain":
       case "showcursor":
       case "flushevents":
+        return 0;
       case "closetrackfile":
       case "halttheme":
         this.stopBed();
@@ -599,6 +605,8 @@ export class DustHost implements OpcodeHost {
         }
         return 0;
       case "closesetfile":
+        await ctx.inObject("scene", this.currentScene, () => ctx.evalCall("closescene", []));
+        await ctx.inObject("set", "", () => ctx.evalCall("closeset", []));
         this.currentSet = "none";
         this.currentSetFile = "";
         return 0;
@@ -631,7 +639,7 @@ export class DustHost implements OpcodeHost {
         return this.currentFlatName;
       case "currentscene":
         if (args.length) {
-          return this.handleScene(str(args[0]));
+          return await this.handleScene(str(args[0]));
         }
         return this.currentScene;
       case "currentdir":
@@ -640,8 +648,11 @@ export class DustHost implements OpcodeHost {
           const dir = parseDir(str(args[0]));
           if (dir) {
             this.currentDir = dir;
-            if (this.view) {
-              this.view.pose = { ...this.view.pose, facing: dir };
+            if (this.view && this.view.pose.facing !== dir) {
+              await this.view.setPose(this.view.world, {
+                ...this.view.pose,
+                facing: dir,
+              });
             }
           }
           return str(args[0]);
@@ -1204,7 +1215,7 @@ export class DustHost implements OpcodeHost {
     }
   }
 
-  private handleScene(arg: string): string {
+  private async handleScene(arg: string): Promise<string> {
     const lower = arg.toLowerCase();
     if (lower === "strait" || lower === "left" || lower === "right") {
       this.view?.walk(lower === "strait" ? "strait" : lower);
@@ -1215,7 +1226,7 @@ export class DustHost implements OpcodeHost {
     if (graph && this.view) {
       const pose = this.poseFromSceneName(graph, this.currentScene);
       if (pose) {
-        void this.view.setPose(this.view.world, {
+        await this.view.setPose(this.view.world, {
           ...pose,
           facing: parseDir(String(this.currentDir)) ?? this.view.pose.facing,
         });
@@ -1242,7 +1253,7 @@ export class DustHost implements OpcodeHost {
     }
     const scene = sceneByName(g, name);
     if (!scene) {
-      return parsed;
+      return isTownGridSize(g.scenes.size) ? parsed : undefined;
     }
     // Town table (x,y) is Pascal (col, row). Script space is the transpose:
     // `chicken` at table (10, 3) is farm slot d11 (3, 10), between c11 and e11.
@@ -1373,16 +1384,14 @@ export class DustHost implements OpcodeHost {
   private async speak(ident: string): Promise<void> {
     const key = ident.toLowerCase();
     const line = this.puppetLines.get(key);
-    void this.loadVisemeLine(key).then((viseme) => {
-      if (!viseme) {
-        return;
-      }
-      if (line) {
-        line.viseme = viseme;
-      }
-      this.ui.setViseme(viseme);
-    });
-    await this.ui.speak(line?.text ?? ident, line?.wav, line?.viseme);
+    if (line?.wav) {
+      void voices.preload([line.wav]);
+    }
+    const viseme = await this.loadVisemeLine(key);
+    if (viseme && line) {
+      line.viseme = viseme;
+    }
+    await this.ui.speak(line?.text ?? ident, line?.wav, viseme ?? line?.viseme);
   }
 
   /** Prefetch a few WAVs. Do not parse visemes.json (multi-megabyte blob). */
@@ -1419,18 +1428,28 @@ export class DustHost implements OpcodeHost {
     if (hit) {
       return hit;
     }
+    const pending = this.visemeLoads.get(ident);
+    if (pending) {
+      return pending;
+    }
     const folder = this.currentPuppetFolder;
     if (!folder) {
       return undefined;
     }
-    const data = await fetchJson<VisemeLine>(
-      extractUrl(`${folder}/AUDIO/visemes/${ident}.json`),
-    ).catch(() => null);
-    if (!data?.frames?.length) {
-      return undefined;
-    }
-    this.visemeLines.set(ident, data);
-    return data;
+    const job = (async () => {
+      const data = await fetchJson<VisemeLine>(
+        extractUrl(`${folder}/AUDIO/visemes/${ident}.json`),
+      ).catch(() => null);
+      if (!data?.frames?.length) {
+        return undefined;
+      }
+      this.visemeLines.set(ident, data);
+      return data;
+    })().finally(() => {
+      this.visemeLoads.delete(ident);
+    });
+    this.visemeLoads.set(ident, job);
+    return job;
   }
 
   async bootIndex(): Promise<void> {
@@ -1628,23 +1647,19 @@ export class DustHost implements OpcodeHost {
     }
     if (this.view) {
       const world = this.currentSet === "town" ? WORLD_TOWN : folder;
-      let pose = this.view.pose;
-      const named = this.poseFromSceneName(graph, this.currentScene);
-      if (named) {
-        pose = {
-          x: named.x,
-          y: named.y,
-          facing: parseDir(String(this.currentDir)) ?? pose.facing,
-        };
-      }
+      const facing = parseDir(String(this.currentDir)) ?? this.view.pose.facing;
+      const pose = poseForOpenedSet(graph, this.currentScene, facing);
       await this.view.setPose(world, pose);
       this.currentScene = this.sceneNameForPose(graph, pose.x, pose.y);
+      this.currentDir = pose.facing;
     }
   }
 
   private async addScriptFile(key: string, rel: string): Promise<void> {
     const mark = `${key}::${rel}`;
-    if (this.loadedScriptFiles.has(mark)) {
+    // `removePrefix` drops the index but keeps this mark. Re-install
+    // after an interior SET swap or town keydown/openscene never return.
+    if (this.loadedScriptFiles.has(mark) && this.index.has(key)) {
       return;
     }
     try {
@@ -1756,12 +1771,14 @@ export class DustHost implements OpcodeHost {
     }
     this.installPuppetScripts(stem);
     this.puppetSheet = this.puppetSheets.get(folder) ?? null;
-    const wavs = this.wavsFor(folder).slice(0, 8);
+    const wavs = this.wavsFor(folder);
     if (wavs.length) {
-      voices.queue(wavs);
-      void this.ui.preloadVoices(wavs);
+      voices.queue(wavs.slice(0, 8));
+      void this.ui.preloadVoices(wavs.slice(0, 8));
     }
-    for (const ident of (this.puppetIdents.get(folder) ?? []).slice(0, 2)) {
+    // Per-line viseme JSON, not the megabyte blob. Warm every ident so a
+    // choice reply is not a late fetch while the WAV already plays.
+    for (const ident of this.puppetIdents.get(folder) ?? []) {
       void this.loadVisemeLine(ident);
     }
     if (show) {
@@ -1976,7 +1993,20 @@ export class DustHost implements OpcodeHost {
 
   private pointHitsSprite(actor: ActorState, point: Point): boolean {
     const still = viewStill(this.view, actor);
-    return still !== null && Math.abs(still.x - point.x) < 40 && still.y - point.y < 80 && point.y <= still.y + 10;
+    if (!still || !this.view) {
+      return false;
+    }
+    const cam = this.view.viewCamera?.() ?? cameraFromPose(this.view.pose, this.view.graph?.cameraZ);
+    return worldSpriteHitsPoint(
+      point.x,
+      point.y,
+      still.x,
+      still.y,
+      actorSprite(actor, cam),
+      actor.scale,
+      still.lensForward,
+      CST_SCALE_FIELD,
+    );
   }
 
   private pointHitsProp(prop: PropState, point: Point): boolean {
@@ -1984,7 +2014,25 @@ export class DustHost implements OpcodeHost {
       return Math.abs(prop.x - point.x) < 40 && Math.abs(prop.y - point.y) < 40;
     }
     const still = viewStill(this.view, prop);
-    return still !== null && Math.abs(still.x - point.x) < 36 && Math.abs(still.y - point.y) < 40;
+    if (!still) {
+      return false;
+    }
+    const view = (prop.view || "small").toLowerCase();
+    const frames =
+      prop.sprites[view] ??
+      prop.sprites.small ??
+      prop.sprites.base ??
+      Object.values(prop.sprites)[0];
+    return worldSpriteHitsPoint(
+      point.x,
+      point.y,
+      still.x,
+      still.y,
+      frames?.[0],
+      prop.scale || 1450,
+      still.lensForward,
+      PRP_SCALE_FIELD,
+    );
   }
 
   private spriteDist(obj: { x: number; y: number; z?: number }): number {

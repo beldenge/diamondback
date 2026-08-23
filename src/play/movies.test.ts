@@ -5,6 +5,7 @@ import {
   movieClipsStarting,
   movieFrameWaitsForClick,
   movieIndexAt,
+  movieWaitSetsSkipClick,
   planMoviePasses,
   type MovieTimeline,
 } from "./movies";
@@ -15,6 +16,12 @@ describe("inspect movie hold", () => {
     expect(movieFrameWaitsForClick(8)).toBe(true);
     expect(movieFrameWaitsForClick(0)).toBe(false);
     expect(movieFrameWaitsForClick(undefined)).toBe(false);
+  });
+
+  it("does not skip the next real click after an actionframe pointerdown", () => {
+    expect(movieWaitSetsSkipClick("click")).toBe(false);
+    expect(movieWaitSetsSkipClick("pointerdown")).toBe(false);
+    expect(movieWaitSetsSkipClick("pointerup")).toBe(true);
   });
 
   it("warning / bone inspect stills wait; dog1 does not", () => {

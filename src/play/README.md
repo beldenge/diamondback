@@ -4,8 +4,9 @@ How the remake runs Day 1 night: original HUD under the stills, CST actors,
 PUP talking-heads, world props, night FX, and spot-movies, all driven by
 extracted DreamFactory scripts (boot → `advanceday` → SET/CST/PRP). Extract formats live in
 [`dfextract/docs/`](../../dfextract/docs/). This file is the **playback**
-book so we do not re-debug speech, visemes, the Firefox audio delay, or
-world→still (X, Y, scale, Z, pans).
+book so we do not re-debug speech, visemes, the Firefox audio delay,
+world→still (X, Y, scale, Z, pans), interior spawn/Z, EXAMINE pointer,
+dest-rect hits, or the map `cross`.
 
 Town sandbox (`/`) stays an unlocked stills walker:
 [`src/world/set/README.md`](../world/set/README.md).
@@ -35,6 +36,31 @@ Code: [`sceneName.ts`](sceneName.ts).
 | Click movies | South-gate rules / firearms (`nitewarn` / `nitefire`), shop signs, `dog1` / `dog2`, item inspects. Intros skipped unless `?intro`. `dog1.mov` is a 59-tick overlay with two A1 cues 100 ms apart on the same 0.88 s growl. Play **two sequential still+audio passes** (one growl each) so the second cue does not cut the first into one bark. Wait-for-click is MOV frame **rec+0** (`actionframe`), not the `spotmovie` wrapper. WARNING/BONE set 1 on the inspect still; DOG1 is all 0 so Scene G12 can `setupactor("dog")` as soon as the lunge ends. |
 | Locked | Jail, chin (until `phase >= 2`), bank, apoth, store, doctor, stage. Hotel + saloon open. |
 
+`gotointerior` (`gotospecial` with an empty scene) stands at the SET
+header spawn (+48 camera tile), not the street cell you left. Mapping
+`scene g8` onto `_SALLOWER` / `scene g12` onto `_CHIN` has no still and
+no walks — music from `openset` plays on the facade. Spawn is framelist
+space (`SET_SPAWN` / `header.json`). `currentview("east")` is the word,
+not `E`.
+
+`closescene` / `openscene` are **tile** hooks, not turns. An in-place
+pan in Help’s shop A2 must not `initprop` the street door (that
+`voicesound ("doorclose1")` is arrival-only). `closesetfile` runs the
+old scene’s `closescene` so the close plays once on `gotointerior`.
+
+World→still **Y** uses that SET’s header +26 as camZ (chin **230**,
+town **62**). Hardcoding 62 puts Help in the air behind the counter.
+
+Help **behind the counter** is SET Z, not a second Y. The counter is in
+the still; sprite pixels draw only when `spriteZ ≤ stillZ`. Interior
+SETs need `FRAMES/z/` (`python cli.py --type set --z` that SET). No Z
+plane → Help paints on top of the counter. `stdactor` sets chin
+`actorscale` 5800 and `actorzclip` 32 — do not invent a shop Y.
+
+`opensetfile` `removePrefix("set"|"scene:")` drops the script index.
+The load mark must not block re-install or town `keydown` never returns
+after leaving a shop (walk freeze).
+
 `currentview()` / `currentdir()` return `north`/`south`/`east`/`west`
 (scripts compare those words; a raw `N` never matches). After a walk,
 `currentscene` stays on the script name (`g12`), not Pascal `l7`.
@@ -57,8 +83,12 @@ It hides during puppet UI and inventory. Inventory places owned INVEN
 props via `moveyoself` on the avatar flat (`panel`, or `hilite` for
 `handitem`). Click an item to run `stdmouse` (that prop becomes the
 HUD `handitem`). EXAMINE is `sendtoprop (handitem, infoyoself ())` →
-`invenmovie` / `playmovie`. Inspect MOVs wait on the still whose
-80-byte record has rec+0 ≠ 0, then play the fade-out frames.
+`invenmovie` / `playmovie` on the **first** pointer (`mousedown` /
+`trackbut`, not a leftover `click`). HUD buttons win over item sprites.
+Boot `addinven ("helpbut")` is not an inspect target — empty hand falls
+back to the first owned prop. Inspect MOVs wait on the still whose
+80-byte record has rec+0 ≠ 0, then play the fade-out frames. That
+dismiss must not `skipNextClick` the next real EXAMINE.
 
 INVEN `addinven` parks the large prop at **(316, 320)** on the mainpanel
 HUD — that pixel is also the skull chrome. Dust `stdmouse` **mousedown**
@@ -67,6 +97,12 @@ then `pointinactor` → `offerobject`. Play starts that on **pointerdown**,
 tracks `stilldown` / `mouse` on the window, and does not let the skull
 rect steal the slot. Mouse-up over the dog runs `offerobject ("bone")`.
 Empty chrome (map / skull / portrait) still opens those flats.
+The map (`NEW.FLT` `openflat`) shows HOUSE `cross` at
+`tile * 20 + (222, 93)` while `currentset` is town (nite counts as
+town). `scenecol`/`scenerow` are 1-based for pig `isadj`; the map uses
+**0-based** tiles so `scene g15` stays on the 512×384 still (1-based
+y=393 clips). Timing `1,1,1,2,2,2` at 20 Hz — slot 2 has no frame, so
+the X blinks. Interiors fall back to `townscene`.
 
 The portrait is HOUSE `avatar` at **(460, 325)**, not the still baked into
 `frame_3.png`. NEW.FLT `mainpanel` `openflat` calls `noface`: night
@@ -78,7 +114,11 @@ every `openflat` onto one file — mainpanel is container 2.
 
 Clicks go through boot `mousedown` → `hittest` (actor / prop / scene).
 Hover runs the same objects’ `setcursor` (boot idle without
-`forceupdate`). Scene G14 `pointinrules` / `pointinfire` set
+`forceupdate`). Actor/`pointinactor` hits the CST dest Mac Rect
+(`0x415271`: projected hotspot minus scaled header hotspot) — the
+head is in the box, the dirt below the feet is not. A remake 80px
+chest-to-shins box around the feet hotspot missed hats and kept
+`touch` on the ground. Scene G14 `pointinrules` / `pointinfire` set
 `cursor ("touch")` — the south-gate warning / firearms signs. Cast
 `setcursor` uses `realdist < hotdist`. Play does **not** walk from
 still click bands (those 22%/48% overlays stole the sign). Dust walked
@@ -88,6 +128,27 @@ down is not a back step) is the mobile stand-in; it must not start on
 the HUD or steal an INVEN `stdmouse` drag. `passcode` from a scene proc
 falls through to the SET keydown (walk), not to `new.flt`’s options
 `mousedown`.
+
+### Dead ends (do not retry)
+
+| Approach | What we saw |
+|---|---|
+| Parse town `scene g8` / `g12` onto `_SALLOWER` / `_CHIN` | Music on the facade, no still, no walks. `gotointerior` stands at SET header spawn (+48), not the street cell. |
+| Hardcode camZ **62** in every SET | Help floats behind the counter. World→still Y uses **that** SET’s +26 (chin **230**, town **62**). |
+| Skip interior `FRAMES/z/` | Help paints in front of the counter. Draw when `spriteZ ≤ stillZ`. `python cli.py --type set --z`. |
+| `closescene` / `initprop` on in-place pans | `doorclose1` on every A2 turn. Those hooks are **tile** steps (`isTileStep`), not facing changes. |
+| `closesetfile` without the old scene’s `closescene` | Street door still visible; the close plays later on pans. |
+| `loadedScriptFiles` blocking reinstall after `removePrefix("set"\|"scene:")` | Town `keydown` gone; walk freeze on shop exit. Reinstall when `!index.has(key)`. |
+| Prefetch two viseme JSON files | Choice-line jaw lags while the WAV plays (Leroy and Help). Warm **every** ident; `puppetspeak` awaits the track before `play()`. |
+| New face blit per 60 Hz tick (`paintGen` drops in-flight jaws) | Idle head, then a late jump. One blit; queue the latest pose; share one `Image` onload. |
+| Avatar EXAMINE on DOM `click` after `#play-stage` `pointerdown` | First press lost. Dust is button `mousedown` + `trackbut`. Overlay fires on **pointerdown**; HUD buttons win over item sprites. |
+| `infoyoself` on boot `handitem` `helpbut` | Empty shop `infoyoself`. `addinven ("helpbut")` is chrome, not an inspect target. |
+| `skipNextClick` after a captured actionframe `pointerdown` | Next real EXAMINE / world click eaten. `preventDefault` on that pointerdown already kills the synthetic `click`. |
+| `pointinactor` as ±40×80 px around the feet hotspot | Head unclickable; `touch` on the dirt. Chin Help is `actorscale` 5800 — 80px is the chest. Use CST dest Mac Rect (`0x415271`). |
+| Map `cross` at 1-based `scenerow * 20 + 93` | `scene g15` y=393, clipped off the parchment. Opcode is 1-based for pig `isadj`; the grid is **0-based** tiles from (222, 93). Slot 2 of `1,1,1,2,2,2` has no frame (blink). |
+| `infoyoself` on every inventory `stdmouse` | Not Dust. Panel click selects `handitem`; EXAMINE inspects. |
+
+Code: interiors [`sceneName.ts`](sceneName.ts) / [`graph.ts`](../world/set/graph.ts); hits [`facing.ts`](facing.ts) `spriteDestRect`; EXAMINE [`hud.ts`](hud.ts) / [`game.ts`](game.ts); map X [`hud.ts`](hud.ts) `mapCrossHotspot`.
 
 ---
 
@@ -432,8 +493,15 @@ left.
 
 Load **per-line** viseme JSON (`AUDIO/visemes/<ident>.json`), not the
 `visemes.json` blob. Last viseme tick / 60 matches the WAV length. Clock is
-**60 Hz**. Sidecar dump: `python sprites.py` writes `sprites.json`, visemes,
+**60 Hz**. Warm every ident when the puppet opens so a choice reply is not a
+late fetch while the WAV already plays. `puppetspeak` **awaits** that track
+before `play()`. Sidecar dump: `python sprites.py` writes `sprites.json`, visemes,
 and `scripts.json` for every PUP without rewriting PNGs.
+
+Do not start a new face blit that **drops** an in-flight one (`paintGen`).
+60 Hz viseme ticks would cancel jaw PNGs that are still loading, so the idle
+head sat through the line and jumped later. One blit at a time; queue the
+latest pose. Share one `Image` load per URL — do not overwrite `onload`.
 
 ---
 

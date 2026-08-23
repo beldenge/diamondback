@@ -1,10 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildSetGraph, holdFrame, hqFrame, resolveSpawn, sceneByName } from "./graph";
+import { buildSetGraph, holdFrame, hqFrame, parseDir, resolveSpawn, sceneByName, SET_CAMERA_Z, SET_SPAWN } from "./graph";
 import {
   applyTransition,
   isSwipePointer,
+  isTileStep,
   stillClickInput,
   stepPose,
   swipeWalkInput,
@@ -33,6 +34,23 @@ const fixtureTrans: TransitionRecord[] = [
     dir_from_name: "N", dir_to_name: "E", frame0: 30,
   },
 ];
+
+describe("tile vs turn", () => {
+  it("does not treat an in-place turn as leaving the scene", () => {
+    expect(isTileStep({ x: 0, y: 1, facing: "E" }, { x: 0, y: 1, facing: "N" })).toBe(false);
+    expect(isTileStep({ x: 0, y: 1, facing: "E" }, { x: 1, y: 1, facing: "E" })).toBe(true);
+  });
+});
+
+describe("parseDir", () => {
+  it("accepts Dust currentview words, not only NESW letters", () => {
+    expect(parseDir("east")).toBe("E");
+    expect(parseDir("NORTH")).toBe("N");
+    expect(parseDir("W")).toBe("W");
+    expect(parseDir(3)).toBe("E");
+    expect(parseDir("sideways")).toBeNull();
+  });
+});
 
 describe("set graph", () => {
   it("indexes camera tiles from the framelist, not blocked flags", () => {
@@ -152,6 +170,31 @@ describe("extracted interior graphs", () => {
     expect(graph.cameraTiles.has(`${c2!.x},${c2!.y}`)).toBe(true);
     expect(c2).toEqual(expect.objectContaining({ x: 2, y: 1 }));
     expect(hqFrame(graph, { x: c2!.x, y: c2!.y, facing: "W" })).toBeDefined();
+  });
+
+  it("stands at SET header spawn for saloon and Help's shop", () => {
+    for (const [folder, scene] of [
+      ["_SALLOWER", "scene d1"],
+      ["_CHIN", "scene a2"],
+    ] as const) {
+      const scenesPath = resolve(`dfextract/out/SET/${folder}/scenes.json`);
+      const transPath = resolve(`dfextract/out/SET/${folder}/transitions.json`);
+      if (!existsSync(scenesPath) || !existsSync(transPath)) {
+        return;
+      }
+      const scenes = JSON.parse(readFileSync(scenesPath, "utf8")) as SceneRecord[];
+      const records = JSON.parse(readFileSync(transPath, "utf8")) as TransitionRecord[];
+      const spawn = SET_SPAWN[folder];
+      const graph = buildSetGraph(scenes, records, spawn);
+      expect(graph.spawn).toEqual(spawn);
+      expect(graph.cameraTiles.has(`${spawn!.x},${spawn!.y}`)).toBe(true);
+      expect(hqFrame(graph, spawn!)).toBeDefined();
+      expect(sceneByName(graph, scene)).toEqual(
+        expect.objectContaining({ x: spawn!.x, y: spawn!.y }),
+      );
+    }
+    expect(SET_CAMERA_Z._CHIN).toBe(230);
+    expect(SET_CAMERA_Z._SALLOWER).toBe(180);
   });
 });
 

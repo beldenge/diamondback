@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseScript, type ScriptFile } from "../vm/ast";
 import { VM } from "../vm/runtime";
-import { inventorySpriteView } from "./hud";
+import { examineHandName, inventorySpriteView } from "./hud";
 import { DustHost } from "./host";
 import type { PuppetUi } from "./ui";
 
@@ -95,5 +95,11 @@ describe("avatar inventory select and examine", () => {
     vm.globals.set("handitem", "bone");
     await vm.inObject("prop", "bone", () => vm.evalCall("infoyoself", []));
     expect(movie.toLowerCase()).toBe("bone.mov");
+  });
+
+  it("EXAMINE uses handitem, or the first owned prop if helpbut is held", () => {
+    expect(examineHandName("jug", ["bone", "jug"])).toBe("jug");
+    expect(examineHandName("helpbut", ["bone", "jug"])).toBe("bone");
+    expect(examineHandName("", ["bone"])).toBe("bone");
   });
 });

@@ -176,15 +176,16 @@ export class PuppetUi {
   private speakWait: (() => void) | null = null;
   private eventWait: ((id: number) => void) | null = null;
   private speakTimer: ReturnType<typeof setTimeout> | null = null;
-  private lipsLive = false;
   private talking = false;
   private viseme: VisemeLine | null = null;
   private visemeTick = -1;
   private readonly bitmaps = new Map<string, HTMLImageElement>();
+  private readonly bitmapLoads = new Map<string, Promise<HTMLImageElement>>();
   private readonly flatBackdrop = new Map<string, boolean>();
   private readonly layerIndex = new Map<string, number>();
   private readonly layerAt = new Map<string, { x: number; y: number }>();
-  private paintGen = 0;
+  private paintBusy = false;
+  private paintAgain = false;
   /** Speech bar on. Audio and visemes keep running when this is off. */
   private captionsOn = true;
 
@@ -238,7 +239,7 @@ export class PuppetUi {
     this.canvas.style.height = `${STAGE_HEIGHT * scale}px`;
     this.canvas.width = STAGE_WIDTH;
     this.canvas.height = STAGE_HEIGHT;
-    this.paint();
+    this.schedulePaint();
   }
 
   open(sheet: PuppetSheet): void {
@@ -247,7 +248,7 @@ export class PuppetUi {
     this.applyIdle();
     this.setLine("");
     this.showEmptyBevels();
-    void this.paint();
+    this.schedulePaint();
   }
 
   close(): void {
@@ -324,7 +325,6 @@ export class PuppetUi {
     this.viseme = viseme ?? null;
     this.visemeTick = -1;
     this.talking = true;
-    this.lipsLive = false;
     const done = new Promise<void>((resolve) => {
       this.speakWait = resolve;
     });
@@ -333,8 +333,7 @@ export class PuppetUi {
     if (wavUrl) {
       duration = await voices.play(wavUrl);
     }
-    this.lipsLive = duration > 0 || voices.outputLive();
-    this.applyViseme(0);
+    this.applyViseme(voices.currentTime());
     const hold = speakHangSec(duration, viseme?.ticks);
     this.speakTimer = setTimeout(() => this.finishSpeak(), hold * 1000);
     await done;
@@ -352,10 +351,7 @@ export class PuppetUi {
   }
 
   tick(_dt: number): void {
-    if (!this.talking || !this.viseme || !this.lipsLive) {
-      return;
-    }
-    if (!voices.outputLive()) {
+    if (!this.talking || !this.viseme) {
       return;
     }
     this.applyViseme(voices.currentTime());
@@ -399,7 +395,7 @@ export class PuppetUi {
       }
     }
     if (changed) {
-      void this.paint();
+      this.schedulePaint();
     }
   }
 
@@ -420,10 +416,25 @@ export class PuppetUi {
 
   private stopJaw(): void {
     this.talking = false;
-    this.lipsLive = false;
     this.viseme = null;
     this.applyIdle();
-    void this.paint();
+    this.schedulePaint();
+  }
+
+  /** One blit in flight. A newer viseme waits, then paints — never drop the load. */
+  private schedulePaint(): void {
+    if (this.paintBusy) {
+      this.paintAgain = true;
+      return;
+    }
+    this.paintBusy = true;
+    void this.paint().finally(() => {
+      this.paintBusy = false;
+      if (this.paintAgain) {
+        this.paintAgain = false;
+        this.schedulePaint();
+      }
+    });
   }
 
   private async paint(): Promise<void> {
@@ -432,7 +443,6 @@ export class PuppetUi {
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
       return;
     }
-    const gen = ++this.paintGen;
     const jobs: { name: string; place: SpritePlace; img: Promise<HTMLImageElement> }[] = [];
     for (const name of FACE_TABLES) {
       const index = this.layerIndex.get(name) ?? idleLayerIndex(name, sheet.restLayers);
@@ -442,12 +452,14 @@ export class PuppetUi {
       }
       jobs.push({ name, place, img: this.bitmap(sheet.folder, place.path) });
     }
-    const loaded = await Promise.all(jobs.map(async (job) => ({
-      name: job.name,
-      place: job.place,
-      img: await job.img,
-    })));
-    if (gen !== this.paintGen) {
+    let loaded: { name: string; place: SpritePlace; img: HTMLImageElement }[];
+    try {
+      loaded = await Promise.all(jobs.map(async (job) => ({
+        name: job.name,
+        place: job.place,
+        img: await job.img,
+      })));
+    } catch {
       return;
     }
     this.ctx.imageSmoothingEnabled = false;
@@ -493,17 +505,25 @@ export class PuppetUi {
     if (hit && hit.complete && hit.naturalWidth) {
       return Promise.resolve(hit);
     }
-    return new Promise((resolve, reject) => {
+    const pending = this.bitmapLoads.get(url);
+    if (pending) {
+      return pending;
+    }
+    const job = new Promise<HTMLImageElement>((resolve, reject) => {
       const img = hit ?? new Image();
       this.bitmaps.set(url, img);
       img.onload = () => resolve(img);
       img.onerror = () => reject(new Error(url));
       if (!img.src) {
         img.src = url;
-      } else if (img.complete) {
+      } else if (img.complete && img.naturalWidth) {
         resolve(img);
       }
+    }).finally(() => {
+      this.bitmapLoads.delete(url);
     });
+    this.bitmapLoads.set(url, job);
+    return job;
   }
 
   private setLine(text: string): void {
