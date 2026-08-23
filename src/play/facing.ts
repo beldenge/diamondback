@@ -29,14 +29,9 @@ export function degToOctant(deg: number): number {
 }
 
 /**
- * Which of the 8 CST stand/walk frames the camera sees.
+ * 8-dir index from look-deg vs actordeg. Sprite blit does **not** use
+ * this — `pickCstFrame` matches authored frame deg (`0x4154c0`).
  * Octant 0 is the front (actor facing the camera).
- *
- * CST east/west plates are drawn with east facing *left* on the PNG
- * (clockwise around the actor, opposite increasing `actordeg`).
- * `camOct - actorOct` keeps front/back and puts eastward travel to the
- * *right* of a north-facing still. The old `actorOct - camOct` moonwalked
- * the K7 corner toward the range.
  */
 export function visibleOctant(actorDeg: number, cameraDeg: number): number {
   return (degToOctant(cameraDeg) - degToOctant(actorDeg) + 4) & 7;
@@ -103,6 +98,123 @@ export function pickCyclic<T>(frames: T[], octant: number): T | undefined {
     return undefined;
   }
   return frames[octant % frames.length];
+}
+
+/** Draw lens for CST sprite pick: feet minus `calcvect(look, SET+24)`. */
+export function drawLensPoint(cam: ViewCamera): { x: number; y: number } {
+  const back = calcVect(cam.deg + 128, CAMERA_SETBACK);
+  return { x: cam.x + back.x, y: cam.y + back.y };
+}
+
+/**
+ * DF.EXE `0x411f20`: shortest circular distance on the 256-deg circle.
+ * Sprite pick (`0x4154c0`) keeps the frame with the strictly smaller value.
+ */
+export function angularDistance(a: number, b: number): number {
+  return Math.abs(degDelta(a, b));
+}
+
+/**
+ * Relative facing the CST picker wants.
+ *
+ * Camera-to-actor on the view axis is `look + 128` (from the actor back
+ * to the lens). Frame deg 0 is the front. CST +0x28 **32** is the west
+ * ¾ plate (head screen-left); world `actordeg 32` is SE, which from the
+ * south is the **east** ¾ (head screen-right, plate 224). Subtract
+ * actordeg from the camera-relative heading so those two 32s are not
+ * treated as the same way. Use the view axis, not XY `calcdeg` to the
+ * 64-unit setback — that sitting *beside* a near dog flipped the ¾.
+ */
+export function spriteWantedDeg(
+  actorDeg: number,
+  _actor: { x: number; y: number },
+  camera: ViewCamera,
+): number {
+  return wrapDeg(wrapDeg(camera.deg + 128) - actorDeg);
+}
+
+interface CstFrame {
+  deg?: number;
+  pose?: number;
+  index?: number;
+}
+
+function packedDirs(count: number): number | null {
+  return count >= 8 && count % 8 === 0 ? 8 : null;
+}
+
+/** Only the dog uses 7 plates; authored degs at setInfo +0x28. */
+const DOG_STREET_DEGS = [0, 16, 32, 48, 208, 224, 240];
+
+function framePoseOf(frame: CstFrame, index: number, count: number): number {
+  if (typeof frame.pose === "number" && Number.isFinite(frame.pose)) {
+    return frame.pose;
+  }
+  const dirs = packedDirs(count);
+  if (dirs == null) {
+    return 0;
+  }
+  return Math.floor((frame.index ?? index) / dirs);
+}
+
+function frameDegOf(frame: CstFrame, index: number, count: number): number {
+  if (typeof frame.deg === "number" && Number.isFinite(frame.deg)) {
+    return wrapDeg(frame.deg);
+  }
+  const dirs = packedDirs(count);
+  if (dirs != null) {
+    return wrapDeg(((frame.index ?? index) % dirs) * 32);
+  }
+  if (count === 7) {
+    return DOG_STREET_DEGS[(frame.index ?? index) % 7] ?? 0;
+  }
+  return 0;
+}
+
+function poseCountOf(frames: CstFrame[]): number {
+  let max = 0;
+  for (let i = 0; i < frames.length; i++) {
+    max = Math.max(max, framePoseOf(frames[i], i, frames.length) + 1);
+  }
+  return Math.max(1, max);
+}
+
+/**
+ * DF.EXE `0x4154c0`: among frames whose +8 pose matches the +0x2e table,
+ * copy the one with the smallest `0x411f20` distance to the wanted deg.
+ * Exact match (`dist == 0`) stops the scan. Ties keep the earlier record.
+ */
+export function pickCstFrame<T extends CstFrame>(
+  frames: T[],
+  actorDeg: number,
+  actor: { x: number; y: number },
+  camera: ViewCamera,
+  step: number,
+  table?: number[],
+): T | undefined {
+  if (frames.length === 0) {
+    return undefined;
+  }
+  const wanted = spriteWantedDeg(actorDeg, actor, camera);
+  const poseId = poseFromTable(table, step, poseCountOf(frames));
+  const n = frames.length;
+  let best: T | undefined;
+  let bestDist = 0x3e8;
+  for (let i = 0; i < n; i++) {
+    const frame = frames[i];
+    if (framePoseOf(frame, i, n) !== poseId) {
+      continue;
+    }
+    const dist = angularDistance(frameDegOf(frame, i, n), wanted);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = frame;
+      if (dist === 0) {
+        break;
+      }
+    }
+  }
+  return best;
 }
 
 export function walkFrame<T>(
@@ -417,33 +529,30 @@ export function worldToStillFilmstrip(
 }
 
 /**
- * CST sprite for the current pose. Walk and drink are facing-major
- * strips (8 dirs × N poses), same layout as stand's 8 facings.
+ * CST sprite for the current pose. DF.EXE `0x4154c0` matches the +0x2e
+ * pose id, then picks the closest authored frame deg — not `octant % n`.
+ * The dog is 7 plates at 16° around south; `% 7` wrapped the street
+ * `actordeg 32` view back to the head-on plate.
  */
 export function actorSprite(
   actor: ActorState,
-  cameraDeg: number,
+  camera: ViewCamera,
 ): ActorState["standSprites"][number] | undefined {
-  const oct = visibleOctant(actor.deg, cameraDeg);
-  const extra = actor.sprites?.[actor.pose];
-  if (extra?.length && actor.pose !== "walk" && actor.pose !== "drink" && actor.pose !== "stand") {
-    return extra.length >= 8 ? pickCyclic(extra, oct) : extra[0];
-  }
-  if (actor.pose === "walk") {
-    return (
-      walkFrame(actor.walkSprites, oct, actor.walkStep, 8, actor.walkTiming) ??
-      pickCyclic(actor.standSprites, oct)
-    );
-  }
-  const drink = actor.drinkSprites;
-  if (actor.pose === "drink" && drink && drink.length > 0) {
-    const frame =
-      drink.length >= 16
-        ? walkFrame(drink, oct, actor.walkStep)
-        : pickCyclic(drink, oct);
-    if (frame) {
-      return frame;
+  const pose = actor.pose || "stand";
+  let frames = actor.sprites?.[pose];
+  if (!frames?.length) {
+    if (pose === "walk") {
+      frames = actor.walkSprites.length ? actor.walkSprites : actor.standSprites;
+    } else if (pose === "drink") {
+      frames = actor.drinkSprites?.length ? actor.drinkSprites : actor.standSprites;
+    } else {
+      frames = actor.standSprites;
     }
   }
-  return pickCyclic(actor.standSprites, oct);
+  if (!frames?.length) {
+    return undefined;
+  }
+  const table =
+    actor.walkTiming.length > 0 ? actor.walkTiming : timingForPose(actor.poseTiming, pose);
+  return pickCstFrame(frames, actor.deg, actor, camera, actor.walkStep, table);
 }

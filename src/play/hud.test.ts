@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { hitMacRect, MAINPANEL_BUTTONS, stageFromHudClick } from "./hud";
+import {
+  AVATAR_BUTTONS,
+  AVATAR_SLOT,
+  HAND_SLOT,
+  hitMacRect,
+  hitsHandSlot,
+  inventorySpriteView,
+  MAINPANEL_BUTTONS,
+  propViewFrame,
+  stageFromClient,
+  stageFromHudClick,
+} from "./hud";
 import { BEVEL_CHROME, BEVEL_DARK, BEVEL_SLOTS, SPEECH_BAR_HEIGHT } from "./ui";
 import { HUD_HEIGHT, STAGE_HEIGHT } from "./stage";
 
@@ -33,6 +44,16 @@ describe("mainpanel Mac rects", () => {
     expect(BEVEL_DARK).toBe("rgb(111, 56, 38)");
   });
 
+  it("prefers the held-item slot over the skull chrome under it", () => {
+    expect(hitMacRect(MAINPANEL_BUTTONS, HAND_SLOT.x, HAND_SLOT.y)?.name).toBe("horn");
+    expect(hitsHandSlot(HAND_SLOT.x, HAND_SLOT.y)).toBe(true);
+  });
+
+  it("maps a client point on the stage box into 512×384", () => {
+    const at = stageFromClient(10, 20, { left: 0, top: 0, width: 512, height: 384 });
+    expect(at).toEqual({ x: 10, y: 20 });
+  });
+
   it("maps a HUD-local click into stage pixels", () => {
     const at = stageFromHudClick(80, 40, 512, 120);
     expect(at).not.toBeNull();
@@ -40,5 +61,48 @@ describe("mainpanel Mac rects", () => {
     expect(at!.y).toBeGreaterThan(264);
     expect(at!.y).toBeLessThan(384);
     expect(hitMacRect(MAINPANEL_BUTTONS, at!.x, at!.y)?.name).toBe("map");
+  });
+});
+
+describe("avatar inventory Mac rects", () => {
+  it("hits EXAMINE on the left HUD button", () => {
+    expect(hitMacRect(AVATAR_BUTTONS, 200, 330)?.name).toBe("info");
+  });
+
+  it("hits OK on the right HUD button", () => {
+    expect(hitMacRect(AVATAR_BUTTONS, 300, 330)?.name).toBe("ok");
+  });
+
+  it("does not treat the avatar still as a button", () => {
+    expect(hitMacRect(AVATAR_BUTTONS, 256, 180)).toBeUndefined();
+  });
+
+  it("hilite is the HUD handitem, other owned props stay panel", () => {
+    expect(inventorySpriteView("bone", "bone")).toBe("hilite");
+    expect(inventorySpriteView("jug", "bone")).toBe("panel");
+    expect(inventorySpriteView("bone", "")).toBe("panel");
+  });
+});
+
+describe("HUD portrait frames", () => {
+  it("puts noface on the portrait pocket, not the still", () => {
+    expect(AVATAR_SLOT).toEqual({ x: 460, y: 325 });
+    expect(AVATAR_SLOT.y).toBeGreaterThan(264);
+  });
+
+  it("picks nitefaces by propdeg when the timing table is a rest pose", () => {
+    const frames = ["rest", "blink", "look", "frown", "grin", "wince"];
+    expect(propViewFrame(frames, 0, [1], 0)).toBe("rest");
+    expect(propViewFrame(frames, 1, [1], 9)).toBe("blink");
+    expect(propViewFrame(frames, 5, [1], 0)).toBe("wince");
+  });
+
+  it("plays 1-based +0x2e slots for a glance strip", () => {
+    const frames = ["a", "b", "c"];
+    const timing = [1, 1, 2, 2, 3, 3, 2, 1];
+    expect(propViewFrame(frames, 0, timing, 0)).toBe("a");
+    expect(propViewFrame(frames, 0, timing, 2)).toBe("b");
+    expect(propViewFrame(frames, 0, timing, 4)).toBe("c");
+    expect(propViewFrame(frames, 0, timing, 8)).toBe("a");
   });
 });

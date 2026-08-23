@@ -17,11 +17,18 @@ export const MAINPANEL_BUTTONS: MacRect[] = [
   { name: "self", top: 264, left: 390, bottom: 384, right: 512 },
 ];
 
-/** NEW.FLT container 10 — avatar / inventory. */
+/** NEW.FLT container 10 — avatar / inventory. `info` is EXAMINE. */
 export const AVATAR_BUTTONS: MacRect[] = [
   { name: "info", top: 320, left: 155, bottom: 345, right: 256 },
   { name: "ok", top: 321, left: 266, bottom: 345, right: 367 },
 ];
+
+/** Avatar-flat INVEN view. `stdmouse` hilite is the HUD `handitem`. */
+export function inventorySpriteView(name: string, handitem: string): "hilite" | "panel" {
+  const who = name.toLowerCase();
+  const hand = handitem.toLowerCase();
+  return who !== "" && who === hand ? "hilite" : "panel";
+}
 
 export const FLAT_STILL: Record<string, string> = {
   map: extractUrl("FLT/_NEW/frame_6.png"),
@@ -31,6 +38,54 @@ export const FLAT_STILL: Record<string, string> = {
 
 export function hitMacRect(rects: MacRect[], x: number, y: number): MacRect | undefined {
   return rects.find((r) => x >= r.left && x < r.right && y >= r.top && y < r.bottom);
+}
+
+/** INVEN `addinven` / `stdmouse` slot on the mainpanel HUD. */
+export const HAND_SLOT = { x: 316, y: 320 };
+export const HAND_HIT = 40;
+
+/** HOUSE `noface` portrait hotspot on the 512×384 stage. */
+export const AVATAR_SLOT = { x: 460, y: 325 };
+
+/**
+ * PRP view frame. Timing tables are 1-based CST/PRP setInfo +0x2e slots
+ * (niterite glance, nitehattip). Length-1 tables stay on `propdeg`.
+ */
+export function propViewFrame<T>(
+  frames: T[],
+  deg: number,
+  timing: number[] | undefined,
+  animTick: number,
+): T | undefined {
+  if (!frames.length) {
+    return undefined;
+  }
+  if (timing && timing.length > 1) {
+    const slot = timing[animTick % timing.length] ?? 1;
+    return frames[Math.max(0, Math.min(frames.length - 1, slot - 1))];
+  }
+  const index = Math.max(0, Math.min(frames.length - 1, Math.trunc(deg) || 0));
+  return frames[index];
+}
+
+/** Dust `stdmouse`: click the large held prop, not the skull under it. */
+export function hitsHandSlot(x: number, y: number, hx = HAND_SLOT.x, hy = HAND_SLOT.y): boolean {
+  return Math.abs(hx - x) < HAND_HIT && Math.abs(hy - y) < HAND_HIT;
+}
+
+/** Stage pixel from a pointer on the 512×384 `#play-stage` box. */
+export function stageFromClient(
+  clientX: number,
+  clientY: number,
+  bounds: { left: number; top: number; width: number; height: number },
+): { x: number; y: number } | null {
+  if (bounds.width <= 0 || bounds.height <= 0) {
+    return null;
+  }
+  return {
+    x: ((clientX - bounds.left) / bounds.width) * STAGE_WIDTH,
+    y: ((clientY - bounds.top) / bounds.height) * STAGE_HEIGHT,
+  };
 }
 
 export function stageFromHudClick(
@@ -49,6 +104,7 @@ export function stageFromHudClick(
 }
 
 export interface FlatItem {
+  name?: string;
   url: string;
   x: number;
   y: number;
@@ -63,6 +119,10 @@ export class FlatOverlay {
   private readonly itemsEl: HTMLDivElement;
   private kind: string | null = null;
   onClose: (() => void) | null = null;
+  /** INVEN `stdmouse` panel/hilite click. */
+  onSelect: ((name: string) => void) | null = null;
+  /** Avatar EXAMINE — `sendtoprop (handitem, infoyoself ())`. */
+  onInfo: (() => void) | null = null;
 
   constructor() {
     this.root = document.createElement("div");
@@ -103,6 +163,9 @@ export class FlatOverlay {
       img.alt = "";
       img.draggable = false;
       img.src = item.url;
+      if (item.name) {
+        img.dataset.item = item.name;
+      }
       img.style.left = `${(item.x / STAGE_WIDTH) * 100}%`;
       img.style.top = `${(item.y / STAGE_HEIGHT) * 100}%`;
       img.style.width = `${(item.w / STAGE_WIDTH) * 100}%`;
@@ -119,13 +182,20 @@ export class FlatOverlay {
   }
 
   private onClick(event: MouseEvent): void {
-    const bounds = this.root.getBoundingClientRect();
-    const x = ((event.clientX - bounds.left) / bounds.width) * STAGE_WIDTH;
-    const y = ((event.clientY - bounds.top) / bounds.height) * STAGE_HEIGHT;
     if (this.kind === "avatar") {
+      const target = event.target;
+      if (target instanceof HTMLElement && target.dataset.item) {
+        this.onSelect?.(target.dataset.item);
+        return;
+      }
+      const bounds = this.root.getBoundingClientRect();
+      const x = ((event.clientX - bounds.left) / bounds.width) * STAGE_WIDTH;
+      const y = ((event.clientY - bounds.top) / bounds.height) * STAGE_HEIGHT;
       const hit = hitMacRect(AVATAR_BUTTONS, x, y);
       if (hit?.name === "ok") {
         this.close();
+      } else if (hit?.name === "info") {
+        this.onInfo?.();
       }
       return;
     }

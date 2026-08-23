@@ -29,7 +29,7 @@ first PUP-only runs. Those are stale. Use `out/PUP/_JENIX`.
 | Character conversation logic | `PUP/_<NAME>/*.txt` (`day1`, `Boot Script`, …) |
 | Character face / mouth sprites | `PUP/_<NAME>/FRAMES/<Part>/frame_<id>.png` plus `FRAMES/sprites.json` (512×384 `x,y,w,h`) |
 | In-world body / walk sprites | `CST/_GANG/…` named people; `CST/_EXTRA/…` extras; `CST/_GANG/sprites.json` for placement + frame lists |
-| Play HUD chrome | `FLT/_NEW/frame_3.png` (512×384 dashboard). HOUSE `FRAMES/avatar/nitefaces` overlays the portrait at night |
+| Play HUD chrome | `FLT/_NEW/frame_3.png` (512×384 dashboard). HOUSE `avatar` at (460, 325): `nitefaces` / `dayfaces` from NEW.FLT `mainpanel` `noface` |
 | Location map + hotspots | `SET/_<PLACE>/scenes.json` |
 | NPC / item stand points | `SET/_<PLACE>/waypoints.json` |
 | NPC walk polylines | `SET/_<PLACE>/paths.json` |
@@ -97,7 +97,7 @@ Puppet folder names (39): `_BLOOD`, `_BOLIVAR`, `_BUICK`, `_COBB`, `_DEAD`, `_DE
 | `<Actor>/Script.txt` | In-world actor logic (`setupactor`, `mousedown`, schedules). Leroy `setupactor("sign")` does `stdactor` then `actorscale (me, 1100)`. |
 | `Cast.txt` | Cast library: `initactors`, `runpuppet`, `walktopuppet`, `stdactor`, `stdscale` (town **1450**, interiors 2400–5800), `hotdist` (town **384**) |
 | `timing.json` | CST setInfo +0x2e pose tables per actor per `actorpose` (GANG 8-pose walk = 16 slots; EXTRA pig walk = 4) |
-| `sprites.json` | Per-actor stand/walk placement (`x,y,w,h`) on the 512×384 stage |
+| `sprites.json` | Per-actor stand/walk placement (`x,y,w,h`) on the 512×384 stage, plus CST `pose` (+8) and `deg` (+0x28) |
 | `<Actor>/<anim>/frame_<id>.png` | Body sprites. Foot blobs are contact shadows (translucent black), not maroon studio dirt. Black clothing (Help's robe) stays opaque. |
 
 `_EXTRA` = animals / Jenix beggar / bounty / kidgang. `_GANG` = named townspeople. `_TARGET` = shooting-gallery marks. `_MINE` = mine extras.
@@ -133,7 +133,9 @@ is the town grid with only the range tiles walkable.
 
 | File | What it is |
 |---|---|
-| `<fn>.txt` | Puzzle script. Filename is the first `code <fn>` in that container (`playcheckers.txt`) |
+| `<fn>.txt` | First script whose opening `code` is `<fn>` (`playcheckers.txt`, NEW `openflat.txt` = **mainpanel**) |
+| `<fn>_<container>.txt` | Every script container (NEW has four `openflat`s — 2 mainpanel, 5 map, 8 avatar, 11 score) |
+| `flats.json` | Named flats: `script` / `still` / `buttons` container ids (`NEW.FLT`) |
 | `frame_<n>.png` | Board / HUD / page still. `<n>` is the source container index |
 
 `_CHECKERS`, `_FIGHT`, `_SCORP`, `_SALGAMES`, `_HIST` (history book pages), `_DIARY`, `_DRUG`, `_HOTPLATE`, …
@@ -143,6 +145,7 @@ is the town grid with only the range tiles walkable.
 | File | What it is |
 |---|---|
 | `props.json` | Manifest: `group`, `state`, `index`, `container`, `path` |
+| `timing.json` | PRP setInfo +0x2e pose tables per group per `propview` (HOUSE `avatar` `nitehattip` is 26 slots) |
 | `FRAMES/<Group>/<state>/<ii>_c<container>.png` | Named sprite. `group` = item (`Bone`, `Cigar`). `state` = `small` / `large` / `panel` / `hilite` / `king` / … |
 | `FRAMES/_unnamed/frame_<n>.png` | Container the shop table did not name |
 | `initprop_<n>.txt`, `setcursor _arg__<n>.txt` | Prop scripts. `<n>` is the container index |

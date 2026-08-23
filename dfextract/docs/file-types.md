@@ -107,7 +107,11 @@ set records                       @ 0x5E
 
 ```
 i32 frameCount                    @ 0x72
-record[frameCount]                @ 0x76   # 44 bytes each, first i32 = frame container
+record[frameCount]                @ 0x76   # 44 bytes each
+  i32 frame container             @ 0
+  i16 pose                        @ 8    # 0-based; matches +0x2e table minus 1
+  i16 deg                         @ 0x28 # 0–255, 0=south. DF.EXE 0x4154c0
+  i16 field                       @ 0x2a # 114 on GANG/EXTRA
 ```
 
 Frames are transparent sprites. EXTRA.CST Jenix has one set `stand`
@@ -240,13 +244,20 @@ with a smaller walkable subset (shooting-range overlay).
 
 - Container 0: header + palette + Pascal names near the end
   (`checkers.flt`, `Flat 0`)
+- NEW.FLT container 0 ends with a **flat table**: 16-byte stage name
+  (`new`), `i32` count, then `count` records of
+  `i32 script, i32 still, i32 buttons` + 16-byte Pascal name
+  (`mainpanel`, `map`, `avatar`, `score`, `death`). Written as `flats.json`.
 - Any later container whose first token is `code` is a script
-  (`playcheckers`, `openflat`, `mousedown`, …)
+  (`playcheckers`, `openflat`, `mousedown`, …). Filenames are
+  `{firstProc}_{container}.txt` so two `openflat` containers do not
+  overwrite. The first of each name is also `{firstProc}.txt`.
 - A large container starting with `384, 512` (or similar) is an
   indexed still — the puzzle backdrop / HUD
 
 We dump every script and every still that decodes. HIST.FLT produced 50
-frames (diary / history pages).
+frames (diary / history pages). NEW.FLT `mainpanel` (container 2) is
+`noface` / `makeface` / `tiphat` for the HUD portrait.
 
 ## PRP — props
 

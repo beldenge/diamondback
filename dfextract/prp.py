@@ -21,6 +21,7 @@ from image import (
     write_indexed_png,
     write_png,
 )
+from cst import extract_cst_timing
 from script import binary_script_to_text, decode_and_write_script, pascal_string
 from set import looks_like_script
 
@@ -53,6 +54,12 @@ def write_prp_extract(
         counts["scripts"] = _write_scripts(df, out_dir)
     if write_frames:
         counts["frames"] = _write_frames(df, out_dir)
+    timing = extract_cst_timing(df)
+    if timing:
+        (out_dir / "timing.json").write_text(
+            json.dumps(timing, indent=2) + "\n", encoding="utf-8"
+        )
+        counts["timing"] = sum(len(v) for v in timing.values())
     return {key: value for key, value in counts.items() if value}
 
 

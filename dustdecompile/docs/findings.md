@@ -622,7 +622,7 @@ BFS on camera tiles, or one CST cycle per 256-unit tile.
 | `0x410b80` | One job tick. Turn while record+4 ≥ 0 (`0x412100`, circle `0xFF`, min step 1). Then `acc +=` SET-actor speed word; lerp along the path (`0x411f50`) or the 3D beeline (`isqrt` `0x40b160`). |
 | `0x438210` | `timeGetTime`; `*3/50` → 60 Hz **counter**. |
 | `0x40e1d2` | Frame loop: draw CST (`0x415040`), then wait until the counter advanced by **`framerate`**. Boot `framerate (3)` → **20 Hz** game frames, not 60 Hz pumps. PRP+CST together are `0x40e720` (§7a). |
-| `0x4154c0` | CST sprite pick on that draw. `actor+0x24` indexes **that pose’s** setInfo **+0x2e** (length **+0x70**). GANG 8-pose walk: 16 slots `[1,1,2,2,…,8,8]`. EXTRA pig/chicken walk: `[1,1,2,2]`. Stand is length 1. |
+| `0x4154c0` | CST sprite pick on that draw. `actor+0x24` indexes **that pose’s** setInfo **+0x2e** (length **+0x70**). GANG 8-pose walk: 16 slots `[1,1,2,2,…,8,8]`. EXTRA pig/chicken walk: `[1,1,2,2]`. Stand is length 1. For each 44-byte frame, +8 must match that 0-based pose id; then `0x411f20` circular distance to wanted deg vs frame **+0x28**. Keep the smallest (exact 0 stops). `0x4151e0` subtracts look-deg then `calcdeg` so look cancels on-axis. Play wanted is `(look+128) − actordeg`: CST plate **32** is the west ¾, world `actordeg 32` is SE (south view = plate **224**). Dog street: 7 plates at 16° (`0,16,32,48,208,224,240`). |
 
 `stdactor` copies `stdspeed` / `stdturn` of `actorset(who)`: town **3 / 7**, hotlower and sallower **4 / 8**, else **5 / 10** (GANG `Cast.txt`). Mine extra `stdspeed` is **4**. That many world units / deg-units per **20 Hz** game frame. Scripts wait with `while iswalk { forceupdate }`.
 

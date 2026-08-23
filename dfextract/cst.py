@@ -157,6 +157,17 @@ def detect_contact_shadows(
     return frozenset(shadows)
 
 
+def cst_frame_facing(info: bytes, frame_i: int) -> tuple[int, int, int] | None:
+    """setInfo 44-byte record: container id, +8 pose, +0x28 deg (DF.EXE 0x4154c0)."""
+    rec = 0x76 + frame_i * 44
+    if rec + 42 > len(info):
+        return None
+    frame_id = struct.unpack_from("<i", info, rec)[0]
+    pose = struct.unpack_from("<h", info, rec + 8)[0]
+    deg = struct.unpack_from("<h", info, rec + 40)[0] & 0xFF
+    return frame_id, pose, deg
+
+
 def write_cst_frames(df: DFFile, out_dir: Path) -> int:
     from image import ImageError, cst_palette, decode_trans_sprite, sprite_record, write_png
 
@@ -182,7 +193,7 @@ def write_cst_frames(df: DFFile, out_dir: Path) -> int:
         actor_name = pascal_string(logic, 0x2A)
         set_count = struct.unpack_from("<i", logic, 0x5A)[0]
         set_cursor = 0x5E
-        poses: list[tuple[str, list[int]]] = []
+        poses: list[tuple[str, list[int], list[tuple[int, int, int]]]] = []
         stand_ids: list[int] = []
         for _set in range(set_count):
             if set_cursor + 32 > len(logic):
@@ -197,21 +208,26 @@ def write_cst_frames(df: DFFile, out_dir: Path) -> int:
                 continue
             frame_count = struct.unpack_from("<i", info, 0x72)[0]
             frame_ids: list[int] = []
+            frame_meta: list[tuple[int, int, int]] = []
             for frame_i in range(frame_count):
                 rec = 0x76 + frame_i * 44
                 if rec + 4 > len(info):
                     break
-                frame_id = struct.unpack_from("<i", info, rec)[0]
+                facing = cst_frame_facing(info, frame_i)
+                frame_id = facing[0] if facing else struct.unpack_from("<i", info, rec)[0]
                 if 0 <= frame_id < len(df.containers):
                     frame_ids.append(frame_id)
+                    if facing:
+                        frame_meta.append(facing)
             if not frame_ids:
                 continue
-            poses.append((set_name, frame_ids))
+            poses.append((set_name, frame_ids, frame_meta))
             if set_name.lower() == "stand":
                 stand_ids = frame_ids[:2]
         shadows = detect_contact_shadows(df, palette, stand_ids)
-        for set_name, frame_ids in poses:
+        for set_name, frame_ids, frame_meta in poses:
             folder = out_dir / actor_name / set_name
+            meta_by_id = {fid: (pose, deg) for fid, pose, deg in frame_meta}
             for frame_i, frame_id in enumerate(frame_ids):
                 try:
                     sprite = decode_trans_sprite(
@@ -221,13 +237,13 @@ def write_cst_frames(df: DFFile, out_dir: Path) -> int:
                     continue
                 write_png(folder / f"frame_{frame_id}.png", sprite)
                 rel = f"{actor_name}/{set_name}/frame_{frame_id}.png"
+                extra: dict = {"id": frame_id, "index": frame_i}
+                if frame_id in meta_by_id:
+                    extra["pose"] = meta_by_id[frame_id][0]
+                    extra["deg"] = meta_by_id[frame_id][1]
                 bag = actors.setdefault(actor_name, {})
                 bag.setdefault(set_name, []).append(
-                    sprite_record(
-                        sprite,
-                        rel,
-                        extra={"id": frame_id, "index": frame_i},
-                    )
+                    sprite_record(sprite, rel, extra=extra)
                 )
                 written += 1
     (out_dir / "sprites.json").write_text(

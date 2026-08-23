@@ -103,8 +103,10 @@ composite left a front-facing beard ring that did not turn. Face
 parts (`Head`, `Jaw`, `Eyes`, `Nose`, `Eyebrows`) share that stage.
 `Left` / `Right` / `Hands 1` / `Hands 2` are viseme-driven gesture overlays
 (often `-1` / hidden at rest; some puppets rest with a hand up). Missing
-face folders are skipped. CST walk frames are **8 facings per pose** (front,
-¾, side…) then the next pose, not 8 poses of one facing.
+face folders are skipped. CST frame records store **pose +8** and **deg
++0x28**; play picks the closest deg, not `octant % n`. Most strips are 8
+facings at 32° per pose (front, ¾, side…). The dog is 7 plates at 16°
+around south. Sidecar fields: `pose`, `deg`.
 
 NEW.FLT button rects are Mac `{top, left, bottom, right}` in 512×384.
 Mainpanel HUD: `map` (left), `horn` (skull), `self` (portrait).

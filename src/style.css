@@ -58,7 +58,8 @@ body,
 }
 
 #play-stage:has(#puppet-ui:not([hidden])) #play-hud,
-#play-stage:has(#puppet-ui:not([hidden])) #play-hand {
+#play-stage:has(#puppet-ui:not([hidden])) #play-hand,
+#play-stage:has(#puppet-ui:not([hidden])) #play-hud-face {
   visibility: hidden;
   pointer-events: none;
 }
@@ -127,12 +128,16 @@ body.play #viewport {
 
 #play-hud-face {
   position: absolute;
-  right: 0;
-  bottom: 0;
-  height: 100%;
-  width: auto;
+  left: 0;
+  top: 0;
+  display: block;
   image-rendering: pixelated;
   pointer-events: none;
+  z-index: 41;
+}
+
+#play-hud-face[hidden] {
+  display: none;
 }
 
 #play-caption {
@@ -173,7 +178,8 @@ body.play #viewport {
 }
 
 #play-stage:has(#play-flat:not([hidden])) #play-hud,
-#play-stage:has(#play-flat:not([hidden])) #play-hand {
+#play-stage:has(#play-flat:not([hidden])) #play-hand,
+#play-stage:has(#play-flat:not([hidden])) #play-hud-face {
   visibility: hidden;
   pointer-events: none;
 }
@@ -202,6 +208,7 @@ body.play #viewport {
 #play-flat-items img {
   position: absolute;
   image-rendering: pixelated;
+  pointer-events: auto;
 }
 
 #play-movie {
@@ -211,9 +218,8 @@ body.play #viewport {
   height: 100%;
   object-fit: contain;
   background: #000;
-  z-index: 50;
+  z-index: 70;
   image-rendering: pixelated;
-  pointer-events: none;
 }
 
 #play-hand {

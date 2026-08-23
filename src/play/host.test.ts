@@ -340,5 +340,7 @@ describe("first evening initactors", () => {
     expect(dogActor.star).toBe("town.dog");
     expect(dogActor.x).toBe(1620);
     expect(dogActor.y).toBe(2748);
+    expect(dogActor.deg).toBe(32);
+    expect(dogActor.scale).toBe(880);
   });
 });

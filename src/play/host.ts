@@ -102,6 +102,10 @@ export interface PropState {
   zclip: number;
   sprites: Record<string, SpritePlace[]>;
   spriteRoot: string;
+  /** PRP setInfo +0x2e tables keyed by `propview` (avatar nitehattip, …). */
+  poseTiming: Record<string, number[]>;
+  /** Game frames since the current view; used with `poseTiming`. */
+  animTick: number;
   ball?: { vx: number; vy: number; vz: number; remaining: number };
 }
 
@@ -212,6 +216,11 @@ export class DustHost implements OpcodeHost {
   frameCounter = 0;
   /** Nested `forceupdate` count. Game tick must not also step actors. */
   scriptPump = 0;
+  /**
+   * Outer `runQueued` is in flight (idle `hasattention` → `walktopuppet`).
+   * Nested `forceupdate` runQueued still runs (`scriptPump > 0`).
+   */
+  scriptBusy = false;
   private readonly loops = new Map<string, ScriptLoop>();
   private readonly dueLoops: ScriptLoop[] = [];
   private readonly walkEnds: string[] = [];
@@ -228,7 +237,8 @@ export class DustHost implements OpcodeHost {
   /** True when the last click was consumed (actor/prop/handled scene). */
   clickAbsorbed = false;
   stillDown = false;
-  private currentFlatName = "none";
+  /** Town play is the NEW.FLT `mainpanel` under the still. */
+  currentFlatName = "mainpanel";
   private trackFolder = "_UNILIB";
   private bedStop: (() => void) | null = null;
   private pendingBed: string | null = null;
@@ -376,13 +386,20 @@ export class DustHost implements OpcodeHost {
         return prop?.visible ? this.pointHitsProp(prop, p) : false;
       }
       case "hittest": {
-        const name = this.hitTest(asPoint(args[0] ?? this.pointer));
+        const name = this.hitTest(
+          asPoint(args[0] ?? this.pointer),
+          str(ctx.globals.get("handitem") ?? ""),
+        );
         ctx.lastResult = this.hitKind;
         return name;
       }
       case "propview":
         return this.propField(ctx, args, "view", (prop, value) => {
-          prop.view = str(value);
+          const view = str(value);
+          if (prop.view !== view) {
+            prop.animTick = 0;
+          }
+          prop.view = view;
         });
       case "propxy":
         return this.propXy(ctx, args);
@@ -516,7 +533,9 @@ export class DustHost implements OpcodeHost {
       case "singlesound":
       case "dualsound":
       case "multiplesound":
-        await this.playFx(str(args[0]), false);
+        // Fire-and-forget. Awaiting fetch/decode here held `scriptBusy`
+        // and froze every actor `makeloop` (dog look, horse head/tail).
+        void this.playFx(str(args[0]), false);
         return 0;
       case "opentrackfile":
         this.trackFolder = `_${str(args[0]).replace(/\.snd$/i, "").toUpperCase()}`;
@@ -602,6 +621,9 @@ export class DustHost implements OpcodeHost {
           this.currentFlatName = str(args[0]).toLowerCase();
           return this.currentFlatName;
         }
+        return this.currentFlatName;
+      case "gotoflat":
+        this.currentFlatName = str(args[0]).toLowerCase();
         return this.currentFlatName;
       case "currentscene":
         if (args.length) {
@@ -812,6 +834,7 @@ export class DustHost implements OpcodeHost {
     const actor = this.namedActor(str(args[0] ?? ctx.me));
     if (args.length >= 2) {
       set(actor, args[1]);
+      this.view?.refreshActors();
     }
     return actor[field] as Value;
   }
@@ -946,6 +969,7 @@ export class DustHost implements OpcodeHost {
   /** One DF game frame: `actorspeed` / `actorturn` / one CST pose-table slot. */
   advanceActorsOnce(): void {
     this.advanceBalls();
+    this.advancePropViews();
     let moved = false;
     for (const actor of this.actors.values()) {
       if (actor.walking) {
@@ -986,6 +1010,25 @@ export class DustHost implements OpcodeHost {
       }
     }
     if (moved) {
+      this.view?.refreshActors();
+    }
+  }
+
+  /** PRP views with a +0x2e table longer than 1 (hattip, glance, hit). */
+  private advancePropViews(): void {
+    let changed = false;
+    for (const prop of this.props.values()) {
+      if (!prop.visible) {
+        continue;
+      }
+      const timing = prop.poseTiming[prop.view.toLowerCase()];
+      if (!timing || timing.length <= 1) {
+        continue;
+      }
+      prop.animTick += 1;
+      changed = true;
+    }
+    if (changed) {
       this.view?.refreshActors();
     }
   }
@@ -1098,21 +1141,39 @@ export class DustHost implements OpcodeHost {
   }
 
   async runQueued(ctx: VM): Promise<void> {
-    const ends = this.walkEnds.splice(0);
-    const turns = this.turnEnds.splice(0);
-    const due = this.dueLoops.splice(0);
-    for (const name of ends) {
-      await ctx.inObject("actor", name, () => ctx.evalCall("endwalk", []));
+    // Dust is single-threaded. A second tick must not start another idle
+    // while `hasattention` is already inside `walktopuppet`. Nested
+    // `forceupdate` (scriptPump > 0) still has to drain walkEnds.
+    if (this.scriptBusy && this.scriptPump === 0) {
+      return;
     }
-    for (const name of turns) {
-      await ctx.inObject("actor", name, () => ctx.evalCall("endturn", []));
+    const hold = this.scriptPump === 0;
+    if (hold) {
+      this.scriptBusy = true;
     }
-    for (const loop of due) {
-      await ctx.inObject(loop.kind, loop.who, () => ctx.evalCall(loop.proc, []));
-    }
-    const balls = this.ballEnds.splice(0);
-    for (const name of balls) {
-      await ctx.inObject("prop", name, () => ctx.evalCall("endball", [{ type: "str", value: "frames" }]));
+    try {
+      const ends = this.walkEnds.splice(0);
+      const turns = this.turnEnds.splice(0);
+      const due = this.dueLoops.splice(0);
+      for (const name of ends) {
+        await ctx.inObject("actor", name, () => ctx.evalCall("endwalk", []));
+      }
+      for (const name of turns) {
+        await ctx.inObject("actor", name, () => ctx.evalCall("endturn", []));
+      }
+      for (const loop of due) {
+        await ctx.inObject(loop.kind, loop.who, () => ctx.evalCall(loop.proc, []));
+      }
+      const balls = this.ballEnds.splice(0);
+      for (const name of balls) {
+        await ctx.inObject("prop", name, () =>
+          ctx.evalCall("endball", [{ type: "str", value: "frames" }]),
+        );
+      }
+    } finally {
+      if (hold) {
+        this.scriptBusy = false;
+      }
     }
   }
 
@@ -1259,6 +1320,8 @@ export class DustHost implements OpcodeHost {
         zclip: 0,
         sprites: {},
         spriteRoot: "",
+        poseTiming: {},
+        animTick: 0,
       };
       this.props.set(key, prop);
     }
@@ -1397,21 +1460,21 @@ export class DustHost implements OpcodeHost {
   private async openStage(name: string): Promise<void> {
     const stem = name.replace(/\.flt$/i, "").toUpperCase();
     const folder = `FLT/_${stem}`;
-    const files = [
-      "setcursor _arg_.json",
-      "openflat.json",
-      "death.json",
-      "mousedown _arg_.json",
-    ];
-    for (const file of files) {
-      const rel = `${folder}/${file}`;
-      const key = file.startsWith("openflat")
-        ? "flat:mainpanel"
-        : file.startsWith("death")
-          ? "flat:death"
-          : "stage";
-      await this.addScriptFile(key, rel);
+    await this.addScriptFile("stage", `${folder}/setcursor _arg__1.json`);
+    await this.addScriptFile("stage", `${folder}/setcursor _arg_.json`);
+    const flats = await fetchJson<{
+      flats?: { name: string; file?: string; script?: number }[];
+    }>(extractUrl(`${folder}/flats.json`)).catch(() => null);
+    if (flats?.flats?.length) {
+      for (const flat of flats.flats) {
+        const file = flat.file ?? `openflat_${flat.script}.json`;
+        await this.addScriptFile(`flat:${flat.name.toLowerCase()}`, `${folder}/${file}`);
+      }
+    } else {
+      await this.addScriptFile("flat:mainpanel", `${folder}/openflat.json`);
+      await this.addScriptFile("flat:death", `${folder}/death.json`);
     }
+    this.currentFlatName = "mainpanel";
   }
 
   private async openShop(name: string): Promise<void> {
@@ -1442,11 +1505,18 @@ export class DustHost implements OpcodeHost {
       });
     }
     this.shopSprites.set(shop, byGroup);
+    const timing = await fetchJson<Record<string, Record<string, number[]>>>(
+      extractUrl(`${folder}/timing.json`),
+    ).catch(() => ({} as Record<string, Record<string, number[]>>));
     for (const group of groups) {
       const prop = this.ensureProp(group.name);
       prop.shop = shop;
       prop.spriteRoot = folder;
       prop.sprites = byGroup[group.name.toLowerCase()] ?? {};
+      const tables = timing[group.name] ?? timing[group.name.toLowerCase()] ?? {};
+      prop.poseTiming = Object.fromEntries(
+        Object.entries(tables).map(([view, seq]) => [view.toLowerCase(), seq]),
+      );
       for (const rel of propScriptRels(group)) {
         await this.addScriptFile(`prop:${group.name.toLowerCase()}`, rel);
       }
@@ -1817,7 +1887,18 @@ export class DustHost implements OpcodeHost {
     return extractUrl(`SND/${folder}/${file}`);
   }
 
-  private hitTest(point: Point): string {
+  hitsHeldItem(point: Point, handitem: string): boolean {
+    const key = handitem.toLowerCase();
+    if (!key) {
+      return false;
+    }
+    const prop = this.props.get(key);
+    const x = prop?.x || 316;
+    const y = prop?.y || 320;
+    return Math.abs(x - point.x) < 40 && Math.abs(y - point.y) < 40;
+  }
+
+  private hitTest(point: Point, handitem = ""): string {
     this.clickAbsorbed = false;
     const hits: { kind: "actor" | "prop"; name: string; forward: number }[] = [];
     for (const actor of this.nearbyActors()) {
@@ -1842,6 +1923,10 @@ export class DustHost implements OpcodeHost {
         forward: hud ? -1 : (still?.forward ?? 0),
       });
     }
+    const held = handitem.toLowerCase();
+    if (held && this.hitsHeldItem(point, held) && !hits.some((h) => h.name === held)) {
+      hits.push({ kind: "prop", name: held, forward: -1 });
+    }
     hits.sort((a, b) => a.forward - b.forward);
     const top = hits[0];
     if (top) {
@@ -1860,6 +1945,9 @@ export class DustHost implements OpcodeHost {
   nearbyProps(): PropState[] {
     return [...this.props.values()].filter((prop) => {
       if (!prop.visible) {
+        return false;
+      }
+      if (prop.name === "avatar") {
         return false;
       }
       if (prop.view === "large" || prop.view === "panel" || prop.view === "hilite") {

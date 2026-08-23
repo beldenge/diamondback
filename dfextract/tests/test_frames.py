@@ -162,6 +162,12 @@ class TestFrames(unittest.TestCase):
             with Image.open(ours) as image:
                 self.assertGreater(image.size[0], 0)
                 self.assertGreater(image.size[1], 0)
+            sidecar = json.loads((dest / "sprites.json").read_text(encoding="utf-8"))
+            dog0 = sidecar["actors"]["dog"]["stand"][0]
+            dog2 = sidecar["actors"]["dog"]["stand"][2]
+            self.assertEqual(dog0["deg"], 0)
+            self.assertEqual(dog0["pose"], 0)
+            self.assertEqual(dog2["deg"], 32)
         self.assertGreater(written, 100)
 
 

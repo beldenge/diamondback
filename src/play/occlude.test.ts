@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   actorBlitZ,
+  CONTACT_SHADOW_ALPHA,
   exeSpriteZ,
   blitSpriteZ,
   paintFarToNear,
+  restoreSpriteAlpha,
   spriteBitsFromImageData,
   spriteOverZ,
 } from "./occlude";
@@ -81,7 +83,32 @@ describe("SET Z vs actor", () => {
     const bits = spriteBitsFromImageData({ data, width: 4, height: 1 } as ImageData);
     expect(bits.data[3]).toBe(255);
     expect(bits.data[7]).toBe(255);
-    expect(bits.data[11]).toBe(120);
+    expect(bits.data[11]).toBe(CONTACT_SHADOW_ALPHA);
     expect(bits.data[15]).toBe(255);
+  });
+
+  it("does not treat punched black robe as a contact shadow", () => {
+    const w = 2;
+    const h = 8;
+    const data = new Uint8ClampedArray(w * h * 4);
+    // Chest (top) punched to the shadow alpha — still clothes.
+    data[0] = 0;
+    data[1] = 0;
+    data[2] = 0;
+    data[3] = 120;
+    data[4] = 75;
+    data[5] = 87;
+    data[6] = 37;
+    data[7] = 200;
+    // Foot pancake on the last row.
+    const foot = ((h - 1) * w + 1) * 4;
+    data[foot] = 0;
+    data[foot + 1] = 0;
+    data[foot + 2] = 0;
+    data[foot + 3] = 120;
+    restoreSpriteAlpha(data, w, h);
+    expect(data[3]).toBe(255);
+    expect(data[7]).toBe(255);
+    expect(data[foot + 3]).toBe(CONTACT_SHADOW_ALPHA);
   });
 });

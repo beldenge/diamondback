@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -298,6 +299,32 @@ class TestRemaining(unittest.TestCase):
             self.skipTest("CHECKERS.FLT not present")
         df = read_df_file(CHECKERS_FLT)
         self.assertTrue(looks_like_script(df.containers[1].data))
+
+    def test_new_flt_keeps_mainpanel_makeface(self) -> None:
+        from flt import parse_flt_flats, write_flt_extract
+
+        new_flt = DUST / "DATA" / "NEW.FLT"
+        if not new_flt.exists():
+            self.skipTest("NEW.FLT not present")
+        df = read_df_file(new_flt)
+        flats = parse_flt_flats(df.containers[0].data)
+        names = [row["name"] for row in flats.get("flats", [])]
+        self.assertEqual(names, ["mainpanel", "map", "avatar", "score", "death"])
+        self.assertEqual(flats["flats"][0]["script"], 2)
+        text = binary_script_to_text(df.containers[2].data)
+        self.assertIn("code makeface ()", text)
+        self.assertIn("code noface ()", text)
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            write_flt_extract(df, dest, write_scripts=True, write_frames=False)
+            main = (dest / "openflat_2.txt").read_text(encoding="utf-8")
+            score = (dest / "openflat_11.txt").read_text(encoding="utf-8")
+            plain = (dest / "openflat.txt").read_text(encoding="utf-8")
+            self.assertIn("code makeface ()", main)
+            self.assertIn("code trackbut (arg)", score)
+            self.assertIn("code makeface ()", plain)
+            payload = json.loads((dest / "flats.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["flats"][0]["file"], "openflat_2.json")
 
     def test_nitefoun_mov_frame(self) -> None:
         if not NITEFOUN.exists():

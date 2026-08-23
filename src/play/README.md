@@ -48,10 +48,26 @@ World sprites paint far-to-near (Leroy in front of the dog/jug). The
 held item (`#play-hand`) is a canvas stamped from decoded sprite bits
 (so a new item is not the previous bitmap stretched to the new size).
 It hides during puppet UI and inventory. Inventory places owned INVEN
-props via `moveyoself` on the avatar flat.
+props via `moveyoself` on the avatar flat (`panel`, or `hilite` for
+`handitem`). Click an item to run `stdmouse` (that prop becomes the
+HUD `handitem`). EXAMINE is `sendtoprop (handitem, infoyoself ())` →
+`invenmovie` / `playmovie`.
 
-HUD chrome (map / skull menu / portrait) is hit-tested before script
-`mousedown`, so a held jug at (316, 320) cannot steal those clicks.
+INVEN `addinven` parks the large prop at **(316, 320)** on the mainpanel
+HUD — that pixel is also the skull chrome. Dust `stdmouse` **mousedown**
+on the held prop (not a `click`): `while stilldown` follows `mouse()`,
+then `pointinactor` → `offerobject`. Play starts that on **pointerdown**,
+tracks `stilldown` / `mouse` on the window, and does not let the skull
+rect steal the slot. Mouse-up over the dog runs `offerobject ("bone")`.
+Empty chrome (map / skull / portrait) still opens those flats.
+
+The portrait is HOUSE `avatar` at **(460, 325)**, not the still baked into
+`frame_3.png`. NEW.FLT `mainpanel` `openflat` calls `noface`: night
+`nitefaces` / day `dayfaces`, `propdeg 0`, then `makeloop makeface`
+(`random(30)+30` frames). `makeface` is `random(10)`: `propdeg` 1–5
+(blink/look) or `niterite` / `niteleft` (timing table). Oona’s `tiphat`
+plays `nitehattip` for 26 `forceupdate`s. FLT extract must not collapse
+every `openflat` onto one file — mainpanel is container 2.
 
 Clicks go through boot `mousedown` → `hittest` (actor / prop / scene).
 Empty still still uses the remake 22%/48% walk bands (Dust used chrome
@@ -82,18 +98,37 @@ the EXE. Labels are left-aligned. The hole is filled with the rim’s
 dark brown `(111, 56, 38)` — the sprite has no fill of its own; do not
 paint it black. Empty slots stay blank bevels so it always reads as
 five boxes — including during speech, from `openpuppetfile`, not only
-after `puppetbevel`. Hide the leather dashboard whenever the puppet UI
-is up (`#play-stage:has(#puppet-ui:not([hidden])) #play-hud`).
+after `puppetbevel`. Hide the leather dashboard **and** the HOUSE
+portrait whenever the puppet UI is up (`#play-hud` and `#play-hud-face`).
+The face canvas is a stage sibling (z-index above the dashboard); do not
+leave it visible over the five bevels. `#play-hud-face { display: block }`
+must not override `[hidden]`.
 
 ---
 
 ## Town CST
 
-CST `actordeg` / `currentdeg`: **256 units per turn, 0 = south**. Stand is 8
-facings; walk is 8 facings × 8 frames. Drink is 32 frames (8 dirs × 4).
-Visible octant is `(camOct - actorOct + 4) & 7` — CST east/west plates
-face *left* for east, so the other sign moonwalks a north-view east walk
-(K7 corner to the range). Front/back are the same either way.
+CST `actordeg` / `currentdeg`: **256 units per turn, 0 = south**. DF.EXE
+`0x4154c0` does **not** index `octant % n`. Each 44-byte setInfo frame
+stores pose at **+8** and facing deg at **+0x28**. Draw walks that
+pose’s table (`+0x2e` / `+0x70`), then copies the frame whose deg is
+closest on the circle (`0x411f20`). Wanted deg is
+`(look + 128) − actordeg` on the view axis (from the actor back to the
+lens, minus facing). Frame deg 0 is the front. CST plate **32** is the
+west ¾ (head screen-left); world `actordeg 32` is SE, so from the south
+that is the **east** ¾ (plate **224**). Matching the two 32s mirrored
+the street dog. Do not use XY `calcdeg` to the 64-unit setback — that
+sitting beside a near dog flipped the ¾.
+
+Most GANG/EXTRA strips are 8 dirs at 32°. The **dog** is 7 plates at
+**16°** around south (`0,16,32,48,208,224,240`) — `setupactor("street")`
+sets `actordeg 32`, which is a ¾, not the head-on plate. `% 7` wrapped
+that to frame 0. `alt` / `left` are the same 7 degs (head turn, not a
+single extra[0]). Horses are 16 dirs at 16°. Sidecar: `pose` / `deg` on
+CST `sprites.json`. Dog `doright` / `lookright` and horse `horsey` /
+`head` / `tail` are those scripts — head-on made the fidgets easy to
+miss. `singlesound` is fire-and-forget (do not `await` it inside
+`runQueued` / `scriptBusy`).
 
 Idle is Leroy’s script, not a remake fidget. `setupactor("sign")` ends in
 `endwalk` → `leroyidle`. Each tick (`makeloop` delay 20 at `framerate (3)`
@@ -104,17 +139,25 @@ otherwise `actordeg + 2` (slow pivot). `playerxyz` is the tile center;
 faces the lens (O7 N looks south, not the 76-east diagonal). When the
 player steps or turns, standing actors’ idle loops fire on the next
 script frame — do not wait a full second, and do not freeze turns during
-a SET walk (`talking` is only `mousedown`). Do not snap deg; `turntodeg`
-still animates.
+a SET walk (`talking` is click/key; idle `hasattention` uses `scriptBusy`).
+Do not snap deg; `turntodeg` still animates.
+
+If `realdist < hotdist` at the sign (`leroyphase = 0`), `hasattention (10)`
+counts script frames (`(seconds * 60) / framerate()` = 200 at boot 3 ≈
+10 s) then `sendtoactor (target, mousedown (0))` — same talk walk as a
+click, without the player clicking. `clearattention` when they walk out
+of range. Do not skip that fake mousedown.
 
 Talk approach is `walktopuppet`: in town he walks to `playerxyz` facing
 that vector (straight-on toward the camera), then `turntodeg (currentdeg
 + 128)`. Scripts `stoploop` for the walk. Do not spin during the walk.
 Dust’s VM is single-threaded: `cursor ("watch")` then `while iswalk {
 forceupdate }` — no nested mousedown/keydown, no player SET walk, no HUD
-map/inven. Play sets `talking` for that blocking script so our async
-`forceupdate` cannot let clicks through. SET filmstrips use `busy`, not
-`talking`, so standing idle still runs when *you* walk.
+map/inven. Play sets `talking` on click/key, and `scriptBusy` on an
+in-flight idle `runQueued`, so a second tick cannot overlap
+`hasattention`’s walk (he arrived and froze). Nested `forceupdate`
+still drains `walkEnds`. SET filmstrips use `busy`, not `talking`, so
+standing idle still runs when *you* walk.
 
 A **star** is a named SET pin (`waypoints.json`, 256 units/tile in the EXE), not a
 sprite. `actorstar` copies that xyz. Do not invent a nearby xyz if a
@@ -287,8 +330,10 @@ Z overlay. Prefer the EXE + SET over the patent when they disagree.
 | Blend near props toward 1/z X | One-off. PRP uses the same `0x40dcd0` as CST. |
 | Layout dest sprites, then swap dest HQ | Dest sprites sit on the last LQ; the world jumps. Dest HQ is the last strip plate; draw sprites **after** the still. |
 
-Clothing pixels are forced opaque; only the translucent-black foot
-pancake stays alpha 120 (canvas premultiply punched Help’s black robe).
+Clothing pixels are forced opaque. Only the (0,0,0,~120) foot blob
+4-connected to the bottom edge stays alpha 120 — Help’s robe is also
+(0,0,0); canvas premultiply punching it to a<255 used to keep the coat
+see-through. Do not treat every translucent black pixel as a matte.
 From O8 N the picket fence is Z=3, so a far body does not show through
 it; gaps (Z≥5) can still leak slivers. `python cli.py --type set --z`
 writes `FRAMES/z/` without rewriting color stills. Multiply dest size

@@ -75,6 +75,93 @@ export interface SpriteBits {
   h: number;
 }
 
+/** Extract writes the foot pancake as (0,0,0,120). */
+export const CONTACT_SHADOW_ALPHA = 120;
+const SHADOW_A_MIN = 80;
+const SHADOW_A_MAX = 160;
+
+function isFootShadowPixel(r: number, g: number, b: number, a: number): boolean {
+  return r === 0 && g === 0 && b === 0 && a >= SHADOW_A_MIN && a <= SHADOW_A_MAX;
+}
+
+/**
+ * Contact shadow is a small (0,0,0,~120) blob 4-connected to the bottom
+ * edge. Help's robe is also (0,0,0) — canvas premultiply can punch it to
+ * a<255, which used to keep the coat see-through. Only the foot blob
+ * stays translucent; every other drawn pixel is opaque.
+ */
+export function restoreSpriteAlpha(data: Uint8ClampedArray, w: number, h: number): void {
+  if (w <= 0 || h <= 0) {
+    return;
+  }
+  const shadow = new Uint8Array(w * h);
+  const stack: number[] = [];
+  const y0 = Math.floor((h * 3) / 4);
+  for (let y = h - 1; y >= y0 && stack.length === 0; y--) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const o = i * 4;
+      if (isFootShadowPixel(data[o], data[o + 1], data[o + 2], data[o + 3])) {
+        stack.push(i);
+      }
+    }
+  }
+  while (stack.length) {
+    const i = stack.pop()!;
+    if (shadow[i]) {
+      continue;
+    }
+    const y = Math.floor(i / w);
+    if (y < y0) {
+      continue;
+    }
+    shadow[i] = 1;
+    const x = i - y * w;
+    if (x > 0) {
+      const j = i - 1;
+      const o = j * 4;
+      if (!shadow[j] && isFootShadowPixel(data[o], data[o + 1], data[o + 2], data[o + 3])) {
+        stack.push(j);
+      }
+    }
+    if (x + 1 < w) {
+      const j = i + 1;
+      const o = j * 4;
+      if (!shadow[j] && isFootShadowPixel(data[o], data[o + 1], data[o + 2], data[o + 3])) {
+        stack.push(j);
+      }
+    }
+    if (y > y0) {
+      const j = i - w;
+      const o = j * 4;
+      if (!shadow[j] && isFootShadowPixel(data[o], data[o + 1], data[o + 2], data[o + 3])) {
+        stack.push(j);
+      }
+    }
+    if (y + 1 < h) {
+      const j = i + w;
+      const o = j * 4;
+      if (!shadow[j] && isFootShadowPixel(data[o], data[o + 1], data[o + 2], data[o + 3])) {
+        stack.push(j);
+      }
+    }
+  }
+  for (let i = 0, p = 0; i < shadow.length; i++, p += 4) {
+    const a = data[p + 3];
+    if (a === 0) {
+      continue;
+    }
+    if (shadow[i]) {
+      data[p] = 0;
+      data[p + 1] = 0;
+      data[p + 2] = 0;
+      data[p + 3] = CONTACT_SHADOW_ALPHA;
+      continue;
+    }
+    data[p + 3] = 255;
+  }
+}
+
 /**
  * Nearest-neighbor blit onto the 512×264 still. Skip transparent sprite
  * pixels and any pixel whose SET Z is closer than the actor (the O8 fence).
@@ -113,11 +200,8 @@ export function blitSpriteZ(
       if (a === 0) {
         continue;
       }
-      // Contact shadow is translucent black. Everything else is clothes —
-      // Help's robe is (0,0,0). Canvas premultiply must not punch it.
-      if (!(r === 0 && g === 0 && b === 0 && a < 255)) {
-        a = 255;
-      } else if (a < 8) {
+      // Foot pancake only. Help's robe is (0,0,0) — do not keep it translucent.
+      if (!(r === 0 && g === 0 && b === 0 && a >= SHADOW_A_MIN && a <= SHADOW_A_MAX)) {
         a = 255;
       }
       if (zPlane && !spriteOverZ(actorZ, zPlane[row + x])) {
@@ -145,21 +229,6 @@ export function zPlaneFromImageData(image: ImageData): Uint8Array {
 
 export function spriteBitsFromImageData(image: ImageData): SpriteBits {
   const data = new Uint8ClampedArray(image.data);
-  for (let i = 0; i < data.length; i += 4) {
-    const a = data[i + 3];
-    if (a === 0) {
-      continue;
-    }
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
-    if (r === 0 && g === 0 && b === 0 && a < 255) {
-      if (a < 8) {
-        data[i + 3] = 255;
-      }
-      continue;
-    }
-    data[i + 3] = 255;
-  }
+  restoreSpriteAlpha(data, image.width, image.height);
   return { data, w: image.width, h: image.height };
 }

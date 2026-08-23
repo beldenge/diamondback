@@ -69,13 +69,19 @@ import {
 import { DustHost, type PropState, type WorldView } from "./host";
 import { extractUrl } from "../world/set/extract";
 import {
+  AVATAR_SLOT,
   FlatOverlay,
+  HAND_SLOT,
   hitMacRect,
+  inventorySpriteView,
   MAINPANEL_BUTTONS,
+  propViewFrame,
+  stageFromClient,
   stageFromHudClick,
+  type FlatItem,
 } from "./hud";
 import { playStageRect } from "./stage";
-import { PLAY_HUD_CHROME, PLAY_HUD_FACE_NIGHT, PuppetUi } from "./ui";
+import { PLAY_HUD_CHROME, PuppetUi } from "./ui";
 import { worldInputBlocked } from "./lock";
 import { movieIndexAt, planMoviePasses } from "./movies";
 import { unlockVoices, voices } from "./speech";
@@ -136,12 +142,16 @@ export class PlayGame implements WorldView {
   private zKey = "";
   private readonly stageEl: HTMLDivElement;
   private readonly hudEl: HTMLDivElement;
-  private readonly hudFace: HTMLImageElement;
+  private readonly hudFace: HTMLCanvasElement;
+  private readonly hudFaceCtx: CanvasRenderingContext2D;
+  private hudFaceSrc = "";
   private readonly captionEl: HTMLDivElement;
   private readonly movieEl: HTMLImageElement;
   private readonly handEl: HTMLCanvasElement;
   private readonly handCtx: CanvasRenderingContext2D;
   private handSrc = "";
+  /** `stdmouse` drag started on pointerdown; ignore the leftover click. */
+  private skipNextClick = false;
   private readonly flats: FlatOverlay;
   private needsRender = true;
   private cursorOn = "";
@@ -155,11 +165,14 @@ export class PlayGame implements WorldView {
     this.hudEl = document.createElement("div");
     this.hudEl.id = "play-hud";
     this.hudEl.style.backgroundImage = `url("${PLAY_HUD_CHROME}")`;
-    this.hudFace = document.createElement("img");
+    this.hudFace = document.createElement("canvas");
     this.hudFace.id = "play-hud-face";
-    this.hudFace.alt = "";
-    this.hudFace.src = PLAY_HUD_FACE_NIGHT;
-    this.hudEl.append(this.hudFace);
+    this.hudFace.hidden = true;
+    const faceCtx = this.hudFace.getContext("2d", { alpha: true });
+    if (!faceCtx) {
+      throw new Error("hud face canvas");
+    }
+    this.hudFaceCtx = faceCtx;
     this.actorLayer = document.createElement("div");
     this.actorLayer.id = "actor-layer";
     this.actorCanvas = document.createElement("canvas");
@@ -187,7 +200,14 @@ export class PlayGame implements WorldView {
     this.handCtx = handCtx;
     const app = document.getElementById("app");
     canvas.replaceWith(this.stageEl);
-    this.stageEl.append(canvas, this.actorLayer, this.hudEl, this.movieEl, this.handEl);
+    this.stageEl.append(
+      canvas,
+      this.actorLayer,
+      this.hudEl,
+      this.hudFace,
+      this.movieEl,
+      this.handEl,
+    );
     app?.append(this.stageEl, this.captionEl);
     this.renderer = new WebGLRenderer({ canvas, antialias: false });
     this.renderer.setPixelRatio(1);
@@ -204,7 +224,10 @@ export class PlayGame implements WorldView {
     this.view = new StillsView();
     this.ui = new PuppetUi();
     this.flats = new FlatOverlay();
+    this.flats.onSelect = (name) => void this.selectInventoryItem(name);
+    this.flats.onInfo = () => void this.examineHeldItem();
     this.flats.onClose = () => {
+      this.host.currentFlatName = "mainpanel";
       this.restoreHandSlot();
       this.syncHud();
     };
@@ -224,6 +247,10 @@ export class PlayGame implements WorldView {
 
     canvas.addEventListener("click", (event) => void this.onClick(event));
     canvas.addEventListener("mousemove", (event) => this.onMove(event));
+    this.stageEl.addEventListener("pointerdown", (event) => this.onPointerDown(event));
+    window.addEventListener("pointermove", (event) => this.onPointerMove(event));
+    window.addEventListener("pointerup", () => this.onPointerUp());
+    window.addEventListener("pointercancel", () => this.onPointerUp());
     window.addEventListener("pointerdown", () => unlockVoices(), { capture: true });
     this.actorLayer.addEventListener("mousemove", (event) => this.onMove(event));
     this.stageEl.addEventListener("mouseleave", () => {
@@ -467,11 +494,15 @@ export class PlayGame implements WorldView {
 
   private tick(): void {
     const dt = Math.min(this.clock.getDelta(), 0.05);
-    if (!this.talking && this.host.scriptPump === 0) {
+    if (!this.talking && this.host.scriptPump === 0 && !this.host.scriptBusy) {
       this.host.advanceActors(dt);
     }
     this.host.tickScriptClock(dt);
-    void this.host.runQueued(this.vm);
+    // Click/key already owns the VM (`talking`). Idle `hasattention` owns
+    // it via `scriptBusy` — do not start a second runQueued on top.
+    if (!this.talking) {
+      void this.host.runQueued(this.vm);
+    }
     if (this.anim) {
       this.driveAnim(this.anim, dt);
       this.needsRender = true;
@@ -499,7 +530,7 @@ export class PlayGame implements WorldView {
     return worldInputBlocked({
       booting: this.booting,
       busy: this.busy,
-      talking: this.talking,
+      talking: this.talking || this.host.scriptBusy,
       flatsOpen: this.flats.open,
     });
   }
@@ -511,7 +542,7 @@ export class PlayGame implements WorldView {
       this.setCursor("arrow");
       return;
     }
-    if (this.talking) {
+    if (this.talking || this.host.scriptBusy) {
       const named = this.host.cursorName;
       this.setCursor(named && CURSORS[named] ? named : "watch");
       return;
@@ -522,6 +553,11 @@ export class PlayGame implements WorldView {
       return;
     }
     const event = this.hover;
+    const hoverPt = event ? this.stageFromPointer(event) : null;
+    if (hoverPt && this.hitsHeldAt(hoverPt)) {
+      this.setCursor("touch");
+      return;
+    }
     if (event && this.actorUnder(event)) {
       this.setCursor("touch");
       return;
@@ -556,10 +592,14 @@ export class PlayGame implements WorldView {
   }
 
   private onHudMove(event: MouseEvent): void {
-    if (this.talking || this.busy) {
+    if (this.talking || this.busy || this.host.scriptBusy) {
       return;
     }
     const at = this.hudStagePoint(event);
+    if (at && this.hitsHeldAt({ kind: "point", x: at.x, y: at.y, z: 0 })) {
+      this.setCursor("touch");
+      return;
+    }
     const hit = at ? hitMacRect(MAINPANEL_BUTTONS, at.x, at.y) : undefined;
     this.setCursor(hit ? "touch" : "arrow");
   }
@@ -567,11 +607,19 @@ export class PlayGame implements WorldView {
   private onHudClick(event: MouseEvent): void {
     event.stopPropagation();
     this.host.resumeBed();
+    if (this.skipNextClick) {
+      this.skipNextClick = false;
+      return;
+    }
     if (this.inputBlocked() || this.host.currentPuppet !== "none") {
       return;
     }
     const at = this.hudStagePoint(event);
     if (!at) {
+      return;
+    }
+    const point: Point = { kind: "point", x: at.x, y: at.y, z: 0 };
+    if (this.hitsHeldAt(point)) {
       return;
     }
     const hit = hitMacRect(MAINPANEL_BUTTONS, at.x, at.y);
@@ -580,7 +628,6 @@ export class PlayGame implements WorldView {
       return;
     }
     if (this.scriptsReady) {
-      const point: Point = { kind: "point", x: at.x, y: at.y, z: 0 };
       this.talking = true;
       void this.host
         .dispatchMouse(this.vm, point)
@@ -602,34 +649,38 @@ export class PlayGame implements WorldView {
       return;
     }
     if (name === "self") {
+      this.host.currentFlatName = "avatar";
       const items = await this.inventoryIcons();
       this.flats.show("avatar", cash, items);
     }
   }
 
-  private async inventoryIcons(): Promise<
-    { url: string; x: number; y: number; w: number; h: number }[]
-  > {
-    const items: { url: string; x: number; y: number; w: number; h: number }[] = [];
-    for (const prop of this.host.props.values()) {
-      if (prop.shop !== "inven" || prop.owner !== "stranger" || prop.name === "helpbut") {
-        continue;
-      }
+  private ownedInventory(): PropState[] {
+    return [...this.host.props.values()].filter(
+      (prop) => prop.shop === "inven" && prop.owner === "stranger" && prop.name !== "helpbut",
+    );
+  }
+
+  private async inventoryIcons(): Promise<FlatItem[]> {
+    const items: FlatItem[] = [];
+    const hand = String(this.vm.globals.get("handitem") ?? "");
+    for (const prop of this.ownedInventory()) {
       if (this.scriptsReady) {
         await this.vm.inObject("prop", prop.name, () => this.vm.evalCall("moveyoself", []));
       }
-      const raw = (prop.sprites.panel ?? prop.sprites.large)?.[0];
+      prop.view = inventorySpriteView(prop.name, hand);
+      const raw = (prop.sprites[prop.view] ?? prop.sprites.panel ?? prop.sprites.large)?.[0];
       if (!raw) {
         continue;
       }
       const url = extractUrl(`${prop.spriteRoot}/${raw.path}`);
-      const bits = this.spriteBits.get(url);
+      const bits = this.spriteBits.get(url) ?? (await this.loadSpriteBits(url));
       if (!bits) {
-        void this.loadSpriteBits(url);
         continue;
       }
       const place = sizedPlace(raw, bits.w, bits.h);
       items.push({
+        name: prop.name,
         url,
         x: prop.x + place.x - SPRITE_HOTSPOT_X,
         y: prop.y + place.y - SPRITE_HOTSPOT_Y,
@@ -638,6 +689,30 @@ export class PlayGame implements WorldView {
       });
     }
     return items;
+  }
+
+  /** INVEN `stdmouse`: panel/hilite click sets `handitem` and the hilite sprite. */
+  private async selectInventoryItem(name: string): Promise<void> {
+    if (!name || !this.scriptsReady || this.talking || this.busy) {
+      return;
+    }
+    await this.vm.inObject("prop", name, () => this.vm.evalCall("mousedown", []));
+    this.flats.setItems(await this.inventoryIcons());
+    this.syncHud();
+  }
+
+  /** Avatar EXAMINE: `infoyoself` → `invenmovie` / `playmovie`. */
+  private async examineHeldItem(): Promise<void> {
+    const hand = String(this.vm.globals.get("handitem") ?? "");
+    if (!hand || !this.scriptsReady || this.talking || this.busy) {
+      return;
+    }
+    this.talking = true;
+    try {
+      await this.vm.inObject("prop", hand, () => this.vm.evalCall("infoyoself", []));
+    } finally {
+      this.talking = false;
+    }
   }
 
   private hudStagePoint(event: MouseEvent): { x: number; y: number } | null {
@@ -650,9 +725,69 @@ export class PlayGame implements WorldView {
     );
   }
 
+  private stageFromPointer(event: { clientX: number; clientY: number }): Point | null {
+    const at = stageFromClient(event.clientX, event.clientY, this.stageEl.getBoundingClientRect());
+    if (!at) {
+      return null;
+    }
+    return { kind: "point", x: at.x, y: at.y, z: 0 };
+  }
+
+  private hitsHeldAt(point: Point): boolean {
+    const hand = String(this.vm.globals.get("handitem") ?? "");
+    return this.host.hitsHeldItem(point, hand);
+  }
+
+  /**
+   * INVEN `stdmouse` drags on `mousedown` + `while stilldown`. A `click`
+   * (mouseup) is too late — `stilldown` would already be false.
+   */
+  private onPointerDown(event: PointerEvent): void {
+    if (event.button !== 0) {
+      return;
+    }
+    const point = this.stageFromPointer(event);
+    if (point) {
+      this.host.pointer = point;
+    }
+    this.host.stillDown = true;
+    if (!point || this.inputBlocked() || !this.scriptsReady) {
+      return;
+    }
+    if (!this.hitsHeldAt(point)) {
+      return;
+    }
+    event.preventDefault();
+    this.skipNextClick = true;
+    this.talking = true;
+    void this.host
+      .dispatchMouse(this.vm, point)
+      .then(() => this.syncHud())
+      .finally(() => {
+        this.talking = false;
+        this.restoreHandSlot();
+        this.layoutHand();
+      });
+  }
+
+  private onPointerMove(event: PointerEvent): void {
+    const point = this.stageFromPointer(event);
+    if (point) {
+      this.host.pointer = point;
+    }
+  }
+
+  private onPointerUp(): void {
+    this.host.stillDown = false;
+  }
+
   private async onClick(event: MouseEvent): Promise<void> {
     unlockVoices();
     this.host.resumeBed();
+    if (this.skipNextClick) {
+      this.skipNextClick = false;
+      return;
+    }
     if (this.inputBlocked()) {
       return;
     }
@@ -940,6 +1075,7 @@ export class PlayGame implements WorldView {
     if (this.host.currentPuppet !== "none") {
       this.actorLayer.hidden = true;
       this.handEl.hidden = true;
+      this.hudFace.hidden = true;
       return;
     }
     this.actorLayer.hidden = false;
@@ -960,7 +1096,7 @@ export class PlayGame implements WorldView {
       if (!still) {
         continue;
       }
-      const place = actorSprite(actor, cam.deg);
+      const place = actorSprite(actor, cam);
       if (!place || place.h <= 0) {
         continue;
       }
@@ -982,6 +1118,9 @@ export class PlayGame implements WorldView {
       });
     }
     for (const prop of this.host.nearbyProps()) {
+      if (prop.name === "avatar") {
+        continue;
+      }
       if (prop.view === "large" || prop.view === "panel" || prop.view === "hilite") {
         continue;
       }
@@ -1030,6 +1169,7 @@ export class PlayGame implements WorldView {
     }
     this.actorCtx.putImageData(frame, 0, 0);
     this.layoutHand();
+    this.layoutPortrait();
   }
 
   private propUnder(event: MouseEvent): string | undefined {
@@ -1038,6 +1178,46 @@ export class PlayGame implements WorldView {
       return who.slice(5);
     }
     return undefined;
+  }
+
+  /** HOUSE `noface` HUD portrait. `propdeg` picks nitefaces; timing tables play glances. */
+  private layoutPortrait(): void {
+    const prop = this.host.props.get("avatar");
+    if (!prop?.visible || this.flats.open || this.host.currentPuppet !== "none" || !this.ui.root.hidden) {
+      this.hudFace.hidden = true;
+      return;
+    }
+    const view = (prop.view || "nitefaces").toLowerCase();
+    const frames = prop.sprites[view] ?? prop.sprites.nitefaces ?? [];
+    const raw = propViewFrame(frames, prop.deg, prop.poseTiming[view], prop.animTick);
+    if (!raw) {
+      this.hudFace.hidden = true;
+      return;
+    }
+    const url = extractUrl(`${prop.spriteRoot}/${raw.path}`);
+    const bits = this.spriteBits.get(url);
+    if (!bits) {
+      void this.loadSpriteBits(url);
+      this.hudFace.hidden = true;
+      return;
+    }
+    const place = sizedPlace(raw, bits.w, bits.h);
+    const scale = this.stageScale || 1;
+    const hx = prop.x || AVATAR_SLOT.x;
+    const hy = prop.y || AVATAR_SLOT.y;
+    if (this.hudFaceSrc !== url) {
+      this.hudFace.width = bits.w;
+      this.hudFace.height = bits.h;
+      const stamp = this.hudFaceCtx.createImageData(bits.w, bits.h);
+      stamp.data.set(bits.data);
+      this.hudFaceCtx.putImageData(stamp, 0, 0);
+      this.hudFaceSrc = url;
+    }
+    this.hudFace.hidden = false;
+    this.hudFace.style.left = `${(hx + place.x - SPRITE_HOTSPOT_X) * scale}px`;
+    this.hudFace.style.top = `${(hy + place.y - SPRITE_HOTSPOT_Y) * scale}px`;
+    this.hudFace.style.width = `${place.w * scale}px`;
+    this.hudFace.style.height = `${place.h * scale}px`;
   }
 
   private restoreHandSlot(): void {
@@ -1050,8 +1230,8 @@ export class PlayGame implements WorldView {
       return;
     }
     prop.view = "large";
-    prop.x = 316;
-    prop.y = 320;
+    prop.x = HAND_SLOT.x;
+    prop.y = HAND_SLOT.y;
   }
 
   private layoutHand(): void {
@@ -1080,8 +1260,8 @@ export class PlayGame implements WorldView {
     }
     const place = sizedPlace(raw, bits.w, bits.h);
     const scale = this.stageScale || 1;
-    const hx = prop.x || 316;
-    const hy = prop.y || 320;
+    const hx = prop.x || HAND_SLOT.x;
+    const hy = prop.y || HAND_SLOT.y;
     if (this.handSrc !== url) {
       // Stamp decoded pixels. An <img> src swap keeps the previous bitmap
       // stretched to the new size until the PNG loads (jug-shaped helpbut).
@@ -1169,7 +1349,6 @@ export class PlayGame implements WorldView {
     const label = this.graph ? poseLabel(this.graph, this.pose, this.world) : "Loading…";
     const clockName = clock === 1 ? "Morning" : clock === 2 ? "Afternoon" : "Night";
     this.timeEl.textContent = `PLAY · Day ${day} · ${clockName} · $${cash}`;
-    this.hudFace.hidden = clock !== 3;
     const names = this.host.nearbyActors().map((a) => titleCase(a.name));
     this.promptEl.textContent = names.length
       ? `${label} · ${names.join(", ")} — click to talk`

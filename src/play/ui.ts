@@ -15,6 +15,10 @@ export interface SpritePlace {
   h: number;
   id?: number;
   index?: number;
+  /** CST frame record +8: 0-based pose in this `actorpose` strip. */
+  pose?: number;
+  /** CST frame record +0x28: authored facing on the 256-circle (0=south). */
+  deg?: number;
 }
 
 export interface PuppetSheet {
@@ -527,9 +531,6 @@ export class PuppetUi {
   }
 }
 
-export const PLAY_HUD_FACE_NIGHT = extractUrl(
-  "PRP/_HOUSE/FRAMES/avatar/nitefaces/00_c83.png",
-);
 export const PLAY_HUD_CHROME = extractUrl("FLT/_NEW/frame_3.png");
 /** HOUSE.PRP 72×23 3D rim. Interior is transparent, not an OS button. */
 export const BEVEL_CHROME = extractUrl("PRP/_HOUSE/FRAMES/butbevel/base/00_c66.png");

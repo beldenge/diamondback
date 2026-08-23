@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseScript, type ScriptFile } from "../vm/ast";
@@ -162,6 +162,115 @@ describe("drink CST frames", () => {
     expect(leroy.walkStep).toBe(3);
   });
 
+  it("starts dialog via hasattention if you wait in range instead of clicking", async () => {
+    const calls: string[] = [];
+    const ui = {
+      async speak(text: string) {
+        calls.push(`speak:${text.slice(0, 40)}`);
+      },
+      open() {
+        calls.push("open");
+      },
+      close() {},
+      preloadVoices: async () => undefined,
+      setViseme() {},
+      clear() {},
+      addBevel() {},
+      waitEvent: async () => -1,
+      root: {} as HTMLDivElement,
+    } as unknown as PuppetUi;
+
+    const host = new DustHost(ui);
+    host.rng = () => 0.5;
+    const realCall = host.call.bind(host);
+    host.call = async (name, args, ctx) => {
+      const op = name.toLowerCase();
+      if (op === "openpuppetfile" || op === "puppetspeak" || op === "runpuppet") {
+        calls.push(op);
+      }
+      return realCall(name, args, ctx);
+    };
+    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    }) as typeof requestAnimationFrame;
+    globalThis.fetch = (async () =>
+      ({
+        ok: false,
+        json: async () => ({}),
+        text: async () => "",
+      }) as Response) as typeof fetch;
+
+    for (const proc of loadProcs("CST/_GANG/Cast.json")) {
+      host.index.add("cast:gang", proc, "cast");
+    }
+    for (const proc of loadProcs("CST/_GANG/Leroy/Script.json")) {
+      host.index.add("actor:leroy", proc, "leroy");
+    }
+    for (const proc of loadProcs("PUP/_LEROY/Boot Script.json")) {
+      host.index.add("puppet:boot script", proc, "boot");
+    }
+    for (const proc of loadProcs("PUP/_LEROY/day1.json")) {
+      host.index.add("puppet:day1", proc, "day1");
+    }
+    host.waypoints.set("town.leroy1", { x: 1740, y: 3536, name: "town.leroy1" });
+    host.currentSet = "town";
+    host.view = {
+      pose: { x: 6, y: 14, facing: "N" },
+      world: "town",
+      graph: { scenes: new Map(), cameraTiles: new Set(), transitions: [], byFrom: new Map() },
+      walk() {},
+      async setPose() {},
+      log() {},
+      refreshActors() {},
+    };
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    vm.globals.set("leroyphase", 0);
+    vm.globalNames.add("leroyphase");
+    vm.globals.set("day", 1);
+    vm.globalNames.add("day");
+    vm.globals.set("clock", 3);
+    vm.globalNames.add("clock");
+    vm.globals.set("curattention", "");
+    vm.globalNames.add("curattention");
+    vm.globals.set("playerdeath", "");
+    vm.globalNames.add("playerdeath");
+    const leroy = await host.placeLeroyAtSign(vm);
+    expect(leroy.visible).toBe(true);
+    expect(leroy.star).toBe("town.leroy1");
+
+    for (let i = 0; i < 240; i++) {
+      scriptFrames(host, 1);
+      await host.runQueued(vm);
+      if (calls.includes("openpuppetfile") || calls.includes("puppetspeak")) {
+        break;
+      }
+    }
+    expect(calls.some((c) => c === "openpuppetfile" || c === "puppetspeak" || c.startsWith("speak:"))).toBe(
+      true,
+    );
+    expect(leroy.y).toBeGreaterThan(3536);
+  }, 60_000);
+
+  it("does not start a second idle runQueued on top of hasattention", async () => {
+    const { host, vm, leroy } = await bootLeroy(() => 0.5);
+    vm.globals.set("curattention", "leroy");
+    vm.globalNames.add("curattention");
+    vm.globals.set("attentionspan", 0);
+    vm.globalNames.add("attentionspan");
+    host.frameCounter = 400;
+    host.scriptBusy = true;
+    scriptFrames(host, 1);
+    const y0 = leroy.y;
+    await host.runQueued(vm);
+    expect(leroy.walking).toBe(false);
+    expect(leroy.y).toBe(y0);
+  });
+
   it("uses the 8-dir × 4-pose strip like walk", () => {
     const host = new DustHost({} as PuppetUi);
     const leroy = host.namedActor("leroy");
@@ -175,7 +284,35 @@ describe("drink CST frames", () => {
       h: 1,
     }));
     leroy.walkStep = 1;
-    const place = actorSprite(leroy, 128);
+    const place = actorSprite(leroy, { x: 0, y: 0, deg: 128 });
     expect(place?.path).toBe("d8");
+  });
+});
+
+describe("EXTRA idle makeloop", () => {
+  it("dog doright arms lookright then alt", async () => {
+    const dogScript = resolve("dfextract/out/CST/_EXTRA/dog/Script.json");
+    if (!existsSync(dogScript)) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    host.rng = () => 0;
+    for (const proc of loadProcs("CST/_EXTRA/dog/Script.json")) {
+      host.index.add("actor:dog", proc, "dog");
+    }
+    const dog = host.namedActor("dog");
+    dog.cast = "extra";
+    dog.visible = true;
+    dog.set = "town";
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    await vm.inObject("actor", "dog", () => vm.evalCall("doright", []));
+    expect(dog.pose).toBe("stand");
+    scriptFrames(host, 60);
+    await host.runQueued(vm);
+    expect(dog.pose).toBe("alt");
   });
 });

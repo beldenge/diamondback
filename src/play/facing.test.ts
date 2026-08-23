@@ -21,6 +21,10 @@ import {
   spriteStillTopLeft,
   SPRITE_HOTSPOT_X,
   visibleOctant,
+  angularDistance,
+  pickCstFrame,
+  spriteWantedDeg,
+  actorSprite,
   gameFrameSec,
   poseFromTable,
   timingForPose,
@@ -154,6 +158,97 @@ describe("actordeg octants", () => {
     const frames = Array.from({ length: 32 }, (_, i) => i);
     expect(walkFrame(frames, 0, 1)).toBe(8);
     expect(walkFrame(frames, 4, 0)).toBe(4);
+  });
+});
+
+describe("CST sprite pick (DF.EXE 0x4154c0)", () => {
+  const dogStand = [
+    { path: "dog0", deg: 0, pose: 0 },
+    { path: "dog16", deg: 16, pose: 0 },
+    { path: "dog32", deg: 32, pose: 0 },
+    { path: "dog48", deg: 48, pose: 0 },
+    { path: "dog208", deg: 208, pose: 0 },
+    { path: "dog224", deg: 224, pose: 0 },
+    { path: "dog240", deg: 240, pose: 0 },
+  ];
+
+  it("is shortest circular distance (0x411f20)", () => {
+    expect(angularDistance(32, 32)).toBe(0);
+    expect(angularDistance(224, 228)).toBe(4);
+    expect(angularDistance(0, 240)).toBe(16);
+    expect(angularDistance(250, 10)).toBe(16);
+  });
+
+  it("uses the dog's 16° south arc even when sidecar deg is missing", () => {
+    const unlabeled = dogStand.map(({ path }) => ({ path }));
+    const dog = { x: 1620, y: 2748 };
+    const l7n = cameraFromPose({ x: 6, y: 11, facing: "N" });
+    const frame = pickCstFrame(unlabeled, 32, dog, l7n, 0, [1]);
+    expect(frame?.path).toBe("dog224");
+  });
+
+  it("does not wrap 7 street plates through octant % 7 to the front", () => {
+    // Looking north at L7, town.dog is ahead and a bit west. actordeg 32
+    // is SE — the east ¾ (plate 224), not the west ¾ (plate 32).
+    const dog = { x: 1620, y: 2748 };
+    const l7n = cameraFromPose({ x: 6, y: 11, facing: "N" });
+    const wanted = spriteWantedDeg(32, dog, l7n);
+    expect(wanted).toBeGreaterThan(200);
+    expect(wanted).toBeLessThan(240);
+    const frame = pickCstFrame(dogStand, 32, dog, l7n, 0, [1]);
+    expect(frame?.path).toBe("dog224");
+    expect(frame?.path).not.toBe("dog0");
+    expect(frame?.path).not.toBe("dog32");
+  });
+
+  it("keeps the east ¾ on the dog's tile instead of flipping", () => {
+    const dog = { x: 1620, y: 2748 };
+    const o7n = cameraFromPose({ x: 6, y: 14, facing: "N" });
+    const k7n = cameraFromPose({ x: 6, y: 10, facing: "N" });
+    expect(pickCstFrame(dogStand, 32, dog, o7n, 0, [1])?.path).toBe("dog224");
+    expect(pickCstFrame(dogStand, 32, dog, k7n, 0, [1])?.path).toBe("dog224");
+  });
+
+  it("uses alt/left plates by deg too — not extra[0] when length < 8", () => {
+    const alt = dogStand.map((frame) => ({ ...frame, path: `alt${frame.deg}` }));
+    const dog = actor(1620, 2748, 32);
+    dog.pose = "alt";
+    dog.sprites = { alt };
+    dog.standSprites = dogStand.map((frame) => ({
+      path: frame.path,
+      x: 0,
+      y: 0,
+      w: 1,
+      h: 1,
+      deg: frame.deg,
+      pose: frame.pose,
+    }));
+    dog.sprites.alt = alt.map((frame) => ({
+      path: frame.path,
+      x: 0,
+      y: 0,
+      w: 1,
+      h: 1,
+      deg: frame.deg,
+      pose: frame.pose,
+    }));
+    const l7n = cameraFromPose({ x: 6, y: 11, facing: "N" });
+    const place = actorSprite(dog, l7n);
+    expect(place?.path).toBe("alt224");
+    expect(place?.path).not.toBe("alt0");
+    expect(place?.path).not.toBe("alt32");
+  });
+
+  it("still picks the front 8-dir plate when the actor faces the lens", () => {
+    const stand = Array.from({ length: 8 }, (_, i) => ({
+      path: `s${i}`,
+      deg: i * 32,
+      pose: 0,
+    }));
+    const leroy = { x: 1740, y: 3536 };
+    const o7n = cameraFromPose({ x: 6, y: 14, facing: "N" });
+    const front = pickCstFrame(stand, 0, leroy, o7n, 0, [1]);
+    expect(front?.path).toBe("s0");
   });
 });
 

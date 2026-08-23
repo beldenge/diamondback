@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from container import read_df_file
+from cst import cst_frame_facing
 from image import ImageError, decode_trans_sprite, find_palette, sprite_record
 from prp import parse_prp_catalog
 from pup import write_pup_play_sidecars
@@ -137,9 +138,14 @@ def _cst_sidecar(df_path: Path, out_dir: Path) -> int:
                 except ImageError:
                     continue
                 rel = f"{actor_name}/{set_name}/frame_{frame_id}.png"
+                extra: dict = {"id": frame_id, "index": frame_i}
+                facing = cst_frame_facing(info, frame_i)
+                if facing:
+                    extra["pose"] = facing[1]
+                    extra["deg"] = facing[2]
                 poses = actors.setdefault(actor_name, {})
                 poses.setdefault(set_name, []).append(
-                    sprite_record(sprite, rel, extra={"id": frame_id, "index": frame_i})
+                    sprite_record(sprite, rel, extra=extra)
                 )
                 written += 1
     out_dir.mkdir(parents=True, exist_ok=True)
