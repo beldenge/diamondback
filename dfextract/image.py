@@ -23,7 +23,13 @@ class Palette:
     colors: list[tuple[int, int, int]]  # RGB, 8-bit
 
     @classmethod
-    def from_container(cls, data: bytes, offset: int, count: int = 256) -> "Palette":
+    def from_container(
+        cls,
+        data: bytes,
+        offset: int,
+        count: int = 256,
+        unused_rgb: tuple[int, int, int] = (0, 0, 0),
+    ) -> "Palette":
         needed = offset + count * 8
         if needed > len(data):
             raise ImageError(f"palette overruns container (need {needed}, have {len(data)})")
@@ -31,7 +37,9 @@ class Palette:
         for index in range(count):
             _idx, red, green, blue = struct.unpack_from("<hhhh", data, offset + index * 8)
             if red == -1 and green == -1 and blue == -1:
-                colors.append((0, 0, 0))
+                # Unused 8.8 is 0xFFFF. High byte is 255; CST Help's robe
+                # needs the collapse to black, INVEN HUD holes need white.
+                colors.append(unused_rgb)
             else:
                 colors.append(
                     ((red >> 8) & 0xFF, (green >> 8) & 0xFF, (blue >> 8) & 0xFF)
@@ -194,12 +202,15 @@ def colorize_sprite(
     indices: bytes,
     palette: Palette,
     shadow_indices: frozenset[int] | set[int] | None = None,
+    transparent_indices: frozenset[int] | set[int] | None = None,
 ) -> Sprite:
     shadows = shadow_indices or frozenset()
+    keyed = set(transparent_indices or ())
+    keyed.add(TRANSPARENT_INDEX)
     foot = contact_shadow_mask(width, height, indices, shadows)
     pixels = bytearray(width * height * 4)
     for i, index in enumerate(indices):
-        if index == TRANSPARENT_INDEX:
+        if index in keyed:
             continue
         dest = i * 4
         # Foot-blob only. The same index on the body is clothes (Help's
@@ -221,10 +232,18 @@ def decode_trans_sprite(
     container: bytes,
     palette: Palette,
     shadow_indices: frozenset[int] | set[int] | None = None,
+    transparent_indices: frozenset[int] | set[int] | None = None,
 ) -> Sprite:
     width, height, pos_x, pos_y, indices = decode_trans_indices(container)
     return colorize_sprite(
-        width, height, pos_x, pos_y, indices, palette, shadow_indices
+        width,
+        height,
+        pos_x,
+        pos_y,
+        indices,
+        palette,
+        shadow_indices,
+        transparent_indices,
     )
 
 
@@ -260,7 +279,9 @@ def cst_palette(header: bytes) -> Palette:
     return Palette.from_container(header, 36)
 
 
-def find_palette(data: bytes) -> Palette | None:
+def find_palette(
+    data: bytes, unused_rgb: tuple[int, int, int] = (0, 0, 0)
+) -> Palette | None:
     """Find a 256-entry ColorPalette by incrementing index 0,1,2."""
     limit = len(data) - 24
     for offset in range(0, min(limit, 4096), 2):
@@ -270,7 +291,7 @@ def find_palette(data: bytes) -> Palette | None:
             and struct.unpack_from("<h", data, offset + 16)[0] == 2
         ):
             try:
-                return Palette.from_container(data, offset)
+                return Palette.from_container(data, offset, unused_rgb=unused_rgb)
             except ImageError:
                 continue
     return None

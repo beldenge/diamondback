@@ -37,7 +37,11 @@ export function applyTransition(tr: SetTransition): WalkerPose {
   return { x: tr.xTo, y: tr.yTo, facing: tr.dirTo };
 }
 
-/** Click in still-normalized 0–1 coords (origin top-left). */
+/**
+ * Remake still-click bands (left 22% / right 22% / top 48%).
+ * Play and the town sandbox no longer walk from these — Dust used
+ * chrome *outside* 0–512, and the bands steal scene hotspots.
+ */
 export function stillClickInput(nx: number, ny: number): WalkInput | null {
   if (nx < 0 || nx > 1 || ny < 0 || ny > 1) {
     return null;
@@ -52,6 +56,38 @@ export function stillClickInput(nx: number, ny: number): WalkInput | null {
     return "forward";
   }
   return null;
+}
+
+/** Client-pixel swipe: across turns, up walks. Down is not a back step. */
+export const SWIPE_THRESHOLD = 48;
+
+export function swipeWalkInput(
+  dx: number,
+  dy: number,
+  threshold = SWIPE_THRESHOLD,
+): WalkInput | null {
+  const ax = Math.abs(dx);
+  const ay = Math.abs(dy);
+  if (ax < threshold && ay < threshold) {
+    return null;
+  }
+  if (ax > ay) {
+    return dx < 0 ? "left" : "right";
+  }
+  return dy < 0 ? "forward" : null;
+}
+
+/** Boot `keydown` names. Chrome clicks used these; swipe does too. */
+export function walkInputKey(input: WalkInput): "uparrow" | "leftarrow" | "rightarrow" {
+  if (input === "forward") {
+    return "uparrow";
+  }
+  return input === "left" ? "leftarrow" : "rightarrow";
+}
+
+/** Finger / stylus. Mouse keeps click-to-inspect; keys still walk. */
+export function isSwipePointer(pointerType: string): boolean {
+  return pointerType === "touch" || pointerType === "pen";
 }
 
 /** Dust `pointx` / `pointy` space: 512×264, origin top-left. */

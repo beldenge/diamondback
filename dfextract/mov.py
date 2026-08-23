@@ -128,6 +128,9 @@ class FrameHold:
     container: int
     hold_ticks: int
     start_tick: int
+    # u16 at rec+0. Non-zero = MOVPLAY `actionframe` (hold still until click).
+    # WARNING/BONE use 1 on the inspect still; DOG1 is all 0 (auto-close).
+    action: int = 0
 
 
 @dataclass(frozen=True)
@@ -179,7 +182,8 @@ def is_scene_header(data: bytes) -> bool:
     if is_audio_container(data):
         return False
     height, width = struct.unpack_from("<hh", data, 34)
-    return height in (264, 384) and width == 512
+    # NITEWARN header is 265×513 (decoded still pads to even for x264).
+    return (264 <= height <= 266 or height == 384) and 512 <= width <= 516
 
 
 def audio_duration_ticks(data: bytes, tick_hz: int = TICK_HZ) -> int:
@@ -257,6 +261,7 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
             ]
             extra = struct.unpack_from("<I", rec, 2)[0]
             local = struct.unpack_from("<H", rec, 28)[0]
+            action = struct.unpack_from("<H", rec, 0)[0]
             hold = extra if extra > default else default
             if hold <= 0:
                 hold = default if default > 0 else 1
@@ -277,6 +282,7 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
                     container=scene_index + local,
                     hold_ticks=hold,
                     start_tick=tick,
+                    action=action,
                 )
             )
             tick += hold
@@ -535,6 +541,7 @@ def _write_timeline(timeline: ReelTimeline, out_dir: Path) -> None:
                 "container": f.container,
                 "hold_ticks": f.hold_ticks,
                 "start_tick": f.start_tick,
+                "action": f.action,
             }
             for f in timeline.frames
         ],

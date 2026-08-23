@@ -4,6 +4,8 @@ export interface MovieFrame {
   container: number;
   hold_ticks: number;
   start_tick: number;
+  /** MOV rec+0. Non-zero = hold this still until click (`actionframe`). */
+  action?: number;
 }
 
 export interface MovieClip {
@@ -27,6 +29,15 @@ export function movieFolder(name: string): string {
 export function isIntroMovie(name: string): boolean {
   const stem = name.replace(/\.mov$/i, "").toLowerCase();
   return stem === "intro" || stem === "intro2" || stem === "intro3";
+}
+
+/**
+ * MOV 80-byte frame rec+0. Non-zero is MOVPLAY `actionframe`: show the
+ * still and wait for a click. WARNING/BONE use 1 on the inspect still.
+ * DOG1 is all 0 so `playmovie` returns and Scene G12 can spawn Help.
+ */
+export function movieFrameWaitsForClick(action: number | undefined): boolean {
+  return (action ?? 0) !== 0;
 }
 
 export function frameUrl(folder: string, container: number): string {
@@ -110,8 +121,10 @@ function passLength(holdSec: number[], clips: MovieClipPlay[]): number {
 
 /**
  * Short overlays (dog1) stamp the same long A clip twice ~100 ms apart.
- * Playing both in one pass stacks into one blast. Two cues that close
- * on a reel under 2 s become two sequential passes, one cue each.
+ * One pass with both cues either stacks into one blast (no channel)
+ * or retrigger-cuts the first growl at 100 ms (one bark + twitch).
+ * Two cues that close on a reel under 2 s become two sequential
+ * still+audio passes, one cue each.
  */
 export function planMoviePasses(
   holdSec: number[],

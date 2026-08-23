@@ -134,6 +134,11 @@ export const BEVEL_SLOTS = 5;
 /** Speech bar height in stage pixels, flush on the HUD, over the still. */
 export const SPEECH_BAR_HEIGHT = 40;
 
+/** Hourglass for `puppetspeak`. Arrow once `puppetevent` is live. */
+export function puppetUiCursor(speaking: boolean): "watch" | "arrow" {
+  return speaking ? "watch" : "arrow";
+}
+
 /** Watchdog only: never a 12s floor. Wait for the WAV, or a short viseme estimate. */
 export function speakHangSec(duration: number, visemeTicks?: number): number {
   const fromWav = duration > 0 ? duration : 0;
@@ -220,6 +225,11 @@ export class PuppetUi {
     this.root.append(this.canvas, this.line, this.choices);
   }
 
+  /** True for the duration of `puppetspeak`, not the whole puppet file. */
+  get speaking(): boolean {
+    return this.talking;
+  }
+
   layout(scale: number): void {
     this.root.style.width = `${STAGE_WIDTH * scale}px`;
     this.root.style.height = `${STAGE_HEIGHT * scale}px`;
@@ -271,6 +281,9 @@ export class PuppetUi {
     slot.textContent = choice.label;
     slot.disabled = false;
     slot.onclick = () => {
+      if (this.talking) {
+        return;
+      }
       voices.unlock();
       const wait = this.eventWait;
       this.eventWait = null;
@@ -278,6 +291,14 @@ export class PuppetUi {
     };
     this.choices.hidden = false;
     this.root.classList.add("choosing");
+  }
+
+  /** End the current `puppetspeak` line (click bar or Escape). */
+  skipLine(): void {
+    if (!this.talking) {
+      return;
+    }
+    this.finishSpeak();
   }
 
   waitEvent(): Promise<number> {

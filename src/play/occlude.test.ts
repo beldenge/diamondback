@@ -87,6 +87,19 @@ describe("SET Z vs actor", () => {
     expect(bits.data[15]).toBe(255);
   });
 
+  it("paints INVEN unused pal 0 as white, not a hole", () => {
+    const data = new Uint8ClampedArray([
+      0, 0, 0, 255, 80, 40, 20, 255, 0, 0, 0, 0,
+    ]);
+    const bits = spriteBitsFromImageData(
+      { data, width: 3, height: 1 } as ImageData,
+      { unusedWhite: true, restoreShadow: false },
+    );
+    expect([...bits.data.slice(0, 4)]).toEqual([255, 255, 255, 255]);
+    expect(bits.data[7]).toBe(255);
+    expect(bits.data[11]).toBe(0);
+  });
+
   it("does not treat punched black robe as a contact shadow", () => {
     const w = 2;
     const h = 8;

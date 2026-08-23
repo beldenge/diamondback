@@ -31,6 +31,10 @@ INTRO2 = DUST / "MOVIES" / "INTRO2.MOV"
 INTRO3 = DUST / "MOVIES" / "INTRO3.MOV"
 SALUP = DUST / "MOVIES" / "SALUP.MOV"
 HELP = DUST / "MOVIES" / "HELP.MOV"
+WARNING = DUST / "MOVIES" / "WARNING.MOV"
+DOG1 = DUST / "MOVIES" / "DOG1.MOV"
+NITEWARN = DUST / "MOVIES" / "NITEWARN.MOV"
+BONE = DUST / "INVEN" / "BONE.MOV"
 SKIP = "Dust CD MOV not present"
 
 
@@ -176,6 +180,27 @@ class TestIntroPack(unittest.TestCase):
         # 14 fps average was 178 s. Engine ticks give ~162 s.
         self.assertGreater(seconds, 150)
         self.assertLess(seconds, 175)
+
+
+@unittest.skipUnless(WARNING.is_file() and DOG1.is_file() and BONE.is_file(), SKIP)
+class TestActionframeWait(unittest.TestCase):
+    def test_inspect_stills_set_rec0_dog1_does_not(self) -> None:
+        warning = parse_reel_timeline(read_df_file(WARNING))
+        dog = parse_reel_timeline(read_df_file(DOG1))
+        bone = parse_reel_timeline(read_df_file(BONE))
+        assert warning is not None and dog is not None and bone is not None
+        self.assertEqual([f.action for f in warning.frames], [0, 1, 0])
+        self.assertEqual([f.action for f in bone.frames], [0, 1, 0])
+        self.assertTrue(all(f.action == 0 for f in dog.frames))
+
+    def test_nitewarn_odd_size_still_parses_actionframe(self) -> None:
+        if not NITEWARN.is_file():
+            self.skipTest("NITEWARN.MOV not present")
+        tl = parse_reel_timeline(read_df_file(NITEWARN))
+        self.assertIsNotNone(tl)
+        assert tl is not None
+        self.assertEqual(len(tl.frames), 3)
+        self.assertEqual([f.action for f in tl.frames], [0, 1, 0])
 
 
 @unittest.skipUnless(SALUP.is_file(), SKIP)

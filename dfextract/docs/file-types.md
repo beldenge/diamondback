@@ -323,6 +323,7 @@ u16 B playlist length             @ 0x34
 ColorPalette[256]                 @ 0x3E  # 8 bytes each; MOVPLAY copy @ 0x40BC9A
 u16 B playlist[]                  @ 0x83E # 1-based indices into the B clips
 80-byte frame records             @ 0x8C2 # count × 80; MOVPLAY rep movsd ecx=20
+    u16 action                    @ rec+0 # 0 = play through; non-zero = `actionframe` (hold still until click). WARNING/BONE use 1 on the inspect still; DOG1 is all 0.
     u32 extra hold                @ rec+2 # hold = max(default, extra); 0 → default
     u16 still container           @ rec+28 # relative to this scene header’s index
     u16 group-A slot              @ rec+32 # 0 = none; else 1-based, retrigger restarts

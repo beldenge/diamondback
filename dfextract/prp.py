@@ -150,7 +150,11 @@ def _write_one_frame(df: DFFile, container_id: int, dest: Path, palette) -> dict
 
 
 def _write_frames(df: DFFile, out_dir: Path) -> int:
-    palette = find_palette(df.containers[0].data)
+    # Unused ColorPalette is R=G=B=-1 (0xFFFF). High byte is white.
+    # CST Help's robe needs unused→black; INVEN HUD holes are that
+    # unused slot sampled in the sprite (gun trigger, HELP counters).
+    unused = (255, 255, 255) if df.path.stem.upper() == "INVEN" else (0, 0, 0)
+    palette = find_palette(df.containers[0].data, unused_rgb=unused)
     if palette is None:
         return 0
     catalog = parse_prp_catalog(df)

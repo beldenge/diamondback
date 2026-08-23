@@ -16,7 +16,13 @@ if str(HERE) not in sys.path:
 
 from container import read_df_file
 from cst import detect_contact_shadows, write_cst_frames
-from image import CONTACT_SHADOW_ALPHA, cst_palette, decode_trans_sprite, pup_palette
+from image import (
+    CONTACT_SHADOW_ALPHA,
+    cst_palette,
+    decode_trans_sprite,
+    find_palette,
+    pup_palette,
+)
 from pup import write_pup_frames
 
 REPO = HERE.parent
@@ -24,6 +30,7 @@ DUST = REPO / "sources" / "dust.dbgl" / "dosroot" / "0" / "dust"
 BOLIVAR = DUST / "DUSTCD" / "PUPPETS" / "BOLIVAR.PUP"
 EXTRA = DUST / "DUSTCD" / "DATA" / "EXTRA.CST"
 GANG = DUST / "DUSTCD" / "DATA" / "GANG.CST"
+INVEN = DUST / "DUSTCD" / "DATA" / "INVEN.PRP"
 
 
 class TestFrames(unittest.TestCase):
@@ -169,6 +176,26 @@ class TestFrames(unittest.TestCase):
             self.assertEqual(dog0["pose"], 0)
             self.assertEqual(dog2["deg"], 32)
         self.assertGreater(written, 100)
+
+    def test_inven_index_0_is_white_not_a_hole(self) -> None:
+        """Unused pal 0 8.8 is 0xFFFF → white. CST Help stays unused→black."""
+        if not INVEN.exists():
+            self.skipTest("INVEN.PRP not present")
+        df = read_df_file(INVEN)
+        palette = find_palette(df.containers[0].data, unused_rgb=(255, 255, 255))
+        assert palette is not None
+        self.assertEqual(palette.colors[0], (255, 255, 255))
+        gun = decode_trans_sprite(df.containers[407].data, palette)
+        white = 0
+        opaque_black = 0
+        for i in range(0, len(gun.rgba), 4):
+            red, green, blue, alpha = gun.rgba[i : i + 4]
+            if (red, green, blue, alpha) == (255, 255, 255, 255):
+                white += 1
+            if (red, green, blue, alpha) == (0, 0, 0, 255):
+                opaque_black += 1
+        self.assertGreater(white, 200)
+        self.assertEqual(opaque_black, 0)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ import {
   idleLayerIndex,
   isFlatBackdrop,
   layerPlace,
+  puppetUiCursor,
   speakHangSec,
   spriteTopLeft,
   VISEME_HZ,
@@ -28,6 +29,13 @@ describe("speak watchdog", () => {
     expect(speakHangSec(4.2, 125)).toBeCloseTo(4.35);
     expect(speakHangSec(0, 125)).toBeLessThan(5);
     expect(speakHangSec(0, 125)).toBeGreaterThan(2);
+  });
+});
+
+describe("dialogue lock while speaking", () => {
+  it("uses the hourglass during puppetspeak, arrow for choices", () => {
+    expect(puppetUiCursor(true)).toBe("watch");
+    expect(puppetUiCursor(false)).toBe("arrow");
   });
 });
 

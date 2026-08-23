@@ -131,7 +131,7 @@ export interface WorldView {
   /** Sprite still-position; filmstrips reproject with the SET camera. */
   projectWorld?(obj: { x: number; y: number; z?: number }): StillHit | null;
   playMovie?(
-    frames: { url: string; holdSec: number }[],
+    frames: { url: string; holdSec: number; action?: number }[],
     clips: { url: string; startSec: number; channel?: string }[],
   ): Promise<void>;
 }
@@ -228,6 +228,8 @@ export class DustHost implements OpcodeHost {
   private loopAcc = 0;
   view: WorldView | null = null;
   skipMovies = true;
+  /** Escape during `puppetspeak` skips remaining lines until choices. */
+  skipSpeech = false;
   currentVoice = "none";
   currentTheme = "none";
   cursorName = "arrow";
@@ -601,9 +603,11 @@ export class DustHost implements OpcodeHost {
         this.currentSetFile = "";
         return 0;
       case "openpuppetfile":
+        this.skipSpeech = false;
         await this.openPuppet(str(args[0]), true);
         return 0;
       case "closepuppetfile":
+        this.skipSpeech = false;
         this.currentPuppet = "none";
         this.ui.close();
         if (this.cursorName === "watch") {
@@ -786,6 +790,7 @@ export class DustHost implements OpcodeHost {
       case "tick":
         return Math.floor(performance.now());
       case "puppetclear":
+        this.skipSpeech = false;
         this.bevels = [];
         this.ui.clear();
         return 0;
@@ -794,6 +799,9 @@ export class DustHost implements OpcodeHost {
         this.ui.addBevel({ label: str(args[0]), id: num(args[1]) });
         return 0;
       case "puppetspeak":
+        if (this.skipSpeech) {
+          return 0;
+        }
         await this.speak(str(args[0]));
         return 0;
       case "puppetscript": {
@@ -805,6 +813,7 @@ export class DustHost implements OpcodeHost {
         return 0;
       }
       case "puppetevent":
+        this.skipSpeech = false;
         if (this.bevels.length === 0) {
           return -1;
         }
@@ -1354,6 +1363,11 @@ export class DustHost implements OpcodeHost {
       }
       return viewStill(this.view, actor) !== null;
     });
+  }
+
+  skipRemainingSpeech(): void {
+    this.skipSpeech = true;
+    this.ui.skipLine();
   }
 
   private async speak(ident: string): Promise<void> {
@@ -2168,6 +2182,32 @@ export class DustHost implements OpcodeHost {
     return this.clickAbsorbed;
   }
 
+  /**
+   * Boot `idle` cursor path without `forceupdate`: hittest then
+   * `setcursor`. Scene hotspots (`pointinrules`) set `touch`.
+   */
+  async dispatchCursor(ctx: VM, point: Point): Promise<void> {
+    this.pointer = point;
+    this.cursorName = "arrow";
+    const name = this.hitTest(point, str(ctx.globals.get("handitem") ?? ""));
+    const object =
+      this.hitKind === "actor"
+        ? "actor"
+        : this.hitKind === "prop"
+          ? "prop"
+          : this.hitKind === "scene"
+            ? "scene"
+            : this.hitKind === "flat"
+              ? "flat"
+              : "";
+    if (!object) {
+      return;
+    }
+    await ctx.inObject(object, name, () =>
+      ctx.evalCall("setcursor", [{ type: "call", name: "mouse", args: [] }]),
+    );
+  }
+
   private async playMovie(name: string): Promise<void> {
     if (this.skipMovies && isIntroMovie(name)) {
       this.view?.log(`skip ${name}`);
@@ -2181,6 +2221,7 @@ export class DustHost implements OpcodeHost {
     const frames = timeline.frames.map((frame) => ({
       url: frameUrl(folder, frame.container),
       holdSec: Math.max(1, frame.hold_ticks || 0) / hz,
+      action: frame.action ?? 0,
     }));
     const clips = (timeline.clips ?? []).map((clip) => ({
       url: clipUrl(folder, clip.container),

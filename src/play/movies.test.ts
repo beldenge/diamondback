@@ -3,10 +3,35 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   movieClipsStarting,
+  movieFrameWaitsForClick,
   movieIndexAt,
   planMoviePasses,
   type MovieTimeline,
 } from "./movies";
+
+describe("inspect movie hold", () => {
+  it("waits only on MOV actionframe stills, not every spotmovie", () => {
+    expect(movieFrameWaitsForClick(1)).toBe(true);
+    expect(movieFrameWaitsForClick(8)).toBe(true);
+    expect(movieFrameWaitsForClick(0)).toBe(false);
+    expect(movieFrameWaitsForClick(undefined)).toBe(false);
+  });
+
+  it("warning / bone inspect stills wait; dog1 does not", () => {
+    const warning = resolve("dfextract/out/MOV/_WARNING/timeline.json");
+    const dog1 = resolve("dfextract/out/MOV/_DOG1/timeline.json");
+    const bone = resolve("dfextract/out/MOV/_BONE/timeline.json");
+    if (![warning, dog1, bone].every((p) => existsSync(p))) {
+      return;
+    }
+    const warn = JSON.parse(readFileSync(warning, "utf8")) as MovieTimeline;
+    const dog = JSON.parse(readFileSync(dog1, "utf8")) as MovieTimeline;
+    const item = JSON.parse(readFileSync(bone, "utf8")) as MovieTimeline;
+    expect(warn.frames.some((frame) => movieFrameWaitsForClick(frame.action))).toBe(true);
+    expect(item.frames.some((frame) => movieFrameWaitsForClick(frame.action))).toBe(true);
+    expect(dog.frames.some((frame) => movieFrameWaitsForClick(frame.action))).toBe(false);
+  });
+});
 
 describe("movie clock", () => {
   it("picks the still whose hold covers now", () => {

@@ -79,8 +79,11 @@ CST in-world bodies include a photographed **contact shadow** under the
 feet. Detect **per actor** from stand frames: a dark maroon index
 (`8 ≤ max(rgb) ≤ 50`) with ≥80% of its pixels in the bottom quarter.
 Skip unused/black (`max(rgb) < 8`) — Help's robe is palette index 0
-`(0,0,0)` and is clothes, not a matte. GANG Leroy/Jones use index
-**131** RGB `(25, 17, 17)`; Todd/Oona/Watson use **132**. Flood-fill
+`(0,0,0)` and is clothes, not a matte. **INVEN** HUD items sample unused
+pal 0 as 8.8 `0xFFFF` → white (gun trigger fill, HELP letter counters) —
+opaque, not a hole through the HUD. CST Help’s robe keeps unused→black.
+HOUSE avatar pupils stay. GANG Leroy/Jones use
+index **131** RGB `(25, 17, 17)`; Todd/Oona/Watson use **132**. Flood-fill
 from the bottom edge of the sprite; write that blob as translucent
 black (`alpha` 120). Body pixels of the same index stay **opaque**
 (Help's dark folds). Opaque maroon under the feet looks like studio

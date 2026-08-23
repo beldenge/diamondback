@@ -22,6 +22,8 @@ export class VoiceBank {
   private readonly raw = new Map<string, ArrayBuffer>();
   private readonly pendingRaw = new Map<string, Promise<ArrayBuffer | null>>();
   private readonly buffers = new Map<string, AudioBuffer>();
+  /** MOVPLAY group A: same channel restarts (does not stack). */
+  private readonly fxSlots = new Map<string, () => void>();
 
   currentTime(): number {
     if (!this.t0) {
@@ -72,8 +74,17 @@ export class VoiceBank {
   }
 
   /** One-shot world/UI WAV. Does not stop speech or set the viseme clock. */
-  async playFx(url: string, volume = 0.8, loop = false): Promise<() => void> {
+  async playFx(
+    url: string,
+    volume = 0.8,
+    loop = false,
+    channel?: string,
+  ): Promise<() => void> {
     this.engage();
+    if (channel) {
+      this.fxSlots.get(channel)?.();
+      this.fxSlots.delete(channel);
+    }
     const raw = this.raw.get(url) ?? (await this.fetchRaw(url));
     const ctx = this.ctx;
     if (!raw || !ctx) {
@@ -102,6 +113,9 @@ export class VoiceBank {
       } catch {
         /* already disconnected */
       }
+      if (channel && this.fxSlots.get(channel) === stop) {
+        this.fxSlots.delete(channel);
+      }
     };
     try {
       if (ctx.state !== "running") {
@@ -110,6 +124,9 @@ export class VoiceBank {
       source.start();
     } catch {
       return () => undefined;
+    }
+    if (channel) {
+      this.fxSlots.set(channel, stop);
     }
     return stop;
   }

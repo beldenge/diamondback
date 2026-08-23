@@ -14,8 +14,9 @@ import type { SetGraph } from "../world/set/types";
 import { StillsView } from "../world/set/stillsView";
 import {
   applyTransition,
-  stillClickInput,
+  isSwipePointer,
   stillClickPixel,
+  swipeWalkInput,
   transitionForInput,
   type WalkInput,
 } from "../world/set/walker";
@@ -70,6 +71,8 @@ export class Game {
     busy: boolean;
   } | null = null;
   private readonly heldKeys = new Set<string>();
+  private skipNextClick = false;
+  private swipe: { id: number; x: number; y: number } | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -96,6 +99,11 @@ export class Game {
 
     canvas.addEventListener("click", (event) => this.onClick(event));
     canvas.addEventListener("mousemove", (event) => this.onMouseMove(event));
+    canvas.addEventListener("pointerdown", (event) => this.onPointerDown(event));
+    window.addEventListener("pointerup", (event) => this.onPointerUp(event));
+    window.addEventListener("pointercancel", () => {
+      this.swipe = null;
+    });
     window.addEventListener("keydown", (event) => this.onKeyDown(event));
     window.addEventListener("keyup", (event) => this.heldKeys.delete(event.code));
     window.addEventListener("blur", () => this.heldKeys.clear());
@@ -136,7 +144,7 @@ export class Game {
       await this.showHold();
       this.preloadNeighbors();
       this.hintEl.textContent =
-        "←/→ turn · ↑ walk · click a door to open, then walk in · N day/night";
+        "←/→ turn · ↑ walk · swipe to turn/walk · click a door to open, then walk in · N day/night";
       this.syncHud();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -163,6 +171,10 @@ export class Game {
   }
 
   private onClick(event: MouseEvent): void {
+    if (this.skipNextClick) {
+      this.skipNextClick = false;
+      return;
+    }
     const door = this.doorUnder(event);
     if (door) {
       if (door.autoWalk) {
@@ -175,12 +187,32 @@ export class Game {
         return;
       }
       this.clickDoor(door);
+    }
+  }
+
+  private onPointerDown(event: PointerEvent): void {
+    if (event.button !== 0 || !isSwipePointer(event.pointerType)) {
       return;
     }
-    const input = this.clickToInput(event);
-    if (input) {
-      this.tryMove(input);
+    const norm = this.stillNorm(event);
+    if (!norm || norm.nx < 0 || norm.nx > 1 || norm.ny < 0 || norm.ny > 1) {
+      return;
     }
+    this.swipe = { id: event.pointerId, x: event.clientX, y: event.clientY };
+  }
+
+  private onPointerUp(event: PointerEvent): void {
+    const swipe = this.swipe;
+    this.swipe = null;
+    if (!swipe || event.pointerId !== swipe.id) {
+      return;
+    }
+    const input = swipeWalkInput(event.clientX - swipe.x, event.clientY - swipe.y);
+    if (!input) {
+      return;
+    }
+    this.skipNextClick = true;
+    this.tryMove(input);
   }
 
   private onMouseMove(event: MouseEvent): void {
@@ -223,14 +255,6 @@ export class Game {
       pixel.x,
       pixel.y,
     );
-  }
-
-  private clickToInput(event: MouseEvent): WalkInput | null {
-    const norm = this.stillNorm(event);
-    if (!norm) {
-      return null;
-    }
-    return stillClickInput(norm.nx, norm.ny);
   }
 
   private onKeyDown(event: KeyboardEvent): void {

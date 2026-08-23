@@ -4,10 +4,13 @@ import { describe, expect, it } from "vitest";
 import { buildSetGraph, holdFrame, hqFrame, resolveSpawn, sceneByName } from "./graph";
 import {
   applyTransition,
+  isSwipePointer,
   stillClickInput,
   stepPose,
+  swipeWalkInput,
   transitionForInput,
   turnFacing,
+  walkInputKey,
 } from "./walker";
 import { framesToPlay, type SceneRecord, type TransitionRecord } from "./types";
 
@@ -92,6 +95,22 @@ describe("walker", () => {
     expect(stillClickInput(0.5, 0.2)).toBe("forward");
     expect(stillClickInput(0.5, 0.8)).toBeNull();
     expect(stillClickInput(-0.1, 0.2)).toBeNull();
+  });
+
+  it("maps a finger swipe to turn / walk, not a back step", () => {
+    expect(swipeWalkInput(-60, 0)).toBe("left");
+    expect(swipeWalkInput(60, 0)).toBe("right");
+    expect(swipeWalkInput(0, -60)).toBe("forward");
+    expect(swipeWalkInput(0, 60)).toBeNull();
+    expect(swipeWalkInput(10, -10)).toBeNull();
+    expect(swipeWalkInput(80, -40)).toBe("right");
+    expect(swipeWalkInput(40, -80)).toBe("forward");
+    expect(walkInputKey("forward")).toBe("uparrow");
+    expect(walkInputKey("left")).toBe("leftarrow");
+    expect(walkInputKey("right")).toBe("rightarrow");
+    expect(isSwipePointer("touch")).toBe(true);
+    expect(isSwipePointer("pen")).toBe(true);
+    expect(isSwipePointer("mouse")).toBe(false);
   });
 });
 

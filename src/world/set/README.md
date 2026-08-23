@@ -158,8 +158,9 @@ inpaint or remap those to invented tans/whites.
 - **← / →** or **A / D** — turn
 - **↑** or **W** — walk one filmed block
 - **N** — swap TOWN ↔ NITE stills. Does **not** advance `day`.
-- Click: left 22% turn left, right 22% turn right, top 48% walk.
-  A door hitbox wins over walk/turn.
+- **Swipe** (touch/pen): across turns, up walks. Down is not a back
+  step. Mouse clicks on the still do **not** walk — Dust used chrome
+  outside 0–512, and remake 22%/48% bands stole scene hotspots.
 - **Click a door** — if the lock function says openable, overlay the
   house-prop sprite and play `dooropen*`. Click again to close.
   Locked doors play `knock*` and stay shut (chin / jail on day 1,

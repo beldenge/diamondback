@@ -24,7 +24,7 @@ Hybrid: modern free-roam first-person 3D over the original’s tile/scene + scri
 | System | Role | Slice 1 |
 |---|---|---|
 | **World** | Authoritative SET graph (tiles, facings, transitions, doors, waypoints). Stills mode walks that graph and blits 512×264 frames. Free-roam later uses the same coordinates. | Outdoor TOWN/NITE stills + street-level interiors (click door, walk in). |
-| **Player / input** | Stills: arrow / WASD / click on the 512×264 plate. | Yes |
+| **Player / input** | Stills: arrow / WASD; click hotspots/doors; swipe (touch/pen) to walk. | Yes |
 | **Time / quest** | Discrete clock like the original: `day`, `clock` (time-of-day slot), `phase`. Advances on **sleep or scripted events only**, not a continuous sun timer. Street stills follow the slot (`_TOWN` / `_NITE`). | Yes — clock + day/night stills; sleep/event hook (no stills sleep UI yet); no full quest graph |
 | **Entities / NPCs** | Transform, schedule, memory flags, dialogue tree ref, sprite or mesh. | No |
 | **Dialogue** | Hand-authored JSON graphs (Speak / Choice / Condition / Action). Character memory persists. First ports: Jones + Help. | No |
@@ -187,6 +187,11 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 | 2026-08-22 | CST blit is DF.EXE `0x4154c0`: match setInfo +8 pose, then closest +0x28 deg (`0x411f20`). Do not `octant % n`. Dog street is 7×16° plates and `actordeg 32` (SE). Plate **32** is the west ¾; from the south SE is plate **224**. Wanted is `(look+128) − actordeg` so those 32s are not treated as the same way. |
 | 2026-08-22 | **Supersedes** earlier 08-22 rows that freeze pans, screen-lerp 1/z, or keep 1/z Y/Z. Locked book: [`src/play/README.md`](src/play/README.md) § World → still. Sprite Z is EXE `>> 6` (1/z Z hid the N7 E jug). Screenshots: `N7_east_original.png` / `N7_east_ours.png` / `N7_east_ours_next.png`. |
 | 2026-08-22 | CST and PRP share DF.EXE `0x40dcd0` for **X**. Engine Y is the same function; play does not use it for placement. |
+| 2026-08-23 | Play hover runs object `setcursor` (G14 `pointinrules` → `touch` finger). Drop remake 22%/48% still click-to-walk (stole the sign; Dust chrome was outside 0–512). Touch/pen swipe is the mobile walk/turn. Keyboard unchanged. |
+| 2026-08-23 | MOV inspect wait is frame rec+0 (`actionframe`), not the `spotmovie` wrapper. WARNING/BONE wait on that still; DOG1 is all 0 and auto-closes so G12 can spawn Help. |
+| 2026-08-23 | During `puppetspeak` the cursor is `watch` and dialogue bevels do not hover or click. After the line, arrow + live choices (`puppetevent`). |
+| 2026-08-23 | INVEN HUD unused pal 0 is white (8.8 0xFFFF), not transparent and not Help-black. Escape skips remaining `puppetspeak` until choices. |
+| 2026-08-23 | Dog1 two A1 cues 100 ms apart: two sequential still+audio passes (one growl each). One pass + channel retrigger cuts the first growl at 100 ms (one bark). |
 | 2026-08-21 | PUP paint order is Body then Head (beard is on the Head). Body-over-Head left a static beard ring that did not turn. |
 | 2026-08-21 | Dialog chrome: full-width black speech bar over the still; five `butbevel` slots replace the HUD (not overlays above it). |
 | 2026-08-21 | Choice boxes are HOUSE `butbevel` + GDI Arial, not OS buttons. Labels left-aligned. Hole fill is the rim’s `(111,56,38)`. |

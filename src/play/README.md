@@ -32,7 +32,7 @@ Code: [`sceneName.ts`](sceneName.ts).
 | Ground items | Jug at `town.jug` (after Leroy walks off). Bone at `town.bone` (Help’s day1 script). |
 | Sky / extras | `shootingstar` (night). Tumbleweeds are **day** (`clock != 3`). |
 | Ambience | `night.snd` + looping `town.snd`. `nightfxs`: saloon bed, chin chime, then owl / coyote / cricket. |
-| Click movies | South-gate rules / firearms (`nitewarn` / `nitefire`), shop signs, `dog1` / `dog2`, item inspects. Intros skipped unless `?intro`. `dog1.mov` is a 59-tick overlay whose table stamps the same 0.88 s growl twice 100 ms apart; playing both in one pass stacks. Play two sequential passes (lunge + one growl, then again). |
+| Click movies | South-gate rules / firearms (`nitewarn` / `nitefire`), shop signs, `dog1` / `dog2`, item inspects. Intros skipped unless `?intro`. `dog1.mov` is a 59-tick overlay with two A1 cues 100 ms apart on the same 0.88 s growl. Play **two sequential still+audio passes** (one growl each) so the second cue does not cut the first into one bark. Wait-for-click is MOV frame **rec+0** (`actionframe`), not the `spotmovie` wrapper. WARNING/BONE set 1 on the inspect still; DOG1 is all 0 so Scene G12 can `setupactor("dog")` as soon as the lunge ends. |
 | Locked | Jail, chin (until `phase >= 2`), bank, apoth, store, doctor, stage. Hotel + saloon open. |
 
 `currentview()` / `currentdir()` return `north`/`south`/`east`/`west`
@@ -47,11 +47,18 @@ so `adjscene` can walk the pen instead of falling through to the player tile.
 World sprites paint far-to-near (Leroy in front of the dog/jug). The
 held item (`#play-hand`) is a canvas stamped from decoded sprite bits
 (so a new item is not the previous bitmap stretched to the new size).
+INVEN unused palette **index 0** is 8.8 `0xFFFF` (high byte white), not
+a knockout and not CST Help-black. HUD holes that **sample pal 0** (gun
+trigger, HELP counters) are opaque cream/white. Play remaps leftover
+`(0,0,0)` on `PRP/_INVEN` sprites to white and skips the CST foot-shadow
+alpha pass on them. The HUD ring's inner disk is codec skip (unwritten
+index 255), not pal 0 — Dust leaves the framebuffer there.
 It hides during puppet UI and inventory. Inventory places owned INVEN
 props via `moveyoself` on the avatar flat (`panel`, or `hilite` for
 `handitem`). Click an item to run `stdmouse` (that prop becomes the
 HUD `handitem`). EXAMINE is `sendtoprop (handitem, infoyoself ())` →
-`invenmovie` / `playmovie`.
+`invenmovie` / `playmovie`. Inspect MOVs wait on the still whose
+80-byte record has rec+0 ≠ 0, then play the fade-out frames.
 
 INVEN `addinven` parks the large prop at **(316, 320)** on the mainpanel
 HUD — that pixel is also the skull chrome. Dust `stdmouse` **mousedown**
@@ -70,9 +77,17 @@ plays `nitehattip` for 26 `forceupdate`s. FLT extract must not collapse
 every `openflat` onto one file — mainpanel is container 2.
 
 Clicks go through boot `mousedown` → `hittest` (actor / prop / scene).
-Empty still still uses the remake 22%/48% walk bands (Dust used chrome
-outside 0–512). `passcode` from a scene proc falls through to the SET
-keydown (walk), not to `new.flt`’s options `mousedown`.
+Hover runs the same objects’ `setcursor` (boot idle without
+`forceupdate`). Scene G14 `pointinrules` / `pointinfire` set
+`cursor ("touch")` — the south-gate warning / firearms signs. Cast
+`setcursor` uses `realdist < hotdist`. Play does **not** walk from
+still click bands (those 22%/48% overlays stole the sign). Dust walked
+from chrome *outside* 0–512 or from keys. Mouse + keyboard still walk
+with ←/→/↑ (or WASD). Touch/pen **swipe** (across = turn, up = walk;
+down is not a back step) is the mobile stand-in; it must not start on
+the HUD or steal an INVEN `stdmouse` drag. `passcode` from a scene proc
+falls through to the SET keydown (walk), not to `new.flt`’s options
+`mousedown`.
 
 ---
 
@@ -85,9 +100,14 @@ Dust’s stage is **512×384**. The still is **512×264**; the HUD is the bottom
 
 Speech is a **full-width black bar** (40px) sitting on the HUD, overlaying
 the still/puppet. GDI `DrawTextA` / `TextOutA` is left-aligned (same as
-the bevel labels); face is **Arial**. Click the bar to skip a line. Do
+the bevel labels); face is **Arial**. Click the bar to skip a line. **Escape** skips the rest of that
+character’s `puppetspeak` lines until `puppetclear` / `puppetevent`
+(choices). Do
 not keep a Continue button on the still. **C** hides or shows the bar
-(audio and visemes keep going).
+(audio and visemes keep going). While `puppetspeak` is running the
+cursor is `watch` (hourglass) and the five bevels do not highlight or
+accept a click — Leroy’s Yes/No stay on screen through `leroy.12` but
+are not live until the line ends. After speech, arrow + hover again.
 
 Choices are **five horizontal bevels** that **replace** the HUD band
 (24px × 5 = 120), not floating above it. Not Windows/Mac buttons:

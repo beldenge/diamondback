@@ -14,6 +14,30 @@ function loadProcs(rel: string) {
   return parseScript(file.tokens ?? []);
 }
 
+describe("skip remaining speech", () => {
+  it("drops later puppetspeak until puppetclear", async () => {
+    const spoken: string[] = [];
+    const host = new DustHost({
+      skipLine() {},
+      clear() {},
+      addBevel() {},
+      async speak(text: string) {
+        spoken.push(text);
+      },
+    } as unknown as PuppetUi);
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    host.skipRemainingSpeech();
+    await host.call("puppetspeak", ["leroy.12"], vm);
+    await host.call("puppetspeak", ["leroy.13"], vm);
+    expect(spoken).toEqual([]);
+    await host.call("puppetclear", [], vm);
+    await host.call("puppetspeak", ["leroy.11"], vm);
+    expect(spoken).toEqual(["leroy.11"]);
+  });
+});
+
 describe("puppet folders", () => {
   it("maps any actor name to the extract folder", () => {
     expect(puppetFolder("leroy")).toBe("PUP/_LEROY");
@@ -277,6 +301,36 @@ describe("passcode inheritance", () => {
       vm.evalCall("keydown", [{ type: "str", value: "uparrow" }]),
     );
     expect(walked).toBe("strait");
+  });
+});
+
+describe("scene setcursor", () => {
+  it("sets touch on the G14 warning-sign and firearms hotspots", async () => {
+    const scene = resolve("dfextract/out/SET/_NITE/Scene G14.json");
+    const set = resolve("dfextract/out/SET/_NITE/Boot Script.json");
+    if (![scene, set].every((p) => existsSync(p))) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    for (const proc of loadProcs("SET/_NITE/Scene G14.json")) {
+      host.index.add("scene:scene g14", proc, "scene");
+    }
+    for (const proc of loadProcs("SET/_NITE/Boot Script.json")) {
+      host.index.add("set", proc, "set");
+    }
+    host.currentScene = "scene g14";
+    host.currentDir = "N";
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    await host.dispatchCursor(vm, { kind: "point", x: 50, y: 150, z: 0 });
+    expect(host.cursorName).toBe("touch");
+    await host.dispatchCursor(vm, { kind: "point", x: 256, y: 200, z: 0 });
+    expect(host.cursorName).toBe("arrow");
+    await host.dispatchCursor(vm, { kind: "point", x: 400, y: 150, z: 0 });
+    expect(host.cursorName).toBe("touch");
   });
 });
 

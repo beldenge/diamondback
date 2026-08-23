@@ -2,9 +2,11 @@ import { Clock, Color, WebGLRenderer } from "three";
 import { VM, type Point } from "../vm/runtime";
 import {
   applyTransition,
-  stillClickInput,
+  isSwipePointer,
   stillClickPixel,
+  swipeWalkInput,
   transitionForInput,
+  walkInputKey,
   type WalkInput,
 } from "../world/set/walker";
 import {
@@ -83,7 +85,7 @@ import {
 import { playStageRect } from "./stage";
 import { PLAY_HUD_CHROME, PuppetUi } from "./ui";
 import { worldInputBlocked } from "./lock";
-import { movieIndexAt, planMoviePasses } from "./movies";
+import { movieClipsStarting, movieFrameWaitsForClick, movieIndexAt, planMoviePasses } from "./movies";
 import { unlockVoices, voices } from "./speech";
 
 const CURSORS: Record<string, string> = {
@@ -146,12 +148,20 @@ export class PlayGame implements WorldView {
   private readonly hudFaceCtx: CanvasRenderingContext2D;
   private hudFaceSrc = "";
   private readonly captionEl: HTMLDivElement;
-  private readonly movieEl: HTMLImageElement;
+  private readonly movieEl: HTMLCanvasElement;
+  private readonly movieCtx: CanvasRenderingContext2D;
+  private readonly movieImages = new Map<string, HTMLImageElement>();
   private readonly handEl: HTMLCanvasElement;
   private readonly handCtx: CanvasRenderingContext2D;
   private handSrc = "";
   /** `stdmouse` drag started on pointerdown; ignore the leftover click. */
   private skipNextClick = false;
+  private hoverPoint: Point | null = null;
+  private cursorPointKey = "";
+  private cursorGen = 0;
+  private cursorWork: Promise<void> | null = null;
+  private pendingCursor: Point | null = null;
+  private swipe: { id: number; x: number; y: number } | null = null;
   private readonly flats: FlatOverlay;
   private needsRender = true;
   private cursorOn = "";
@@ -186,10 +196,15 @@ export class PlayGame implements WorldView {
     this.actorLayer.append(this.actorCanvas);
     this.captionEl = document.createElement("div");
     this.captionEl.id = "play-caption";
-    this.movieEl = document.createElement("img");
+    this.movieEl = document.createElement("canvas");
     this.movieEl.id = "play-movie";
-    this.movieEl.alt = "";
     this.movieEl.hidden = true;
+    const movieCtx = this.movieEl.getContext("2d", { alpha: false });
+    if (!movieCtx) {
+      throw new Error("movie canvas");
+    }
+    this.movieCtx = movieCtx;
+    this.movieCtx.imageSmoothingEnabled = false;
     this.handEl = document.createElement("canvas");
     this.handEl.id = "play-hand";
     this.handEl.hidden = true;
@@ -249,12 +264,12 @@ export class PlayGame implements WorldView {
     canvas.addEventListener("mousemove", (event) => this.onMove(event));
     this.stageEl.addEventListener("pointerdown", (event) => this.onPointerDown(event));
     window.addEventListener("pointermove", (event) => this.onPointerMove(event));
-    window.addEventListener("pointerup", () => this.onPointerUp());
-    window.addEventListener("pointercancel", () => this.onPointerUp());
+    window.addEventListener("pointerup", (event) => void this.onPointerUp(event));
+    window.addEventListener("pointercancel", (event) => void this.onPointerUp(event));
     window.addEventListener("pointerdown", () => unlockVoices(), { capture: true });
     this.actorLayer.addEventListener("mousemove", (event) => this.onMove(event));
     this.stageEl.addEventListener("mouseleave", () => {
-      this.hover = null;
+      this.hoverPoint = null;
       this.applyCursor();
     });
     window.addEventListener("keydown", (event) => this.onKey(event));
@@ -352,19 +367,29 @@ export class PlayGame implements WorldView {
   }
 
   async playMovie(
-    frames: { url: string; holdSec: number }[],
+    frames: { url: string; holdSec: number; action?: number }[],
     clips: { url: string; startSec: number; channel?: string }[],
   ): Promise<void> {
     if (!frames.length) {
       return;
     }
     this.busy = true;
-    const holds = frames.map((frame) => frame.holdSec);
-    await Promise.all(
-      [...new Set(frames.map((frame) => frame.url))].map((url) =>
-        preloadMovieImage(url).catch(() => undefined),
-      ),
-    );
+    const playable: { url: string; holdSec: number; action?: number }[] = [];
+    this.movieImages.clear();
+    for (const frame of frames) {
+      try {
+        const img = await preloadMovieImage(frame.url);
+        this.movieImages.set(frame.url, img);
+        playable.push(frame);
+      } catch {
+        /* missing still */
+      }
+    }
+    if (!playable.length) {
+      this.busy = false;
+      return;
+    }
+    const holds = playable.map((frame) => frame.holdSec);
     const clipUrls = clips.map((clip) => clip.url);
     await voices.preload(clipUrls);
     const timed = clips.map((clip) => ({
@@ -373,42 +398,116 @@ export class PlayGame implements WorldView {
       channel: clip.channel,
       durationSec: voices.bufferDuration(clip.url),
     }));
-    const passes = planMoviePasses(holds, timed);
     this.movieEl.hidden = false;
     try {
-      for (const pass of passes) {
-        await this.playMoviePass(
-          frames,
-          pass.holdSec,
-          pass.clips.map((clip) => ({
-            url: clip.url ?? "",
-            startSec: clip.startSec,
-          })),
-          pass.passSec,
-        );
+      if (playable.some((frame) => movieFrameWaitsForClick(frame.action))) {
+        await this.playActionMovie(playable, clips);
+      } else {
+        const passes = planMoviePasses(holds, timed);
+        for (const pass of passes) {
+          await this.playMoviePass(
+            playable,
+            pass.holdSec,
+            pass.clips.map((clip) => ({
+              url: clip.url ?? "",
+              startSec: clip.startSec,
+              channel: clip.channel,
+            })),
+            pass.passSec,
+          );
+        }
       }
     } finally {
       this.movieEl.hidden = true;
-      this.movieEl.removeAttribute("src");
+      this.movieImages.clear();
       this.busy = false;
       this.needsRender = true;
     }
   }
 
+  /**
+   * Frames with rec+0 ≠ 0 wait for a click (inspect still). Then the
+   * reel continues — warning fades out; dog1 never hits this path.
+   */
+  private async playActionMovie(
+    frames: { url: string; holdSec: number; action?: number }[],
+    clips: { url: string; startSec: number; channel?: string }[],
+  ): Promise<void> {
+    const starts = clips.map((clip) => clip.startSec);
+    let t = 0;
+    for (const frame of frames) {
+      this.blitMovieFrame(frame.url);
+      const hold = Math.max(0, frame.holdSec);
+      for (const index of movieClipsStarting(starts, t - 1e-6, t + hold)) {
+        const url = clips[index]?.url;
+        if (url) {
+          void voices.playFx(url, 0.85, false, clips[index]?.channel);
+        }
+      }
+      if (hold > 0) {
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, hold * 1000);
+        });
+      }
+      t += hold;
+      if (movieFrameWaitsForClick(frame.action)) {
+        await this.waitMovieClick();
+      }
+    }
+  }
+
+  /** Last inspect still stays up until a click. Swallow that click. */
+  private waitMovieClick(): Promise<void> {
+    return new Promise((resolve) => {
+      const finish = (event: Event): void => {
+        event.preventDefault();
+        event.stopPropagation();
+        window.removeEventListener("pointerdown", onDown, true);
+        window.removeEventListener("click", finish, true);
+        this.skipNextClick = true;
+        resolve();
+      };
+      const onDown = (event: Event): void => {
+        event.stopPropagation();
+      };
+      window.addEventListener("pointerdown", onDown, true);
+      window.addEventListener("click", finish, true);
+    });
+  }
+
+  private blitMovieFrame(url: string): void {
+    const img = this.movieImages.get(url);
+    if (!img) {
+      return;
+    }
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    if (this.movieEl.width !== w || this.movieEl.height !== h) {
+      this.movieEl.width = w;
+      this.movieEl.height = h;
+      this.movieCtx.imageSmoothingEnabled = false;
+    }
+    this.movieCtx.drawImage(img, 0, 0);
+  }
+
   private playMoviePass(
     frames: { url: string }[],
     holds: number[],
-    clips: { url: string; startSec: number }[],
+    clips: { url: string; startSec: number; channel?: string }[],
     passSec: number,
   ): Promise<void> {
     return new Promise((resolve) => {
       const timers: number[] = [];
-      let lastUrl = "";
+      let shown = -1;
       const show = (nowSec: number): void => {
-        const url = frames[movieIndexAt(holds, nowSec)]?.url;
-        if (url && url !== lastUrl) {
-          lastUrl = url;
-          this.movieEl.src = url;
+        const index = movieIndexAt(holds, nowSec);
+        if (index === shown) {
+          return;
+        }
+        shown = index;
+        const url = frames[index]?.url;
+        if (url) {
+          this.blitMovieFrame(url);
         }
       };
       show(0);
@@ -416,7 +515,7 @@ export class PlayGame implements WorldView {
         const delay = Math.max(0, clip.startSec * 1000);
         timers.push(
           window.setTimeout(() => {
-            void voices.playFx(clip.url, 0.85);
+            void voices.playFx(clip.url, 0.85, false, clip.channel);
           }, delay),
         );
       }
@@ -520,11 +619,9 @@ export class PlayGame implements WorldView {
   }
 
   private onMove(event: MouseEvent): void {
-    this.hover = event;
+    this.hoverPoint = this.stageFromPointer(event);
     this.applyCursor();
   }
-
-  private hover: MouseEvent | null = null;
 
   private inputBlocked(): boolean {
     return worldInputBlocked({
@@ -536,8 +633,18 @@ export class PlayGame implements WorldView {
   }
 
   private applyCursor(): void {
-    // Puppet/flat UI is arrow. `walktopuppet` sets watch only for the walk;
-    // do not keep the hourglass on the talking-head.
+    // Inspect movie: arrow (click to dismiss). Speech: watch until the
+    // line ends — bevels stay visible but are not live. After that the
+    // talking-head is arrow so choices can highlight. `walktopuppet`
+    // still uses watch via `cursor ("watch")` / talking.
+    if (!this.movieEl.hidden) {
+      this.setCursor("arrow");
+      return;
+    }
+    if (this.ui.speaking) {
+      this.setCursor("watch");
+      return;
+    }
     if (this.host.currentPuppet !== "none" || this.flats.open) {
       this.setCursor("arrow");
       return;
@@ -547,35 +654,78 @@ export class PlayGame implements WorldView {
       this.setCursor(named && CURSORS[named] ? named : "watch");
       return;
     }
-    const named = this.host.cursorName;
-    if (named && named !== "arrow" && CURSORS[named]) {
-      this.setCursor(named);
-      return;
-    }
-    const event = this.hover;
-    const hoverPt = event ? this.stageFromPointer(event) : null;
-    if (hoverPt && this.hitsHeldAt(hoverPt)) {
-      this.setCursor("touch");
-      return;
-    }
-    if (event && this.actorUnder(event)) {
-      this.setCursor("touch");
-      return;
-    }
-    if (event && this.propUnder(event)) {
-      this.setCursor("touch");
-      return;
-    }
-    const input = event ? this.clickToInput(event) : null;
-    if (input === "left") {
-      this.setCursor("goleft");
-    } else if (input === "right") {
-      this.setCursor("goright");
-    } else if (input === "forward") {
-      this.setCursor("gostrait");
-    } else {
+    const point = this.hoverPoint;
+    if (!point) {
       this.setCursor("arrow");
+      return;
     }
+    if (point.y >= 264) {
+      if (this.hitsHeldAt(point)) {
+        this.setCursor("touch");
+        return;
+      }
+      const hit = hitMacRect(MAINPANEL_BUTTONS, point.x, point.y);
+      this.setCursor(hit ? "touch" : "arrow");
+      return;
+    }
+    if (!this.scriptsReady) {
+      this.setCursor("arrow");
+      return;
+    }
+    this.queueCursor(point);
+    const named = this.host.cursorName;
+    this.setCursor(named && CURSORS[named] ? named : "arrow");
+  }
+
+  /**
+   * Boot idle path: hittest + object's `setcursor`. Scene G14
+   * `pointinrules` / `pointinfire` set `touch` (the warning sign).
+   */
+  private queueCursor(point: Point): void {
+    this.pendingCursor = point;
+    if (!this.cursorWork) {
+      this.flushCursor();
+    }
+  }
+
+  private flushCursor(): void {
+    const point = this.pendingCursor;
+    if (!point || this.talking || this.host.scriptBusy || !this.scriptsReady) {
+      this.pendingCursor = null;
+      return;
+    }
+    const key = `${this.host.currentScene}:${this.host.currentDir}:${Math.round(point.x)},${Math.round(point.y)}`;
+    if (key === this.cursorPointKey) {
+      this.pendingCursor = null;
+      return;
+    }
+    this.pendingCursor = null;
+    this.cursorPointKey = key;
+    const gen = ++this.cursorGen;
+    this.cursorWork = this.host
+      .dispatchCursor(this.vm, point)
+      .then(() => {
+        if (gen !== this.cursorGen) {
+          return;
+        }
+        if (this.host.currentPuppet !== "none" || this.flats.open) {
+          return;
+        }
+        if (this.talking || this.host.scriptBusy) {
+          return;
+        }
+        if (!this.hoverPoint || this.hoverPoint.y >= 264) {
+          return;
+        }
+        const named = this.host.cursorName;
+        this.setCursor(named && CURSORS[named] ? named : "arrow");
+      })
+      .finally(() => {
+        this.cursorWork = null;
+        if (this.pendingCursor) {
+          this.flushCursor();
+        }
+      });
   }
 
   private setCursor(name: string): void {
@@ -592,16 +742,9 @@ export class PlayGame implements WorldView {
   }
 
   private onHudMove(event: MouseEvent): void {
-    if (this.talking || this.busy || this.host.scriptBusy) {
-      return;
-    }
     const at = this.hudStagePoint(event);
-    if (at && this.hitsHeldAt({ kind: "point", x: at.x, y: at.y, z: 0 })) {
-      this.setCursor("touch");
-      return;
-    }
-    const hit = at ? hitMacRect(MAINPANEL_BUTTONS, at.x, at.y) : undefined;
-    this.setCursor(hit ? "touch" : "arrow");
+    this.hoverPoint = at ? { kind: "point", x: at.x, y: at.y, z: 0 } : null;
+    this.applyCursor();
   }
 
   private onHudClick(event: MouseEvent): void {
@@ -749,36 +892,57 @@ export class PlayGame implements WorldView {
     const point = this.stageFromPointer(event);
     if (point) {
       this.host.pointer = point;
+      this.hoverPoint = point;
     }
     this.host.stillDown = true;
     if (!point || this.inputBlocked() || !this.scriptsReady) {
       return;
     }
-    if (!this.hitsHeldAt(point)) {
+    if (this.hitsHeldAt(point)) {
+      event.preventDefault();
+      this.skipNextClick = true;
+      this.talking = true;
+      void this.host
+        .dispatchMouse(this.vm, point)
+        .then(() => this.syncHud())
+        .finally(() => {
+          this.talking = false;
+          this.restoreHandSlot();
+          this.layoutHand();
+        });
       return;
     }
-    event.preventDefault();
-    this.skipNextClick = true;
-    this.talking = true;
-    void this.host
-      .dispatchMouse(this.vm, point)
-      .then(() => this.syncHud())
-      .finally(() => {
-        this.talking = false;
-        this.restoreHandSlot();
-        this.layoutHand();
-      });
+    if (isSwipePointer(event.pointerType) && point.y < 264) {
+      this.swipe = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    }
   }
 
   private onPointerMove(event: PointerEvent): void {
     const point = this.stageFromPointer(event);
     if (point) {
       this.host.pointer = point;
+      this.hoverPoint = point;
     }
   }
 
-  private onPointerUp(): void {
+  private async onPointerUp(event: PointerEvent): Promise<void> {
     this.host.stillDown = false;
+    const swipe = this.swipe;
+    this.swipe = null;
+    if (!swipe || event.type === "pointercancel" || event.pointerId !== swipe.id) {
+      return;
+    }
+    const input = swipeWalkInput(event.clientX - swipe.x, event.clientY - swipe.y);
+    if (!input || this.inputBlocked() || !this.scriptsReady) {
+      return;
+    }
+    this.skipNextClick = true;
+    this.talking = true;
+    try {
+      await this.host.dispatchKey(this.vm, walkInputKey(input));
+    } finally {
+      this.talking = false;
+    }
   }
 
   private async onClick(event: MouseEvent): Promise<void> {
@@ -799,18 +963,15 @@ export class PlayGame implements WorldView {
       this.log("Loading scripts…");
       return;
     }
+    if (this.cursorWork) {
+      this.cursorGen += 1;
+      await this.cursorWork;
+    }
     const point: Point = { kind: "point", x: pixel.x, y: pixel.y, z: 0 };
     this.talking = true;
     try {
-      const absorbed = await this.host.dispatchMouse(this.vm, point);
+      await this.host.dispatchMouse(this.vm, point);
       this.syncHud();
-      if (absorbed || this.host.currentPuppet !== "none") {
-        return;
-      }
-      const input = this.clickToInput(event);
-      if (input) {
-        this.tryMove(input);
-      }
     } finally {
       this.talking = false;
     }
@@ -834,11 +995,20 @@ export class PlayGame implements WorldView {
       event.preventDefault();
       return;
     }
+    if (event.code === "Escape" && !event.repeat) {
+      if (this.flats.open) {
+        this.flats.close();
+        event.preventDefault();
+        return;
+      }
+      if (this.ui.speaking) {
+        this.host.skipRemainingSpeech();
+        event.preventDefault();
+        return;
+      }
+    }
     this.heldKeys.add(event.code);
     if (this.flats.open) {
-      if (event.code === "Escape") {
-        this.flats.close();
-      }
       return;
     }
     if (this.inputBlocked() || !this.scriptsReady) {
@@ -999,20 +1169,6 @@ export class PlayGame implements WorldView {
     return framesFolder(this.world, this.isNight());
   }
 
-  private actorUnder(event: MouseEvent): string | undefined {
-    const norm = this.stillNorm(event);
-    if (!norm) {
-      return undefined;
-    }
-    const x = Math.min(STILL_WIDTH - 1, Math.max(0, Math.floor(norm.nx * STILL_WIDTH)));
-    const y = Math.min(STILL_HEIGHT - 1, Math.max(0, Math.floor(norm.ny * STILL_HEIGHT)));
-    const id = this.pick[y * STILL_WIDTH + x];
-    if (!id) {
-      return undefined;
-    }
-    return this.pickNames[id];
-  }
-
   private stillNorm(event: MouseEvent): { nx: number; ny: number } | null {
     const bounds = this.canvas.getBoundingClientRect();
     if (bounds.width <= 0 || bounds.height <= 0) {
@@ -1022,14 +1178,6 @@ export class PlayGame implements WorldView {
       nx: (event.clientX - bounds.left) / bounds.width,
       ny: (event.clientY - bounds.top) / bounds.height,
     };
-  }
-
-  private clickToInput(event: MouseEvent): WalkInput | null {
-    const norm = this.stillNorm(event);
-    if (!norm) {
-      return null;
-    }
-    return stillClickInput(norm.nx, norm.ny);
   }
 
   private async enterDoor(): Promise<void> {
@@ -1172,14 +1320,6 @@ export class PlayGame implements WorldView {
     this.layoutPortrait();
   }
 
-  private propUnder(event: MouseEvent): string | undefined {
-    const who = this.actorUnder(event);
-    if (who?.startsWith("prop:")) {
-      return who.slice(5);
-    }
-    return undefined;
-  }
-
   /** HOUSE `noface` HUD portrait. `propdeg` picks nitefaces; timing tables play glances. */
   private layoutPortrait(): void {
     const prop = this.host.props.get("avatar");
@@ -1308,7 +1448,11 @@ export class PlayGame implements WorldView {
     }
     const job = decodeStillImage(url)
       .then((image) => {
-        const bits = spriteBitsFromImageData(image);
+        const inven = /\/PRP\/_INVEN\//i.test(url);
+        const bits = spriteBitsFromImageData(
+          image,
+          inven ? { unusedWhite: true, restoreShadow: false } : undefined,
+        );
         this.spriteBits.set(url, bits);
         this.layoutActors();
         return bits;
@@ -1401,14 +1545,14 @@ function titleCase(name: string): string {
   return name.slice(0, 1).toUpperCase() + name.slice(1);
 }
 
-function preloadMovieImage(url: string): Promise<void> {
+function preloadMovieImage(url: string): Promise<HTMLImageElement> {
   const img = new Image();
   img.src = url;
   if (typeof img.decode === "function") {
-    return img.decode().then(() => undefined);
+    return img.decode().then(() => img);
   }
   return new Promise((resolve, reject) => {
-    img.onload = () => resolve();
+    img.onload = () => resolve(img);
     img.onerror = () => reject(new Error(url));
   });
 }
