@@ -6,8 +6,10 @@ extracted DreamFactory scripts (boot → `advanceday` → SET/CST/PRP). Extract 
 [`dfextract/docs/`](../../dfextract/docs/). This file is the **playback**
 book so we do not re-debug speech, visemes (per-PUP idle tracks), the
 Firefox audio delay, world→still (X, Y, scale, Z, pans), interior
-spawn/Z, HOUSE door overlays, EXAMINE pointer, dest-rect hits, or the
-map `cross`.
+spawn/Z, HOUSE door overlays, EXAMINE pointer, dest-rect hits, the
+map `cross`, or the script pump that runs FLT minigames (`mousedown`
+press, `makeloop` / `pauseloop`, `forceupdate` vs idle `runQueued`,
+60 Hz `delay` / fades, `findword` / `putword` holes).
 
 Town sandbox (`/`) stays an unlocked stills walker:
 [`src/world/set/README.md`](../world/set/README.md).
@@ -29,7 +31,7 @@ Code: [`sceneName.ts`](sceneName.ts).
 
 | Kind | Day 1 night |
 |---|---|
-| People | Leroy at the sign. Help after the dog. Jones after Help’s ring. Hotel: Fear + Laurel. Saloon: Gus, Oona, Isao, Trotter. |
+| People | Leroy at the sign. Help after the dog. Jones after Help’s ring. Hotel: Fear + Laurel. Saloon: Gus, Oona, Isao, Trotter. Card tables: click `blackjack` / `gamblers` (Jan / Mez). Slot cabinet: Scene D3 east hotspot. |
 | Animals | Dog on the street. Pig. Horses / cow if `random` says so. No chickens (day-only). |
 | Ground items | Jug at `town.jug` (after Leroy walks off). Bone at `town.bone` (Help’s day1 script). |
 | Sky / extras | `shootingstar` (night). Tumbleweeds are **day** (`clock != 3`). |
@@ -118,6 +120,9 @@ plays `nitehattip` for 26 `forceupdate`s. FLT extract must not collapse
 every `openflat` onto one file — mainpanel is container 2.
 
 Clicks go through boot `mousedown` → `hittest` (actor / prop / scene).
+Dust fires that on the **press** (`pointerdown` + `stilldown`), not
+mouseup. Idle `runQueued` (`scriptBusy`) must wait, not drop the
+press — that was the first-click miss on doors and the card table.
 Hover runs the same objects’ `setcursor` (boot idle without
 `forceupdate`). Actor/`pointinactor` hits the CST dest Mac Rect
 (`0x415271`: projected hotspot minus scaled header hotspot) — the
@@ -137,11 +142,80 @@ the HUD or steal an INVEN `stdmouse` drag. `passcode` from a scene proc
 falls through to the SET keydown (walk), not to `new.flt`’s options
 `mousedown`.
 
+## Script pump (FLT minigames, next hand, world idle)
+
+Dust is single-threaded. Checkers, slots, sleep, fights, and the next
+blackjack/poker hand all share this pump. Do not invent a second
+scheduler.
+
+**Two clocks.** Boot `framerate (3)` is **20 Hz** script/walk frames
+(`gameFrameSec`). `delay (n)`, `screentoblack (…, n)`, and
+`blacktoscreen (…, n)` are **60 Hz** ticks (`dustTicksToMs`: 30 → 0.5 s,
+45 → 0.75 s). Do not wait on `requestAnimationFrame` inside Three’s
+`setAnimationLoop` — after Jan’s second-hand bet that fade never
+finished and `dealcards` never ran.
+
+**`forceupdate` (`0x433740`)** is one 20 Hz **display + walk** pump:
+step actors, refresh the still/puzzle, drain `walkEnds` / `turnEnds` /
+`ballEnds` on **this** stack, wait one game frame. It is **not** a
+`makeloop` drain. Nested `forceupdate` during `dealcards` / `drawcash`
+must not run other `makeloop` callbacks (Isao/crowd idles nested into
+the deal; first card painted via `propdist`, then freeze).
+
+**Idle `runQueued`** is the only place `makeloop` fires. Tick starts it
+only when `idlePumpAllowed` (`!talking && !scriptBusy`). A sit-click
+owns the VM with `talking`. Hand two’s `resetgame` owns it with
+`scriptBusy`. `scriptPump > 0` (in-flight `forceupdate`) must **not**
+let tick start a second pump.
+
+**Press, not mouseup.** Dust `mousedown` + `stilldown` is
+`pointerdown`. World doors, the card table, FLT hit/stay, and INVEN
+drags all fire on press. Folding idle `scriptBusy` into click `talking`
+**drops** the first press (door overlay never opens; blackjack never
+sits). Wait for the idle pump; ignore only `cursor ("watch")`
+(`walktopuppet`) and a live puppet (bevels own that click).
+
+**`pauseloop (kind, "all")` is not sticky.** Sit at cards pauses HUD
+`makeface` and saloon actor/scene loops that **already exist**, and
+drops already-due callbacks of that kind. A later `makeloop ("flat",
+me, "resetgame")` is **live** — that is how the next hand starts after
+bust/stay/draw. Treating the kind as sticky left `resetgame` paused
+and froze on the bust banner. `makeloop ("flat", me)` from a button is
+the current flat (`flat 2:stay` → `flat 2`), not a button named
+`resetgame`.
+
+**`pausewalk ("all", true)`** actually freezes NPC walks (it was a
+no-op) and clears queued `walkEnds` so `endwalk` cannot nest into the
+game’s `forceupdate`.
+
+**Puppet re-open.** `ui.open` must unhide **before** the first blit.
+A pose tick during that paint is not `close()`. Skipping `hidden =
+false` left second-hand `mainbetbj` waiting on `puppetevent` with no
+visible bevels.
+
+**`findword` / `putword`.** 1-based split on the separator; **empty
+slots count**. SALGAMES `shuffle` does `putword (list, " ", n, "")`
+then writes the swap. Filtering empties shrinks 52 cards to ~12; hand
+two `findword` past the end deals nothing. Same helpers for poker
+hands and checkers move lists.
+
+**Empty `switch` `case` labels fall through** (Pascal). Mez `case 0` /
+`case 1` share a body; `cardtovalue "2h"`…`"2c"` share `return (2)`.
+A C-style break on the empty label makes poker skip the sit and
+blackjack `dealertake` loop forever.
+
+Code: pump [`lock.ts`](lock.ts) `idlePumpAllowed` / `worldMouseGate`;
+loops [`host.ts`](host.ts) `runQueued` / `pauseLoop` / `makeLoop`;
+ticks [`facing.ts`](facing.ts) `dustTicksToMs`; words [`puzzle.ts`](puzzle.ts)
+`findWord` / `putWord`; press [`game.ts`](game.ts) `runScriptMouse`.
+
 ## HOUSE door overlays
 
 Every interior uses the same HOUSE prop named **`door`**. Click on a
 facade still runs that scene’s `mousedown` → `sendtoprop ("door",
-setupprop ("salout"))` (or `chin`, `hotout`, `apoth`, …). `setupprop`
+setupprop ("salout"))` (or `chin`, `hotout`, `apoth`, …). A second
+click on the open overlay is `uparrow` (walk in), not the prop’s
+`mousedown` `initprop` (that closed the door). `setupprop`
 sets `propowner` / `propview` to that name, `propvisible true`, and a
 world `propxyz`. `initprop` is the matching close: if visible, play
 `doorclose1`/`2`/`3`, then `propvisible false` and `propowner "none"`.
@@ -207,6 +281,17 @@ still has forward > 0.
 | `closesetfile` without the old scene’s `closescene` | Street door still visible; the close plays later on pans. |
 | `loadedScriptFiles` blocking reinstall after `removePrefix("set"\|"scene:")` | Town `keydown` gone; walk freeze on shop exit. Reinstall when `!index.has(key)`. Cache parsed scripts; do not refetch every `gototown`. |
 | `screentoblack` / `blacktoscreen` as no-ops | Saloon exit hitch: no fade, then O7 flashes before the street cell. Dust fades 30 ticks (0.5 s) to black, swaps the SET, fades up. Do not stand at town spawn when `currentscene` is still interior `d1`. |
+| Skip SALGAMES.FLT comment-first flats / treat `openshopfile("salgames.prp")` as HOUSE | Clicking the card table fades to black and never returns. Poker/blackjack scripts start with `//`; stage `playcards*` + shop handle/cards live in `_SALGAMES`. |
+| Switch `case 0` empty then `case 1` as C without fall-through | Poker: Mez pops in and fades out (`mezphase` 0 never reaches the day body). Blackjack stay: `cardtovalue` returns 0, dealer hits until the while cap. Empty labels share the next body; a non-empty case still breaks. |
+| PRP unused→black for SALGAMES | Card faces and slot handle look inverted. Unused 0xFFFF is white except HOUSE SET overlays. |
+| Colorize SALGAMES with the PRP ColorPalette | That table is unused-white; Dust indexes `SALGAMES.FLT`. Companion same-stem FLT/SET palettes, pick max chroma. |
+| `makeloop ("flat", me, "resetgame")` with button `me` | After stay/draw the next hand never starts (`me` is `flat 2:stay`). Resolve to the current flat name. |
+| Fold idle `scriptBusy` into click `talking` / dispatch world `mousedown` on `click` | First press on a door or the blackjack table is dropped (idle `makeloop` / `resetgame` holds `runQueued`). Dust does not throw away `mousedown`. Press on **pointerdown**; wait for the idle pump; ignore only `cursor ("watch")` `walktopuppet`. |
+| `ui.open` skip unhide when `paintPose` changed | Second-hand blackjack `mainbetbj` leaves `#puppet-ui` `hidden`. `puppetevent` waits forever. Pose ticks are not `close()`. Unhide before the first blit; only `paintGen` / sheet means closed. |
+| Tick `runQueued` while `scriptBusy` if `scriptPump > 0` | First blackjack hand is a click (`talking` blocks tick). Hand two is idle `resetgame`. `dealcards` `forceupdate` raises `scriptPump`, tick starts a second pump on the same VM, first card shows, the rest never deal. Tick stays off for the whole idle pump; nested drain is only `forceupdate`. |
+| `pauseloop (kind, "all")` as a sticky kind pause | Sit pauses HUD/world loops, then bust does `makeloop ("flat", me, "resetgame")`. Treating the kind as sticky left that timer paused, so the next hand never started. Dust `makeloop` is live. Pause existing loops and drop already-due ones of that kind; do not pause the next-hand timer. Nested `forceupdate` still must not run other `makeloop`s. |
+| `screentoblack` / `delay` waiting on `requestAnimationFrame` | Those opcodes are 60 Hz ticks (`blacktoscreen (…, 30)` = 0.5 s). Waiting on rAF inside Three’s animation loop can stall after the second-hand bet (fade never finishes, `dealcards` never runs). Use wall-clock ticks. `forceupdate` (`0x433740`) is one 20 Hz display/walk pump, not a `makeloop` drain. |
+| `putword (list, " ", n, "")` dropping the word | SALGAMES `shuffle` clears a slot then writes the swap. Filtering empties shrinks 52 cards to ~12. Hand two `findword` past the end deals nothing. Keep holes; `findword` is the same 1-based split. |
 | Skip `showHold` when `setPose` matches boot’s pre-set O7 N | First `opensetfile` no-ops; MeshBasicMaterial stays white (HUD + Leroy/jug, no town) until a turn. Skip only if a still is already on screen. |
 | Load NEW.FLT flats without running `openflat` | HUD portrait stays the cowboy baked into `frame_3.png`. Engine `openstagefile` shows mainpanel (`noface` / `makeloop makeface`). `initall` `stoploop ("flat", "all")` then `opensetfile` must re-arm that loop. |
 | Tick `runQueued` during `boot()` | Animation loop and `advanceday` share the VM. `makeface` due during boot is dropped; `stoploop` did not clear `dueLoops`, so re-arm thought the portrait was still live. Do not tick scripts until boot returns; `stoploop` cancels due callbacks; `ensureHudPortrait` after boot. |
@@ -230,7 +315,7 @@ still has forward > 0.
 | Map `cross` at 1-based `scenerow * 20 + 93` | `scene g15` y=393, clipped off the parchment. Opcode is 1-based for pig `isadj`; the grid is **0-based** tiles from (222, 93). Slot 2 of `1,1,1,2,2,2` has no frame (blink). |
 | `infoyoself` on every inventory `stdmouse` | Not Dust. Panel click selects `handitem`; EXAMINE inspects. |
 
-Code: interiors [`sceneName.ts`](sceneName.ts) / [`graph.ts`](../world/set/graph.ts); hits [`facing.ts`](facing.ts) `spriteDestRect`; EXAMINE [`hud.ts`](hud.ts) / [`game.ts`](game.ts); map X [`hud.ts`](hud.ts) `mapCrossHotspot`; choice idle [`host.ts`](host.ts) `waitPuppetEvent` / [`ui.ts`](ui.ts); viseme cache [`host.ts`](host.ts) `puppetClipKey`.
+Code: interiors [`sceneName.ts`](sceneName.ts) / [`graph.ts`](../world/set/graph.ts); hits [`facing.ts`](facing.ts) `spriteDestRect`; EXAMINE [`hud.ts`](hud.ts) / [`game.ts`](game.ts); map X [`hud.ts`](hud.ts) `mapCrossHotspot`; choice idle [`host.ts`](host.ts) `waitPuppetEvent` / [`ui.ts`](ui.ts); viseme cache [`host.ts`](host.ts) `puppetClipKey`; script pump [above](#script-pump-flt-minigames-next-hand-world-idle).
 
 ---
 

@@ -11,6 +11,75 @@ from image import ImageError, decode_indexed_image, find_palette, write_indexed_
 from script import binary_script_to_text, decode_and_write_script, pascal_string
 from set import looks_like_script
 
+# FLT comments pretty-print as `//` and tokenize as opcode 8004 (`/`).
+# Poker/blackjack flats start with those comments, not `code`.
+CMD_CODE = 4001
+CMD_SLASH = 8004
+
+
+def looks_like_flt_script(data: bytes) -> bool:
+    """Script container: starts with `code`, or `//` comments then `code`."""
+    if looks_like_script(data):
+        return True
+    if len(data) < 16:
+        return False
+    if struct.unpack_from("<H", data, 0)[0] != CMD_SLASH:
+        return False
+    pos = 0
+    end = min(len(data), 65_536)
+    while pos + 8 <= end:
+        cmd = struct.unpack_from("<H", data, pos)[0]
+        if cmd == 0:
+            return False
+        if cmd == CMD_CODE:
+            return True
+        pos += 8
+    return False
+
+
+def script_proc_name(text: str) -> str:
+    """First `code` proc, skipping leading `//` comments."""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("code "):
+            return stripped[5:].replace("()", "").strip() or "script"
+    return "script"
+
+
+def safe_script_name(name: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in "._- " else "_" for ch in name)
+
+
+def parse_flt_buttons(data: bytes) -> list[dict]:
+    """32-byte FLT button records: flags, Mac rect, script, 16-byte Pascal name."""
+    if len(data) < 4:
+        return []
+    count = struct.unpack_from("<i", data, 0)[0]
+    if count < 1 or count > 64:
+        return []
+    hits: list[dict] = []
+    rec = 4
+    for _ in range(count):
+        if rec + 32 > len(data):
+            break
+        flags = struct.unpack_from("<i", data, rec)[0]
+        top, left, bottom, right = struct.unpack_from("<hhhh", data, rec + 4)
+        script = struct.unpack_from("<i", data, rec + 12)[0]
+        name = pascal_string(data, rec + 16)
+        rec += 32
+        hits.append(
+            {
+                "name": name,
+                "top": top,
+                "left": left,
+                "bottom": bottom,
+                "right": right,
+                "script": script,
+                "flags": flags,
+            }
+        )
+    return hits
+
 
 def write_flt_extract(
     df: DFFile,
@@ -69,16 +138,31 @@ def write_flt_flats(df: DFFile, out_dir: Path) -> list[dict]:
         return []
     for flat in flats:
         script_id = int(flat["script"])
-        if 0 <= script_id < len(df.containers) and looks_like_script(
+        still_id = int(flat["still"])
+        button_id = int(flat["buttons"])
+        flat["stillFile"] = f"frame_{still_id}.png"
+        if 0 <= script_id < len(df.containers) and looks_like_flt_script(
             df.containers[script_id].data
         ):
             text = binary_script_to_text(df.containers[script_id].data)
-            first = text.split("\n", 1)[0].strip()
-            proc = first.replace("code ", "").replace("()", "").strip()
-            safe = "".join(ch if ch.isalnum() or ch in "._- " else "_" for ch in proc)
+            safe = safe_script_name(script_proc_name(text))
             flat["file"] = f"{safe}_{script_id}.json"
         else:
             flat["file"] = f"script_{script_id}.json"
+        hits: list[dict] = []
+        if 0 <= button_id < len(df.containers):
+            hits = parse_flt_buttons(df.containers[button_id].data)
+        for hit in hits:
+            sid = int(hit["script"])
+            if 0 <= sid < len(df.containers) and looks_like_flt_script(
+                df.containers[sid].data
+            ):
+                text = binary_script_to_text(df.containers[sid].data)
+                safe = safe_script_name(script_proc_name(text))
+                hit["file"] = f"{safe}_{sid}.json"
+            else:
+                hit["file"] = f"script_{sid}.json"
+        flat["hits"] = hits
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "flats.json").write_text(
         json.dumps(payload, indent=2) + "\n", encoding="utf-8"
@@ -90,14 +174,12 @@ def _write_scripts(df: DFFile, out_dir: Path) -> int:
     written = 0
     first_plain: set[str] = set()
     for index, container in enumerate(df.containers[1:], start=1):
-        if not looks_like_script(container.data):
+        if not looks_like_flt_script(container.data):
             continue
         text = binary_script_to_text(container.data)
         if len(text) <= 1:
             continue
-        first = text.split("\n", 1)[0].strip()
-        name = first.replace("code ", "").replace("()", "").strip() or f"script_{index}"
-        safe = "".join(ch if ch.isalnum() or ch in "._- " else "_" for ch in name)
+        safe = safe_script_name(script_proc_name(text))
         if decode_and_write_script(out_dir / f"{safe}_{index}.txt", container.data):
             written += 1
         if safe not in first_plain:

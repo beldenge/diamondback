@@ -191,12 +191,15 @@ export class FlatOverlay {
   private readonly img: HTMLImageElement;
   private readonly cash: HTMLDivElement;
   private readonly itemsEl: HTMLDivElement;
+  private readonly labelsEl: HTMLDivElement;
   private kind: string | null = null;
   onClose: (() => void) | null = null;
   /** INVEN `stdmouse` panel/hilite click. */
   onSelect: ((name: string) => void) | null = null;
   /** Avatar EXAMINE — `sendtoprop (handitem, infoyoself ())`. */
   onInfo: (() => void) | null = null;
+  /** SALGAMES / other FLT boards: stage-pixel pointerdown (not dismiss). */
+  onBoardDown: ((x: number, y: number) => void) | null = null;
 
   constructor() {
     this.root = document.createElement("div");
@@ -209,7 +212,9 @@ export class FlatOverlay {
     this.cash.id = "play-flat-cash";
     this.itemsEl = document.createElement("div");
     this.itemsEl.id = "play-flat-items";
-    this.root.append(this.img, this.itemsEl, this.cash);
+    this.labelsEl = document.createElement("div");
+    this.labelsEl.id = "play-flat-labels";
+    this.root.append(this.img, this.itemsEl, this.labelsEl, this.cash);
     // Dust FLT buttons are `mousedown` + `trackbut`. A `click` after
     // `#play-stage` pointerdown can lose the first press (no click, or
     // the leftover click is skipNextClick). Fire on pointerdown.
@@ -220,17 +225,47 @@ export class FlatOverlay {
     return this.kind !== null;
   }
 
+  get board(): boolean {
+    return this.kind === "board";
+  }
+
   show(kind: "map" | "avatar" | "score", cash = 0, items: FlatItem[] = []): void {
     const url = FLAT_STILL[kind];
     if (!url) {
       return;
     }
     this.kind = kind;
+    this.root.classList.remove("board");
     this.img.src = url;
     this.root.hidden = false;
     this.cash.hidden = kind !== "avatar";
     this.cash.textContent = kind === "avatar" ? `$${cash}` : "";
     this.setItems(items);
+    this.setLabels([]);
+  }
+
+  /** SALGAMES.FLT (and other puzzle stages): full 512×384 still + screen-space props. */
+  showBoard(url: string, items: FlatItem[] = [], labels: { text: string; x: number; y: number; size?: number }[] = []): void {
+    this.kind = "board";
+    this.root.classList.add("board");
+    this.img.src = url;
+    this.root.hidden = false;
+    this.cash.hidden = true;
+    this.cash.textContent = "";
+    this.setItems(items);
+    this.setLabels(labels);
+  }
+
+  setLabels(labels: { text: string; x: number; y: number; size?: number }[]): void {
+    this.labelsEl.replaceChildren();
+    for (const label of labels) {
+      const el = document.createElement("div");
+      el.textContent = label.text;
+      el.style.left = `${(label.x / STAGE_WIDTH) * 100}%`;
+      el.style.top = `${(label.y / STAGE_HEIGHT) * 100}%`;
+      el.style.fontSize = `${label.size ?? 12}px`;
+      this.labelsEl.append(el);
+    }
   }
 
   setItems(items: FlatItem[]): void {
@@ -252,10 +287,15 @@ export class FlatOverlay {
   }
 
   close(): void {
+    const wasBoard = this.kind === "board";
     this.kind = null;
+    this.root.classList.remove("board");
     this.setItems([]);
+    this.setLabels([]);
     this.root.hidden = true;
-    this.onClose?.();
+    if (!wasBoard) {
+      this.onClose?.();
+    }
   }
 
   private onPointerDown(event: PointerEvent): void {
@@ -264,6 +304,16 @@ export class FlatOverlay {
     }
     event.preventDefault();
     event.stopPropagation();
+    if (this.kind === "board") {
+      const bounds = this.root.getBoundingClientRect();
+      if (bounds.width <= 0 || bounds.height <= 0) {
+        return;
+      }
+      const x = ((event.clientX - bounds.left) / bounds.width) * STAGE_WIDTH;
+      const y = ((event.clientY - bounds.top) / bounds.height) * STAGE_HEIGHT;
+      this.onBoardDown?.(x, y);
+      return;
+    }
     if (this.kind === "avatar") {
       const bounds = this.root.getBoundingClientRect();
       const x = ((event.clientX - bounds.left) / bounds.width) * STAGE_WIDTH;

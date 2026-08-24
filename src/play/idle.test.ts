@@ -256,6 +256,30 @@ describe("drink CST frames", () => {
     expect(leroy.y).toBeGreaterThan(3536);
   }, 60_000);
 
+  it("pausewalk freezes NPC walks and drops queued endwalk", async () => {
+    const host = new DustHost({} as PuppetUi);
+    const leroy = host.namedActor("leroy");
+    leroy.walking = true;
+    leroy.x = 0;
+    leroy.y = 0;
+    leroy.destX = 100;
+    leroy.destY = 0;
+    leroy.speed = 3;
+    const intern = host as unknown as { walkEnds: string[] };
+    intern.walkEnds.push("leroy");
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    await host.call("pausewalk", ["all", true], vm);
+    expect(intern.walkEnds).toEqual([]);
+    host.advanceActorsOnce();
+    expect(leroy.x).toBe(0);
+    expect(leroy.walking).toBe(true);
+    await host.call("pausewalk", ["all", false], vm);
+    host.advanceActorsOnce();
+    expect(leroy.x).toBe(3);
+  });
+
   it("does not start a second idle runQueued on top of hasattention", async () => {
     const { host, vm, leroy } = await bootLeroy(() => 0.5);
     vm.globals.set("curattention", "leroy");

@@ -22,6 +22,7 @@ import {
   degDelta,
   dirToDeg,
   DRINK_HOLD_FRAMES,
+  dustTicksToMs,
   gameFrameSec,
   playerWorldPoint,
   PRP_SCALE_FIELD,
@@ -34,7 +35,7 @@ import {
   type StillHit,
 } from "./facing";
 import type { ViewCamera } from "./facing";
-import { doorOpenedStillMatches, propStillScale } from "./occlude";
+import { doorOpenedStillMatches, isDoorOverlay, propStillScale } from "./occlude";
 import { ScriptIndex, loadScriptJson } from "./scripts";
 import {
   dustIdleInterval,
@@ -52,12 +53,27 @@ import {
   type VisemeLine,
 } from "./ui";
 import { voices } from "./speech";
+import { propViewFrame } from "./hud";
 import {
   HOUSE_GROUPS,
   INVEN_GROUPS,
   propScriptRels,
   shopScriptRels,
 } from "./propCatalog";
+import {
+  findWord,
+  flatPropItem,
+  hitFlatButton,
+  isPuzzleStage,
+  pointHitsFlatItem,
+  pointInMacRect,
+  putWord,
+  shopFileOf,
+  substringIndex,
+  type FlatHit,
+  type PuzzleBoard,
+  type PuzzleLabel,
+} from "./puzzle";
 import {
   clipUrl,
   fallbackTimeline,
@@ -143,6 +159,8 @@ export interface PropState {
   poseTiming: Record<string, number[]>;
   /** Game frames since the current view; used with `poseTiming`. */
   animTick: number;
+  /** Dust `propdist` — 2D z-order on puzzle flats (more negative draws later). */
+  dist: number;
   /** Scene + facing when `setupprop` showed this HOUSE door overlay. */
   openedAt?: { scene: string; facing: string };
   ball?: { vx: number; vy: number; vz: number; remaining: number };
@@ -177,6 +195,9 @@ export interface WorldView {
   fadeToBlack?(ticks: number): Promise<void>;
   fadeFromBlack?(ticks: number): Promise<void>;
   cutToBlack?(): void;
+  /** SALGAMES / other FLT boards covering the 512×384 stage. */
+  showPuzzle?(board: PuzzleBoard | null): void;
+  setWorldVisible?(on: boolean): void;
 }
 
 /** Scene dumps that actually contain scripts (not every cell in the 225 table). */
@@ -265,6 +286,8 @@ export class DustHost implements OpcodeHost {
    * Nested `forceupdate` runQueued still runs (`scriptPump > 0`).
    */
   scriptBusy = false;
+  private walksPaused = false;
+  private ballsPaused = false;
   private readonly loops = new Map<string, ScriptLoop>();
   private readonly dueLoops: ScriptLoop[] = [];
   private readonly walkEnds: string[] = [];
@@ -297,6 +320,14 @@ export class DustHost implements OpcodeHost {
   private readonly waypointBags = new Map<string, { points: Waypoint[]; paths: StarPath[] }>();
   /** FLT `flats.json` names, 1-based for `gotoflat (2)`. */
   private stageFlatNames: string[] = ["mainpanel"];
+  currentStageName = "new";
+  private worldVisible = true;
+  private puzzleShop = "";
+  private readonly stageStills = new Map<string, string>();
+  private readonly stageHits = new Map<string, FlatHit[]>();
+  private puzzleLabels: PuzzleLabel[] = [];
+  private currentSoundName = "none";
+  private soundGen = 0;
   private puppetSheet: PuppetSheet | null = null;
   private gangSprites: Record<string, Record<string, SpritePlace[]>> = {};
 
@@ -343,6 +374,17 @@ export class DustHost implements OpcodeHost {
       keys.push("boot");
     } else if (ctx.object === "flat" && me) {
       keys.push(`flat:${me}`);
+      keys.push("stage");
+    } else if (ctx.object === "button" && me) {
+      keys.push(`button:${me}`);
+      const parts = me.split(":");
+      const flat = parts.length > 1 ? parts[0] : this.currentFlatName;
+      const button = parts.length > 1 ? parts.slice(1).join(":") : me;
+      if (flat) {
+        keys.push(`button:${flat}:${button}`);
+        keys.push(`flat:${flat}`);
+      }
+      keys.push("stage");
     }
     return keys;
   }
@@ -363,6 +405,7 @@ export class DustHost implements OpcodeHost {
       case "plain":
       case "showcursor":
       case "flushevents":
+      case "puppetbase":
         return 0;
       case "blackscreen":
         this.view?.cutToBlack?.();
@@ -398,12 +441,53 @@ export class DustHost implements OpcodeHost {
           prop.ball = undefined;
         }
         return 0;
-      case "pausewalk":
-      case "pauseball":
+      case "pausewalk": {
+        const who = str(args[0] ?? "all").toLowerCase();
+        const paused = args.length < 2 ? true : truthyArg(args[1]);
+        if (who === "all") {
+          this.walksPaused = paused;
+          if (paused) {
+            this.walkEnds.length = 0;
+          }
+        }
+        return 0;
+      }
+      case "pauseball": {
+        const who = str(args[0] ?? "all").toLowerCase();
+        const paused = args.length < 2 ? true : truthyArg(args[1]);
+        if (who === "all") {
+          this.ballsPaused = paused;
+        }
+        return 0;
+      }
       case "mixclut":
       case "notedialog":
-      case "message":
         return 0;
+      case "message":
+        this.view?.log(str(args[0]));
+        return 0;
+      case "button":
+        return this.stillDown;
+      case "stringlength":
+        return str(args[0]).length;
+      case "putword":
+        return putWord(str(args[0]), str(args[1]), num(args[2]), str(args[3]));
+      case "drawstring": {
+        const at = asPoint(args[1]);
+        const size = Math.max(8, num(args[3] ?? args[2] ?? 12));
+        this.puzzleLabels = this.puzzleLabels.filter((label) => Math.abs(label.y - at.y) > 8);
+        this.puzzleLabels.push({ text: str(args[0]), x: at.x, y: at.y, size });
+        this.syncPuzzleView();
+        return 0;
+      }
+      case "pointinbutton": {
+        const flat = str(args[0]).toLowerCase();
+        const raw = str(args[1]).toLowerCase();
+        const name = raw.includes(":") ? raw.slice(raw.lastIndexOf(":") + 1) : raw;
+        const p = asPoint(args[2] ?? this.pointer);
+        const hit = (this.stageHits.get(flat) ?? []).find((row) => row.name.toLowerCase() === name);
+        return hit ? pointInMacRect(hit, p.x, p.y) : false;
+      }
       case "cursor":
         this.cursorName = str(args[0] || "arrow").toLowerCase();
         return 0;
@@ -500,7 +584,9 @@ export class DustHost implements OpcodeHost {
       case "propdist": {
         const prop = this.namedProp(str(args[0] ?? ctx.me));
         if (args.length >= 2) {
-          return 0;
+          prop.dist = num(args[1]);
+          this.view?.refreshActors();
+          return prop.dist;
         }
         return this.spriteDist(prop);
       }
@@ -572,9 +658,7 @@ export class DustHost implements OpcodeHost {
       case "commandkey":
         return false;
       case "substring":
-        return str(args[0]).toLowerCase().includes(str(args[1]).toLowerCase())
-          ? 1
-          : 0;
+        return substringIndex(str(args[0]), str(args[1]));
       case "quit":
         this.view?.log("quit");
         return 0;
@@ -592,7 +676,7 @@ export class DustHost implements OpcodeHost {
         }
         return this.currentTheme;
       case "currentsound":
-        return "none";
+        return this.currentSoundName;
       case "voicesound":
         // Mixer start, not a wait. Awaiting fetch held `initprop` before
         // `propvisible (false)` so a pan-away door replayed close and
@@ -605,6 +689,7 @@ export class DustHost implements OpcodeHost {
         // Fire-and-forget. Awaiting fetch/decode here held `scriptBusy`
         // and froze every actor `makeloop` (dog look, horse head/tail).
         void this.playFx(str(args[0]), false);
+        this.noteFx(str(args[0]));
         return 0;
       case "opentrackfile":
         this.trackFolder = `_${str(args[0]).replace(/\.snd$/i, "").toUpperCase()}`;
@@ -613,10 +698,12 @@ export class DustHost implements OpcodeHost {
         this.playBed(str(args[0]));
         return 0;
       case "forceupdate":
+        // EXE `0x433740`: one walk/display pump, not a `makeloop` drain.
         this.scriptPump += 1;
         try {
           this.advanceActorsOnce();
-          await this.runQueued(ctx);
+          this.view?.refreshActors();
+          await this.runQueued(ctx, true);
           await waitGameFrame(this.framerateValue);
         } finally {
           this.scriptPump -= 1;
@@ -645,18 +732,32 @@ export class DustHost implements OpcodeHost {
         await this.playMovie(str(args[0]));
         return 0;
       case "delay":
-        await sleep(Math.max(0, num(args[0]) / 60) * 1000);
+        // Same 60 Hz tick as `screentoblack (…, 30)`. Not rAF, not script Hz.
+        await sleep(dustTicksToMs(num(args[0])));
         return 0;
       case "opencastfile":
         await this.openCast(str(args[0]));
         return 0;
-      case "openshopfile":
+      case "openshopfile": {
+        const shop = str(args[0]).replace(/\.prp$/i, "").toLowerCase();
         await this.openShop(str(args[0]));
+        await this.flushOpenProps(ctx);
+        const hook = this.index.lookup([`shop:${shop}`], "openshop");
+        if (hook) {
+          await ctx.inObject("shop", shop, () => ctx.runProc(hook));
+        }
+        return 0;
+      }
+      case "closeshopfile":
+        this.closeShop(str(args[0]));
         return 0;
       case "openstagefile":
         await this.openStage(str(args[0]));
         // Engine shows the default flat (`openflat` → mainpanel `noface`).
         await this.activateFlat(ctx, this.currentFlatName);
+        return 0;
+      case "closestagefile":
+        this.closeStage();
         return 0;
       case "opensetfile":
         await this.openSet(str(args[0]));
@@ -693,7 +794,7 @@ export class DustHost implements OpcodeHost {
       case "currentpuppet":
         return this.currentPuppet;
       case "currentstage":
-        return this.index.has("stage") ? "new" : "none";
+        return this.currentStageName || "none";
       case "currentflat":
         if (args.length) {
           this.currentFlatName = str(args[0]).toLowerCase();
@@ -728,6 +829,11 @@ export class DustHost implements OpcodeHost {
         }
         return dirWord(this.currentDir);
       case "setvisible":
+        if (args.length) {
+          this.worldVisible = truthyArg(args[0]);
+          this.view?.setWorldVisible?.(this.worldVisible);
+        }
+        return this.worldVisible;
       case "stagevisible":
         return true;
       case "countactors":
@@ -743,7 +849,9 @@ export class DustHost implements OpcodeHost {
         return this.props.size;
       case "indextoprop": {
         const i = num(args[0]) - 1;
-        return [...this.props.keys()][i] ?? "";
+        const prop = [...this.props.values()][i];
+        ctx.lastResult = shopFileOf(prop?.shop ?? "");
+        return prop?.name ?? "";
       }
       case "countpuppets":
         return this.puppetNames.length;
@@ -770,6 +878,7 @@ export class DustHost implements OpcodeHost {
             prop.openedAt = undefined;
           }
           this.view?.refreshActors();
+          this.syncPuzzleView();
         }
         return this.ensureProp(str(args[0])).visible;
       case "actorvisible":
@@ -1073,6 +1182,9 @@ export class DustHost implements OpcodeHost {
     this.advancePropViews();
     let moved = false;
     for (const actor of this.actors.values()) {
+      if (this.walksPaused) {
+        break;
+      }
       if (actor.walking) {
         const dx = actor.destX - actor.x;
         const dy = actor.destY - actor.y;
@@ -1151,11 +1263,13 @@ export class DustHost implements OpcodeHost {
   }
 
   private makeLoop(kind: string, who: string, proc: string, delay: number): void {
+    const type = kind.toLowerCase();
+    const name = resolveFlatLoopWho(type, who, this.currentFlatName, this.stageFlatNames);
     const ticks = Math.max(1, Math.trunc(delay));
-    const key = this.loopKey(kind, who);
+    const key = this.loopKey(type, name);
     this.loops.set(key, {
-      kind: kind.toLowerCase(),
-      who: who.toLowerCase(),
+      kind: type,
+      who: name,
       proc: proc.toLowerCase(),
       delay: ticks,
       remaining: ticks,
@@ -1211,7 +1325,10 @@ export class DustHost implements OpcodeHost {
       await ctx.inObject("flat", prev, () => ctx.evalCall("closeflat", []));
     }
     this.currentFlatName = dest;
+    this.puzzleLabels = [];
+    this.syncPuzzleView();
     await ctx.inObject("flat", dest, () => ctx.evalCall("openflat", []));
+    this.syncPuzzleView();
   }
 
   /** After `stoploop ("flat", "all")`, the HUD portrait loop is gone. */
@@ -1230,6 +1347,12 @@ export class DustHost implements OpcodeHost {
       if (loop.kind === type && (name === "all" || loop.who === name)) {
         loop.paused = paused;
       }
+    }
+    // Sitting at cards `pauseloop (…, "all")` then later `makeloop resetgame`.
+    // Drop already-due world idles so they do not run when the hand ends.
+    // Do not mark the kind sticky — a new makeloop is live (next hand).
+    if (name === "all" && paused) {
+      this.dropDueLoops((loop) => loop.kind === type);
     }
   }
 
@@ -1287,21 +1410,26 @@ export class DustHost implements OpcodeHost {
     }
   }
 
-  async runQueued(ctx: VM): Promise<void> {
-    // Dust is single-threaded. A second tick must not start another idle
-    // while `hasattention` is already inside `walktopuppet`. Nested
-    // `forceupdate` (scriptPump > 0) still has to drain walkEnds.
-    if (this.scriptBusy && this.scriptPump === 0) {
+  async runQueued(ctx: VM, fromForceUpdate = false): Promise<void> {
+    // Dust is single-threaded. Tick must not start another idle pump
+    // while `resetgame` / `hasattention` already owns the VM. Nested
+    // `forceupdate` still has to drain walkEnds on *this* stack.
+    // `scriptPump > 0` used to let a tick sneak in during that drain
+    // and freeze blackjack's second deal after the first card.
+    if (this.scriptBusy && !fromForceUpdate) {
       return;
     }
-    const hold = this.scriptPump === 0;
+    const hold = !fromForceUpdate && this.scriptPump === 0;
     if (hold) {
       this.scriptBusy = true;
     }
     try {
       const ends = this.walkEnds.splice(0);
       const turns = this.turnEnds.splice(0);
-      const due = this.dueLoops.splice(0);
+      // Nested `forceupdate` still drains walk/turn/ball. It must not run
+      // another `makeloop` (Isao idle re-armed after `pauseloop all`, then
+      // nested into blackjack `resetgame` `dealcards` after the first card).
+      const due = fromForceUpdate ? [] : this.dueLoops.splice(0);
       for (const name of ends) {
         await ctx.inObject("actor", name, () => ctx.evalCall("endwalk", []));
       }
@@ -1469,6 +1597,7 @@ export class DustHost implements OpcodeHost {
         spriteRoot: "",
         poseTiming: {},
         animTick: 0,
+        dist: 0,
       };
       this.props.set(key, prop);
     }
@@ -1761,17 +1890,49 @@ export class DustHost implements OpcodeHost {
   }
 
   private async openStage(name: string): Promise<void> {
-    const stem = name.replace(/\.flt$/i, "").toUpperCase();
-    const folder = `FLT/_${stem}`;
+    const stem = name.replace(/\.flt$/i, "").toLowerCase();
+    const folder = `FLT/_${stem.toUpperCase()}`;
+    this.index.removePrefix("stage");
+    this.index.removePrefix("flat:");
+    this.index.removePrefix("button:");
+    this.stageHits.clear();
+    this.stageStills.clear();
+    this.puzzleLabels = [];
+    this.currentStageName = stem;
     await this.addScriptFile("stage", `${folder}/setcursor _arg__1.json`);
     await this.addScriptFile("stage", `${folder}/setcursor _arg_.json`);
     const flats = await fetchJson<{
-      flats?: { name: string; file?: string; script?: number }[];
+      stage?: string;
+      flats?: {
+        name: string;
+        file?: string;
+        script?: number;
+        still?: number;
+        stillFile?: string;
+        hits?: FlatHit[];
+      }[];
     }>(extractUrl(`${folder}/flats.json`)).catch(() => null);
+    if (flats?.stage) {
+      this.currentStageName = flats.stage.toLowerCase() === "cardflats" ? stem : flats.stage.toLowerCase();
+    }
     if (flats?.flats?.length) {
       for (const flat of flats.flats) {
+        const fname = flat.name.toLowerCase();
         const file = flat.file ?? `openflat_${flat.script}.json`;
-        await this.addScriptFile(`flat:${flat.name.toLowerCase()}`, `${folder}/${file}`);
+        await this.addScriptFile(`flat:${fname}`, `${folder}/${file}`);
+        const still = flat.stillFile ?? (flat.still != null ? `frame_${flat.still}.png` : "");
+        if (still) {
+          this.stageStills.set(fname, extractUrl(`${folder}/${still}`));
+        }
+        const hits = (flat.hits ?? []).map((hit) => ({
+          ...hit,
+          name: hit.name.toLowerCase(),
+        }));
+        this.stageHits.set(fname, hits);
+        for (const hit of hits) {
+          const bfile = hit.file ?? `mousedown _arg__${hit.script}.json`;
+          await this.addScriptFile(`button:${fname}:${hit.name}`, `${folder}/${bfile}`);
+        }
       }
     } else {
       await this.addScriptFile("flat:mainpanel", `${folder}/openflat.json`);
@@ -1781,14 +1942,32 @@ export class DustHost implements OpcodeHost {
       ? flats.flats.map((flat) => flat.name.toLowerCase())
       : ["mainpanel"];
     this.currentFlatName = this.stageFlatNames[0] ?? "mainpanel";
+    this.syncPuzzleView();
+  }
+
+  private closeStage(): void {
+    this.index.removePrefix("stage");
+    this.index.removePrefix("flat:");
+    this.index.removePrefix("button:");
+    this.stageHits.clear();
+    this.stageStills.clear();
+    this.puzzleLabels = [];
+    this.currentStageName = "none";
+    this.currentFlatName = "none";
+    this.stageFlatNames = [];
+    this.view?.showPuzzle?.(null);
   }
 
   private async openShop(name: string): Promise<void> {
     const stem = name.replace(/\.prp$/i, "").toLowerCase();
-    const shop = stem === "inven" || stem === "house" ? stem : stem;
+    if (stem !== "inven" && stem !== "house") {
+      await this.openPuzzleShop(stem);
+      return;
+    }
+    const shop = stem;
     const key = `shop:${shop}`;
-    const groups = shop === "inven" ? INVEN_GROUPS : shop === "house" ? HOUSE_GROUPS : [];
-    for (const rel of shopScriptRels(shop === "inven" ? "inven" : "house")) {
+    const groups = shop === "inven" ? INVEN_GROUPS : HOUSE_GROUPS;
+    for (const rel of shopScriptRels(shop)) {
       await this.addScriptFile(key, rel);
     }
     const folder = shop === "inven" ? "PRP/_INVEN" : "PRP/_HOUSE";
@@ -1828,6 +2007,137 @@ export class DustHost implements OpcodeHost {
       }
       this.pendingOpenProps.push(group.name.toLowerCase());
     }
+  }
+
+  private async openPuzzleShop(stem: string): Promise<void> {
+    const folder = `PRP/_${stem.toUpperCase()}`;
+    const key = `shop:${stem}`;
+    this.puzzleShop = stem;
+    await this.addScriptFile(key, `${folder}/setcursor _arg__1.json`);
+    const groups = await fetchJson<{ name: string; script: number }[]>(
+      extractUrl(`${folder}/groups.json`),
+    ).catch(() => [] as { name: string; script: number }[]);
+    const sheet = await loadPropSheet(folder);
+    const byGroup: Record<string, Record<string, SpritePlace[]>> = {};
+    for (const rec of sheet) {
+      const group = (rec.group ?? "").toLowerCase();
+      const state = (rec.state ?? "base").toLowerCase();
+      if (!group || !rec.path) {
+        continue;
+      }
+      const bag = byGroup[group] ?? (byGroup[group] = {});
+      const frames = bag[state] ?? (bag[state] = []);
+      frames.push({
+        path: rec.path,
+        x: rec.x ?? 0,
+        y: rec.y ?? 0,
+        w: rec.w ?? 0,
+        h: rec.h ?? 0,
+      });
+    }
+    this.shopSprites.set(stem, byGroup);
+    const timing = await fetchJson<Record<string, Record<string, number[]>>>(
+      extractUrl(`${folder}/timing.json`),
+    ).catch(() => ({} as Record<string, Record<string, number[]>>));
+    for (const group of groups) {
+      const name = group.name.toLowerCase();
+      const prop = this.ensureProp(name);
+      prop.shop = stem;
+      prop.spriteRoot = folder;
+      prop.sprites = byGroup[name] ?? {};
+      const tables = timing[group.name] ?? timing[name] ?? {};
+      prop.poseTiming = Object.fromEntries(
+        Object.entries(tables).map(([view, seq]) => [view.toLowerCase(), seq]),
+      );
+      const id = group.script;
+      for (const rel of [
+        `${folder}/setcursor _arg__${id}.json`,
+        `${folder}/mousedown _arg__${id}.json`,
+        `${folder}/initprop_${id}.json`,
+      ]) {
+        await this.addScriptFile(`prop:${name}`, rel);
+      }
+      this.pendingOpenProps.push(name);
+    }
+    // Pull lever: FLT button has only setcursor; the handle prop owns mousedown.
+    if (this.index.lookup(["prop:handle"], "mousedown")) {
+      this.index.copyKey("prop:handle", "button:flat 3:pull");
+    }
+  }
+
+  private closeShop(name: string): void {
+    const stem = name.replace(/\.prp$/i, "").toLowerCase();
+    for (const prop of this.props.values()) {
+      if (prop.shop === stem) {
+        prop.visible = false;
+      }
+    }
+    if (this.puzzleShop === stem) {
+      this.puzzleShop = "";
+    }
+    this.syncPuzzleView();
+  }
+
+  private async flushOpenProps(ctx: VM): Promise<void> {
+    const pending = this.pendingOpenProps.splice(0);
+    for (const name of pending) {
+      const proc = this.index.lookup([`prop:${name}`], "openprop");
+      if (proc) {
+        await ctx.inObject("prop", name, () => ctx.runProc(proc));
+      }
+    }
+  }
+
+  paintPuzzle(): void {
+    this.syncPuzzleView();
+  }
+
+  private syncPuzzleView(): void {
+    if (!isPuzzleStage(this.currentStageName)) {
+      this.view?.showPuzzle?.(null);
+      return;
+    }
+    const stillUrl = this.stageStills.get(this.currentFlatName);
+    if (!stillUrl) {
+      this.view?.showPuzzle?.(null);
+      return;
+    }
+    this.view?.showPuzzle?.({
+      stillUrl,
+      items: this.puzzleItems(),
+      labels: this.puzzleLabels,
+    });
+  }
+
+  private puzzleItems(): ReturnType<typeof flatPropItem>[] {
+    const items: ReturnType<typeof flatPropItem>[] = [];
+    const shop = this.puzzleShop;
+    const props = [...this.props.values()]
+      .filter((prop) => prop.visible && shop && prop.shop === shop)
+      .sort((a, b) => b.dist - a.dist);
+    for (const prop of props) {
+      const view = (prop.view || Object.keys(prop.sprites)[0] || "").toLowerCase();
+      const frames = prop.sprites[view] ?? [];
+      const place = propViewFrame(frames, prop.deg, prop.poseTiming[view], prop.animTick);
+      if (!place) {
+        continue;
+      }
+      items.push(flatPropItem(prop, place));
+    }
+    return items;
+  }
+
+  private noteFx(name: string): void {
+    const key = name.toLowerCase();
+    this.currentSoundName = key;
+    const gen = ++this.soundGen;
+    const url = this.soundUrl(name);
+    const dur = Math.max(0.25, voices.bufferDuration(url) || 0.55);
+    setTimeout(() => {
+      if (gen === this.soundGen && this.currentSoundName === key) {
+        this.currentSoundName = "none";
+      }
+    }, dur * 1000);
   }
 
   private pendingOpenProps: string[] = [];
@@ -2216,6 +2526,9 @@ export class DustHost implements OpcodeHost {
 
   private hitTest(point: Point, handitem = ""): string {
     this.clickAbsorbed = false;
+    if (isPuzzleStage(this.currentStageName)) {
+      return this.hitTestPuzzle(point);
+    }
     const hits: { kind: "actor" | "prop"; name: string; forward: number }[] = [];
     for (const actor of this.nearbyActors()) {
       if (!this.pointHitsSprite(actor, point)) {
@@ -2256,6 +2569,35 @@ export class DustHost implements OpcodeHost {
     }
     this.hitKind = "none";
     return "none";
+  }
+
+  private hitTestPuzzle(point: Point): string {
+    const shop = this.puzzleShop;
+    const items = this.puzzleItems();
+    for (const item of [...items].reverse()) {
+      if (item.name && pointHitsFlatItem(item, point.x, point.y)) {
+        this.hitKind = "prop";
+        this.clickAbsorbed = true;
+        return item.name;
+      }
+    }
+    const hit = hitFlatButton(this.stageHits.get(this.currentFlatName) ?? [], point.x, point.y);
+    if (hit) {
+      this.hitKind = "button";
+      this.clickAbsorbed = true;
+      return hit.name;
+    }
+    if (shop) {
+      for (const prop of this.props.values()) {
+        if (prop.visible && prop.shop === shop && this.pointHitsProp(prop, point)) {
+          this.hitKind = "prop";
+          this.clickAbsorbed = true;
+          return prop.name;
+        }
+      }
+    }
+    this.hitKind = "flat";
+    return this.currentFlatName;
   }
 
   nearbyProps(): PropState[] {
@@ -2303,6 +2645,10 @@ export class DustHost implements OpcodeHost {
   }
 
   private pointHitsProp(prop: PropState, point: Point): boolean {
+    if (this.puzzleShop && prop.shop === this.puzzleShop) {
+      const item = this.puzzleItems().find((row) => row.name === prop.name);
+      return item ? pointHitsFlatItem(item, point.x, point.y) : false;
+    }
     if (prop.view === "large" || prop.view === "panel" || prop.view === "hilite") {
       return Math.abs(prop.x - point.x) < 40 && Math.abs(prop.y - point.y) < 40;
     }
@@ -2475,6 +2821,9 @@ export class DustHost implements OpcodeHost {
   }
 
   private advanceBalls(): void {
+    if (this.ballsPaused) {
+      return;
+    }
     const done: string[] = [];
     for (const prop of this.props.values()) {
       const ball = prop.ball;
@@ -2567,10 +2916,55 @@ export class DustHost implements OpcodeHost {
     });
   }
 
+  /**
+   * The open-door overlay is a 1:1 still replacement. World-projected
+   * `hittest` often misses that dest, so a second facade click runs
+   * scene `setupprop` and *closes* the door. Hit the same dest we blit.
+   */
+  openDoorContainsPoint(point: Point): boolean {
+    const door = this.props.get("door");
+    if (
+      !door?.visible ||
+      !isDoorOverlay(door.name) ||
+      !door.owner ||
+      door.owner === "none" ||
+      !this.view
+    ) {
+      return false;
+    }
+    const facing = String(this.view.pose.facing ?? this.currentDir);
+    if (!doorOpenedStillMatches(door.openedAt, this.currentScene, facing)) {
+      return false;
+    }
+    const still = viewStill(this.view, door);
+    if (!still) {
+      return false;
+    }
+    const view = (door.view || door.owner).toLowerCase();
+    const frames =
+      door.sprites[view] ??
+      door.sprites[door.owner.toLowerCase()] ??
+      Object.values(door.sprites)[0];
+    const frame = frames?.[0];
+    if (!frame || frame.w <= 0 || frame.h <= 0) {
+      return false;
+    }
+    return pointInSpriteDest(
+      point.x,
+      point.y,
+      spriteDestRect(still.x, still.y, frame, 1),
+    );
+  }
+
   async dispatchMouse(ctx: VM, point: Point): Promise<boolean> {
     this.pointer = point;
     this.clickAbsorbed = false;
     this.hitKind = "none";
+    if (this.openDoorContainsPoint(point)) {
+      await this.dispatchKey(ctx, "uparrow");
+      this.clickAbsorbed = true;
+      return true;
+    }
     const proc = this.index.lookup(["boot"], "mousedown");
     if (proc) {
       const result = await ctx.inObject("boot", "", () => ctx.runProc(proc, [point]));
@@ -2647,6 +3041,31 @@ function viewStill(
   }
   const cam = view.viewCamera?.() ?? cameraFromPose(view.pose);
   return worldToStill(obj, cam);
+}
+
+/**
+ * Stay/hit `mousedown` runs `dealerdraw` with `me` still the button
+ * (`flat 2:stay`). Dust `makeloop ("flat", me, "resetgame")` means the
+ * current flat, not a button named that.
+ */
+export function resolveFlatLoopWho(
+  kind: string,
+  who: string,
+  currentFlat: string,
+  knownFlats: readonly string[],
+): string {
+  const name = who.toLowerCase();
+  if (kind.toLowerCase() !== "flat") {
+    return name;
+  }
+  if (knownFlats.includes(name)) {
+    return name;
+  }
+  const prefix = name.split(":")[0] ?? name;
+  if (knownFlats.includes(prefix)) {
+    return prefix;
+  }
+  return (currentFlat || name).toLowerCase();
 }
 
 export function puppetFolder(stem: string): string {
@@ -2798,11 +3217,6 @@ function xyzAxis(args: Value[], x: number, y: number): Value {
   return { kind: "point", x, y, z: 0 };
 }
 
-function findWord(list: string, sep: string, index: number): string {
-  const parts = list.split(sep).filter((p) => p.length > 0);
-  return parts[index - 1] ?? parts[0] ?? "";
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -2822,15 +3236,16 @@ function nextFrame(): Promise<void> {
 /** Pace `forceupdate` to one game frame (`framerate` ticks of the 60 Hz clock). */
 async function waitGameFrame(framerate: number): Promise<void> {
   const ms = gameFrameSec(framerate) * 1000;
-  const t0 = performance.now();
-  await nextFrame();
-  const left = ms - (performance.now() - t0);
   const inVitest = Boolean(
     (globalThis as { process?: { env?: { VITEST?: string } } }).process?.env?.VITEST,
   );
-  if (!inVitest && left > 1) {
-    await sleep(left);
+  if (inVitest) {
+    await nextFrame();
+    return;
   }
+  // Wall-clock frame, not rAF. Waiting on rAF inside Three's animation
+  // loop can stall after the first blackjack card of an idle `resetgame`.
+  await sleep(ms);
 }
 
 async function fetchJson<T>(url: string): Promise<T> {

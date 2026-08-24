@@ -23,7 +23,7 @@ from image import (
     find_palette,
     pup_palette,
 )
-from prp import write_prp_extract
+from prp import parse_prp_catalog, write_prp_extract
 from pup import write_pup_frames
 
 REPO = HERE.parent
@@ -33,6 +33,7 @@ EXTRA = DUST / "DUSTCD" / "DATA" / "EXTRA.CST"
 GANG = DUST / "DUSTCD" / "DATA" / "GANG.CST"
 INVEN = DUST / "DUSTCD" / "DATA" / "INVEN.PRP"
 HOUSE = DUST / "DUSTCD" / "DATA" / "HOUSE.PRP"
+SALGAMES = DUST / "DUSTCD" / "SALGAMES" / "SALGAMES.PRP"
 
 
 class TestFrames(unittest.TestCase):
@@ -218,6 +219,63 @@ class TestFrames(unittest.TestCase):
                 help_trans += 1
         self.assertGreater(help_white, 20)
         self.assertEqual(help_trans, 0)
+
+    def test_minigame_prp_unused_is_white_not_inverted(self) -> None:
+        """SALGAMES/INVEN/CHECKERS RGB-composite onto FLT stills.
+
+        Unused 0xFFFF is white in DF.EXE. Unused-as-black (HOUSE SET blit)
+        inverts card faces and slot handles.
+        """
+        if not SALGAMES.exists():
+            self.skipTest("SALGAMES.PRP not present")
+        df = read_df_file(SALGAMES)
+        palette_black = find_palette(df.containers[0].data, unused_rgb=(0, 0, 0))
+        palette_white = find_palette(df.containers[0].data, unused_rgb=(255, 255, 255))
+        assert palette_black is not None and palette_white is not None
+        self.assertEqual(palette_white.colors[0], (255, 255, 255))
+        catalog = parse_prp_catalog(df)
+        ace = next(
+            item
+            for item in catalog
+            if item.group.lower() == "ah" and item.state.lower() == "full"
+        )
+        black = decode_trans_sprite(df.containers[ace.container].data, palette_black)
+        white = decode_trans_sprite(df.containers[ace.container].data, palette_white)
+        def chroma(sprite) -> int:
+            n = 0
+            for i in range(0, len(sprite.rgba), 4):
+                r, g, b, a = sprite.rgba[i : i + 4]
+                if a and (r, g, b) != (0, 0, 0):
+                    n += 1
+            return n
+        self.assertGreater(chroma(white), chroma(black))
+        self.assertGreater(chroma(white), 200)
+
+    def test_salgames_cards_use_flt_palette_not_prp_unused(self) -> None:
+        """SALGAMES.PRP ColorPalette is unused-white; indices belong to SALGAMES.FLT."""
+        if not SALGAMES.exists():
+            self.skipTest("SALGAMES.PRP not present")
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            write_prp_extract(read_df_file(SALGAMES), dest, write_scripts=False, write_frames=True)
+            ace = dest / "FRAMES" / "ah" / "full" / "00_c3.png"
+            handle = dest / "FRAMES" / "handle" / "handle1" / "00_c541.png"
+            self.assertTrue(ace.exists(), ace)
+            self.assertTrue(handle.exists(), handle)
+            for path in (ace, handle):
+                chroma = 0
+                white = 0
+                with Image.open(path) as image:
+                    for pixel in image.convert("RGBA").getdata():
+                        red, green, blue, alpha = pixel
+                        if not alpha:
+                            continue
+                        if (red, green, blue) == (255, 255, 255):
+                            white += 1
+                        elif (red, green, blue) != (0, 0, 0):
+                            chroma += 1
+                self.assertGreater(chroma, 500, f"{path.name} washed out")
+                self.assertGreater(chroma, white, f"{path.name} is unused-white")
 
     def test_house_world_overlays_are_not_silhouettes(self) -> None:
         """World PRP sprites index the SET palette, not HOUSE unused-black."""

@@ -27,6 +27,9 @@ TOWN = DUST / "DATA" / "TOWN.SET"
 NITE = DUST / "DATA" / "NITE.SET"
 TARGET = DUST / "TARGET" / "TARGET.SET"
 CHECKERS_FLT = DUST / "CHECKERS" / "CHECKERS.FLT"
+SALGAMES_FLT = DUST / "SALGAMES" / "SALGAMES.FLT"
+SALGAMES_PRP = DUST / "SALGAMES" / "SALGAMES.PRP"
+NEW_FLT = DUST / "DATA" / "NEW.FLT"
 NITEFOUN = DUST / "MOVIES" / "NITEFOUN.MOV"
 INTRO = DUST / "MOVIES" / "INTRO.MOV"
 
@@ -308,6 +311,79 @@ class TestRemaining(unittest.TestCase):
             self.skipTest("CHECKERS.FLT not present")
         df = read_df_file(CHECKERS_FLT)
         self.assertTrue(looks_like_script(df.containers[1].data))
+
+    def test_salgames_flt_dumps_comment_first_card_flats(self) -> None:
+        from flt import looks_like_flt_script, parse_flt_buttons, write_flt_extract
+
+        if not SALGAMES_FLT.exists():
+            self.skipTest("SALGAMES.FLT not present")
+        df = read_df_file(SALGAMES_FLT)
+        self.assertTrue(looks_like_script(df.containers[1].data))
+        self.assertFalse(looks_like_script(df.containers[2].data))
+        self.assertTrue(looks_like_flt_script(df.containers[2].data))
+        self.assertTrue(looks_like_flt_script(df.containers[8].data))
+        poker = binary_script_to_text(df.containers[2].data)
+        self.assertIn("code initgame ()", poker)
+        self.assertIn("code dealcards ()", poker)
+        bj = binary_script_to_text(df.containers[8].data)
+        self.assertIn("code mainbetbj ()", bj)
+        stage = binary_script_to_text(df.containers[1].data)
+        self.assertIn("code playcardsblackjack ()", stage)
+        self.assertIn("code playslots ()", stage)
+        hits = parse_flt_buttons(df.containers[13].data)
+        names = [row["name"] for row in hits]
+        self.assertEqual(names, ["quit", "pull"])
+        self.assertEqual(hits[1]["left"], 431)
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            write_flt_extract(df, dest, write_scripts=True, write_frames=False)
+            payload = json.loads((dest / "flats.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["stage"], "cardflats")
+            self.assertEqual(payload["flats"][0]["file"], "initgame_2.json")
+            self.assertEqual(payload["flats"][2]["file"], "initgame_8.json")
+            self.assertEqual(payload["flats"][3]["file"], "initgame_11.json")
+            pull = next(
+                hit for hit in payload["flats"][3]["hits"] if hit["name"] == "pull"
+            )
+            self.assertEqual(pull["file"], "setcursor _arg__20.json")
+            self.assertIn("code playcardspoker ()", (dest / "setcursor _arg__1.txt").read_text())
+            self.assertIn("code dealcards ()", (dest / "initgame_2.txt").read_text())
+            self.assertIn("code inithandle ()", (dest / "initgame_11.txt").read_text())
+
+    def test_new_flt_avatar_buttons_match_hud_rects(self) -> None:
+        from flt import parse_flt_buttons, parse_flt_flats
+
+        if not NEW_FLT.exists():
+            self.skipTest("NEW.FLT not present")
+        df = read_df_file(NEW_FLT)
+        flats = parse_flt_flats(df.containers[0].data)
+        avatar = next(row for row in flats["flats"] if row["name"] == "avatar")
+        hits = parse_flt_buttons(df.containers[avatar["buttons"]].data)
+        by_name = {row["name"]: row for row in hits}
+        self.assertEqual(by_name["info"]["top"], 320)
+        self.assertEqual(by_name["info"]["left"], 155)
+        self.assertEqual(by_name["OK"]["top"], 321)
+        self.assertEqual(by_name["OK"]["left"], 266)
+        self.assertEqual(by_name["info"]["bottom"], 345)
+        self.assertEqual(by_name["OK"]["right"], 367)
+
+    def test_salgames_prp_groups_point_at_handle_script(self) -> None:
+        from prp import parse_prp_groups, write_prp_extract
+
+        if not SALGAMES_PRP.exists():
+            self.skipTest("SALGAMES.PRP not present")
+        df = read_df_file(SALGAMES_PRP)
+        groups = {row["name"]: row for row in parse_prp_groups(df)}
+        self.assertEqual(groups["handle"]["script"], 540)
+        self.assertEqual(groups["cheat"]["script"], 522)
+        self.assertEqual(groups["continue"]["script"], 694)
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            write_prp_extract(df, dest, write_scripts=True, write_frames=False)
+            payload = json.loads((dest / "groups.json").read_text(encoding="utf-8"))
+            names = [row["name"] for row in payload]
+            self.assertIn("handle", names)
+            self.assertIn("ah", names)
 
     def test_new_flt_keeps_mainpanel_makeface(self) -> None:
         from flt import parse_flt_flats, write_flt_extract

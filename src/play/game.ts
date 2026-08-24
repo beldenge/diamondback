@@ -59,6 +59,7 @@ import {
   SPRITE_HOTSPOT_X,
   SPRITE_HOTSPOT_Y,
   TIME_TICK_HZ,
+  dustTicksToMs,
   spriteStillTopLeft,
   worldToStill,
   worldToStillFilmstrip,
@@ -99,7 +100,8 @@ import {
 import { playStageRect } from "./stage";
 import { parseScriptScene } from "./sceneName";
 import { PLAY_HUD_CHROME, PuppetUi } from "./ui";
-import { worldInputBlocked } from "./lock";
+import { boardMouseGate, idlePumpAllowed, worldInputBlocked, worldMouseGate } from "./lock";
+import type { PuzzleBoard } from "./puzzle";
 import {
   movieClipsStarting,
   movieFrameWaitsForClick,
@@ -301,6 +303,17 @@ export class PlayGame implements WorldView {
     this.flats.onClose = () => {
       void this.closeHudFlat();
     };
+    this.flats.onBoardDown = (x, y) => {
+      this.host.stillDown = true;
+      const point: Point = { kind: "point", x, y, z: 0 };
+      this.host.pointer = point;
+      this.hoverPoint = point;
+      this.skipNextClick = true;
+      if (!this.scriptsReady) {
+        return;
+      }
+      void this.runScriptMouse(point, "board");
+    };
     this.stageEl.append(this.ui.root, this.flats.root);
     this.hudEl.addEventListener("click", (event) => this.onHudClick(event));
     this.hudEl.addEventListener("mousemove", (event) => this.onHudMove(event));
@@ -335,6 +348,22 @@ export class PlayGame implements WorldView {
 
   refreshActors(): void {
     this.layoutActors();
+    this.host.paintPuzzle();
+  }
+
+  showPuzzle(board: PuzzleBoard | null): void {
+    if (!board) {
+      if (this.flats.board) {
+        this.flats.close();
+      }
+      return;
+    }
+    this.flats.showBoard(board.stillUrl, board.items, board.labels);
+  }
+
+  setWorldVisible(on: boolean): void {
+    this.canvas.style.visibility = on ? "visible" : "hidden";
+    this.actorLayer.style.visibility = on ? "visible" : "hidden";
   }
 
   viewCamera(): ViewCamera {
@@ -460,7 +489,7 @@ export class PlayGame implements WorldView {
 
   private async animateFade(target: number, ticks: number): Promise<void> {
     const gen = ++this.fadeGen;
-    const ms = (Math.max(0, Math.trunc(ticks) || 0) / TIME_TICK_HZ) * 1000;
+    const ms = dustTicksToMs(ticks);
     const from = this.fadeOpacity;
     if (ms <= 0 || from === target) {
       this.fadeOpacity = target;
@@ -468,26 +497,24 @@ export class PlayGame implements WorldView {
       return;
     }
     const t0 = performance.now();
-    await new Promise<void>((resolve) => {
-      const step = (now: number) => {
-        if (gen !== this.fadeGen) {
-          resolve();
-          return;
-        }
-        const u = Math.min(1, (now - t0) / ms);
-        const value = from + (target - from) * u;
-        this.fadeOpacity = value;
-        this.fadeEl.style.opacity = String(value);
-        if (u >= 1) {
-          this.fadeOpacity = target;
-          this.fadeEl.style.opacity = String(target);
-          resolve();
-          return;
-        }
-        requestAnimationFrame(step);
-      };
-      requestAnimationFrame(step);
-    });
+    const stepMs = 1000 / TIME_TICK_HZ;
+    for (;;) {
+      if (gen !== this.fadeGen) {
+        return;
+      }
+      const u = Math.min(1, (performance.now() - t0) / ms);
+      const value = from + (target - from) * u;
+      this.fadeOpacity = value;
+      this.fadeEl.style.opacity = String(value);
+      if (u >= 1) {
+        this.fadeOpacity = target;
+        this.fadeEl.style.opacity = String(target);
+        return;
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, stepMs);
+      });
+    }
   }
 
   async playMovie(
@@ -728,9 +755,11 @@ export class PlayGame implements WorldView {
     }
     if (scriptsLive) {
       this.host.tickScriptClock(dt);
-      // Click/key already owns the VM (`talking`). Idle `hasattention` owns
-      // it via `scriptBusy` — do not start a second runQueued on top.
-      if (!this.talking) {
+      // Click/key owns the VM (`talking`). Idle `makeloop` (`resetgame`)
+      // owns it via `scriptBusy`. Tick must not start a second runQueued
+      // during `forceupdate` (scriptPump > 0 used to sneak past the host
+      // guard) — that ate the second blackjack card on hand two.
+      if (idlePumpAllowed(this.talking, this.host.scriptBusy)) {
         void this.host.runQueued(this.vm);
       }
     }
@@ -1065,8 +1094,10 @@ export class PlayGame implements WorldView {
   }
 
   /**
-   * INVEN `stdmouse` drags on `mousedown` + `while stilldown`. A `click`
-   * (mouseup) is too late — `stilldown` would already be false.
+   * Dust `mousedown` is the press, not mouseup. INVEN `stdmouse` and
+   * FLT hit/stay loop `while stilldown`; a `click` is too late. World
+   * doors / the blackjack table used `click` and lost the first press
+   * whenever idle `runQueued` held `scriptBusy`.
    */
   private onPointerDown(event: PointerEvent): void {
     if (event.button !== 0) {
@@ -1078,10 +1109,13 @@ export class PlayGame implements WorldView {
       this.hoverPoint = point;
     }
     this.host.stillDown = true;
-    if (!point || this.inputBlocked() || !this.scriptsReady) {
+    if (!point || this.booting || this.busy || !this.scriptsReady) {
       return;
     }
     if (this.hitsHeldAt(point)) {
+      if (this.inputBlocked()) {
+        return;
+      }
       event.preventDefault();
       this.skipNextClick = true;
       this.talking = true;
@@ -1097,7 +1131,16 @@ export class PlayGame implements WorldView {
     }
     if (isSwipePointer(event.pointerType) && point.y < 264) {
       this.swipe = { id: event.pointerId, x: event.clientX, y: event.clientY };
+      return;
     }
+    if (point.y >= 264) {
+      return;
+    }
+    if (this.flats.open) {
+      return;
+    }
+    this.skipNextClick = true;
+    void this.runScriptMouse(point, "world");
   }
 
   private onPointerMove(event: PointerEvent): void {
@@ -1142,7 +1185,7 @@ export class PlayGame implements WorldView {
       this.skipNextClick = false;
       return;
     }
-    if (this.inputBlocked()) {
+    if (this.booting || this.busy || this.flats.open) {
       return;
     }
     const pixel = this.clickPixel(event);
@@ -1153,17 +1196,72 @@ export class PlayGame implements WorldView {
       this.log("Loading scripts…");
       return;
     }
-    if (this.cursorWork) {
-      this.cursorGen += 1;
-      await this.cursorWork;
-    }
     const point: Point = { kind: "point", x: pixel.x, y: pixel.y, z: 0 };
+    await this.runScriptMouse(point, "world");
+  }
+
+  /**
+   * Claim the VM, cancel in-flight `setcursor`, and wait out idle
+   * `runQueued` instead of dropping the press.
+   */
+  private async runScriptMouse(point: Point, kind: "world" | "board"): Promise<void> {
+    const gate =
+      kind === "board"
+        ? boardMouseGate({
+            talking: this.talking,
+            scriptBusy: this.host.scriptBusy,
+            puppetOpen: this.host.currentPuppet !== "none",
+          })
+        : worldMouseGate({
+            booting: this.booting,
+            busy: this.busy,
+            talking: this.talking,
+            flatsOpen: this.flats.open,
+            scriptBusy: this.host.scriptBusy,
+            puppetOpen: this.host.currentPuppet !== "none",
+            cursorWatch: this.host.cursorName === "watch",
+          });
+    if (gate === "ignore") {
+      return;
+    }
     this.talking = true;
+    this.cursorGen += 1;
+    this.pendingCursor = null;
     try {
-      await this.host.dispatchMouse(this.vm, point);
+      if (this.cursorWork) {
+        await this.cursorWork;
+      }
+      if (gate === "wait") {
+        await this.waitForScriptIdle();
+      }
+      if (this.host.currentPuppet !== "none") {
+        return;
+      }
+      const at = this.hoverPoint ?? point;
+      this.host.pointer = at;
+      await this.host.dispatchMouse(this.vm, at);
+      if (kind === "board") {
+        this.host.paintPuzzle();
+      }
       this.syncHud();
     } finally {
       this.talking = false;
+    }
+  }
+
+  /** Idle `makeloop` / `resetgame` owns the VM until `runQueued` returns. */
+  private async waitForScriptIdle(): Promise<void> {
+    for (let n = 0; n < 600 && this.host.scriptBusy; n += 1) {
+      if (this.host.currentPuppet !== "none") {
+        return;
+      }
+      await new Promise<void>((resolve) => {
+        if (typeof requestAnimationFrame === "function") {
+          requestAnimationFrame(() => resolve());
+        } else {
+          setTimeout(resolve, 16);
+        }
+      });
     }
   }
 
@@ -1186,7 +1284,7 @@ export class PlayGame implements WorldView {
       return;
     }
     if (event.code === "Escape" && !event.repeat) {
-      if (this.flats.open) {
+      if (this.flats.open && !this.flats.board) {
         this.flats.close();
         event.preventDefault();
         return;

@@ -135,7 +135,7 @@ is the town grid with only the range tiles walkable.
 |---|---|
 | `<fn>.txt` | First script whose opening `code` is `<fn>` (`playcheckers.txt`, NEW `openflat.txt` = **mainpanel**) |
 | `<fn>_<container>.txt` | Every script container (NEW has four `openflat`s — 2 mainpanel, 5 map, 8 avatar, 11 score) |
-| `flats.json` | Named flats: `script` / `still` / `buttons` container ids (`NEW.FLT`) |
+| `flats.json` | Named flats: `script` / `still` / `buttons` container ids, `stillFile`, `hits` (Mac button rects + script file) |
 | `frame_<n>.png` | Board / HUD / page still. `<n>` is the source container index |
 
 `_CHECKERS`, `_FIGHT`, `_SCORP`, `_SALGAMES`, `_HIST` (history book pages), `_DIARY`, `_DRUG`, `_HOTPLATE`, …
@@ -145,6 +145,7 @@ is the town grid with only the range tiles walkable.
 | File | What it is |
 |---|---|
 | `props.json` | Manifest: `group`, `state`, `index`, `container`, `path` |
+| `groups.json` | PRP group table: `name`, `logic` container, `script` (ObjectGroup +38) |
 | `timing.json` | PRP setInfo +0x2e pose tables per group per `propview` (HOUSE `avatar` `nitehattip` is 26 slots) |
 | `FRAMES/<Group>/<state>/<ii>_c<container>.png` | Named sprite. `group` = item (`Bone`, `Cigar`). `state` = `small` / `large` / `panel` / `hilite` / `king` / … |
 | `FRAMES/_unnamed/frame_<n>.png` | Container the shop table did not name |

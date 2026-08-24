@@ -290,6 +290,11 @@ export function gameFrameSec(framerate: number): number {
   return Math.max(1, Math.trunc(framerate) || 1) / TIME_TICK_HZ;
 }
 
+/** `delay (45)` / `screentoblack (…, 30)` — 60 Hz ticks, not rAF paint frames. */
+export function dustTicksToMs(ticks: number, hz = TIME_TICK_HZ): number {
+  return (Math.max(0, Math.trunc(ticks) || 0) / hz) * 1000;
+}
+
 /** Script frames each drink pose is held (`toidle` 25 / 4-pose strip). */
 export const DRINK_HOLD_FRAMES = 6;
 

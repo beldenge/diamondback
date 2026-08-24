@@ -441,6 +441,17 @@ Is the point inside a named prop sprite?
 - Example: `pointinprop (me, arg)`  (PRP/_HOUSE/initprop_556.txt:35)
 - Example: `pointinprop (findword (playerhand, " ", count), epoint)`  (PRP/_SALGAMES/mousedown _arg__522.txt:16)
 
+### `findword` (20054, function) / `putword` (20057, function)
+
+1-based split on the separator. **Empty slots count.** SALGAMES
+`shuffle` does `putword (list, " ", n, "")` then writes the swap;
+collapsing empties shrinks the 52-card deck so the next hand deals
+nothing. Same list shape for poker hands and checkers move strings.
+
+- **Confidence:** proven-scripts + play
+- Example: `findword (cardstring, " ", usedcount)`  (FLT/_SALGAMES `take`)
+- Example: `putword (cardlist, " ", count, "")`  (FLT/_SALGAMES `shuffle`)
+
 ### `pointinset` (20041, function)
 
 Is the point inside the SET view (the 512×264 plate)?
@@ -725,15 +736,52 @@ Boot calls framerate (3). Units unknown (MOVPLAY also has a framerate string).
 
 ### `delay` (12004, command)
 
-Wait some ticks. Unit unknown (boot blacktoscreen uses 30; checkers delay (45)).
+Wait **60 Hz ticks** (same clock as `screentoblack (…, 30)` = 0.5 s).
+`delay (45)` in checkers / blackjack `newgame` is 0.75 s. Not script
+frames (`framerate (3)` = 20 Hz) and not `requestAnimationFrame`.
 
-- **Confidence:** inferred
+- **Confidence:** inferred (play: SALGAMES second-hand deal after Jan’s bet)
 - **Args:** integer
-- **Blocks:** inferred yes
+- **Blocks:** yes
 - **Calls in dump:** 107  arities [1]
 - Example: `delay (30)`  (CST/_EXTRA/birdcage/Script.txt:65)
 - Example: `delay (3)`  (CST/_EXTRA/bounty1/Script.txt:305)
 - Example: `delay (60)`  (CST/_EXTRA/dog/Script.txt:108)
+
+### `forceupdate` (12052, command)
+
+One **20 Hz** walk/display pump (`DF.EXE` `0x433740`). Steps actors,
+refreshes the still, drains `endwalk` / `endturn` / `endball` on this
+stack, waits one `framerate` game frame. **Not** a `makeloop` drain —
+nested `forceupdate` inside `dealcards` must not fire Isao/crowd
+idles. Tick `runQueued` is the idle `makeloop` pump; do not start it
+while that script is already `scriptBusy`.
+
+- **Confidence:** proven-EXE + play (SALGAMES second hand)
+- **Blocks:** yes (one game frame)
+- **Calls in dump:** 205
+- Example: `while iswalk { forceupdate }`  (CST `walktopuppet`)
+- Example: `forceupdate ()` after `propvisible`  (FLT/_SALGAMES `lowdrawcash`)
+
+### `pauseloop` (16046, field)
+
+Pause existing `makeloop`s of a kind. `pauseloop ("flat", "all", true)`
+at the card table freezes HUD `makeface` / saloon idles **that already
+exist** and should drop already-due callbacks of that kind. A later
+`makeloop ("flat", me, "resetgame")` is **live** (next hand after bust).
+Do not treat `"all"` as a sticky kind flag.
+
+- **Confidence:** proven-scripts + play
+- Example: `pauseloop ("actor", "all", true)`  (SET/_SALLOWER `runblackjack`)
+
+### `pausewalk` (16048, field)
+
+Freeze NPC walks for the minigame. Not a no-op: skip `advanceActors`
+walk/turn and clear queued `walkEnds` so `endwalk` cannot nest into
+the game’s `forceupdate`.
+
+- **Confidence:** proven-scripts + play
+- Example: `pausewalk ("all", true)`  (SET/_SALLOWER `runblackjack`)
 
 ### `voicesound` (12026, command)
 
@@ -825,7 +873,7 @@ Fade down.
 
 ## 5. Still unknown (do not invent)
 
-- Exact `delay (n)` units; SET walk fps (~24) is from play, not DF.EXE. `framerate (3)` with `hasattention` is 60/3 script Hz (inferred).
+- SET walk fps (~24) is from play, not DF.EXE. `framerate (3)` with `hasattention` is 60/3 script Hz (inferred). `delay (n)` / fade durations are 60 Hz ticks (play: `screentoblack (…, 30)` = 0.5 s).
 - MOV reel timing / audio cues (see dfextract reconstruction-gaps §4a).
 - `walktostar` named dest uses the SET polyline at waypoint +0x18 (not BFS). Scripts wait with `while iswalk { forceupdate }`. `actorxyz` is SET units (256/tile in the EXE; scripts often `/ 256`). `actorspeed` is units per 20 Hz game frame.
 - Save file layout (`savegame` / `opengame`).

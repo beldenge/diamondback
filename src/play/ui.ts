@@ -451,20 +451,17 @@ export class PuppetUi {
     this.sheet = sheet;
     const gen = ++this.paintGen;
     this.applyIdle();
-    const pose = this.paintPose;
     this.setLine("");
     this.showEmptyBevels();
     this.clearCanvas();
+    // Bevels must be live before the first blit returns. A pose tick during
+    // that paint used to skip `hidden = false`, so the second blackjack
+    // `mainbetbj` waited on `puppetevent` with no visible choices.
+    this.root.hidden = false;
     await this.paint();
-    if (
-      puppetPaintIsStale(
-        { gen, sheet, pose },
-        { gen: this.paintGen, sheet: this.sheet, pose: this.paintPose },
-      )
-    ) {
+    if (this.paintGen !== gen || this.sheet !== sheet) {
       return;
     }
-    this.root.hidden = false;
   }
 
   close(): void {

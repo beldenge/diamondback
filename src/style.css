@@ -61,7 +61,8 @@ body,
 #play-stage:has(#puppet-ui:not([hidden])) #play-hud,
 #play-stage:has(#puppet-ui:not([hidden])) #play-hand,
 #play-stage:has(#puppet-ui:not([hidden])) #play-hud-face,
-#play-stage:has(#puppet-ui:not([hidden])) #actor-layer {
+#play-stage:has(#puppet-ui:not([hidden])) #actor-layer,
+#play-stage:has(#puppet-ui:not([hidden])) #play-flat {
   visibility: hidden;
   pointer-events: none;
 }
@@ -123,7 +124,8 @@ body.play #viewport {
   background: #000;
   opacity: 0;
   pointer-events: none;
-  z-index: 50;
+  /* Above #play-flat (60) so SALGAMES blackscreen covers the table. */
+  z-index: 65;
 }
 
 #play-hud {
@@ -226,6 +228,26 @@ body.play #viewport {
   position: absolute;
   image-rendering: pixelated;
   pointer-events: auto;
+}
+
+#play-flat.board #play-flat-items img {
+  pointer-events: none;
+}
+
+#play-flat-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+#play-flat-labels > div {
+  position: absolute;
+  color: #1a120c;
+  font-family: "Courier New", Courier, monospace;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  transform: translateY(-50%);
 }
 
 /* HOUSE `cross`: timing 1,1,1,2,2,2 at 20 Hz (frame 2 is empty). */

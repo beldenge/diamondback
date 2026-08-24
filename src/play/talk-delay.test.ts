@@ -103,10 +103,6 @@ describe("first talk delay", () => {
     await vm.evalCall("mousedown", [{ type: "num", value: 0 }]);
     const ms = Date.now() - t0;
 
-    const firstSpeak = calls.find((c) => c.startsWith("puppetspeak") || c.startsWith("speak:"));
-    const open = calls.find((c) => c.startsWith("openpuppetfile") || c === "open");
-    // eslint-disable-next-line no-console
-    console.log(JSON.stringify({ ms, fu, open, firstSpeak, calls: calls.slice(0, 20) }, null, 2));
     expect(fu, `forceupdate ran ${fu} times (${ms}ms). calls=${calls.join(" | ")}`).toBeLessThan(400);
     const speakAt = calls.find((c) => c.startsWith("puppetspeak"));
     const openAt = calls.find((c) => c.startsWith("openpuppetfile"));

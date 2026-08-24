@@ -159,9 +159,17 @@ export class VM {
       }
       case "switch": {
         const disc = await this.evalExpr(stmt.expr);
+        // Dust/Pascal: empty `case` labels fall through to the next body.
+        // Non-empty cases do not (implicit break). Mez `case 0` / `case 1`
+        // share a day switch; cardtovalue `case "2h"` … `"2c"` share `return (2)`.
+        let fall = false;
         for (const arm of stmt.cases) {
           const match = await this.evalExpr(arm.match);
-          if (eq(disc, match)) {
+          if (fall || eq(disc, match)) {
+            if (arm.body.length === 0) {
+              fall = true;
+              continue;
+            }
             return this.execBlock(arm.body);
           }
         }
@@ -296,6 +304,11 @@ export class VM {
   }
 
   private async sendNamed(kind: string, args: Expr[]): Promise<Value> {
+    if (kind.startsWith("sendtobutton") && args.length >= 3) {
+      const flat = str(await this.evalExpr(args[0])).toLowerCase();
+      const button = str(await this.evalExpr(args[1])).toLowerCase();
+      return this.inObject("button", `${flat}:${button}`, async () => this.evalExpr(args[2]!));
+    }
     const name = str(await this.evalExpr(args[0] ?? { type: "str", value: "" }));
     const object = objectForSend(kind);
     return this.inObject(object, name, async () => {

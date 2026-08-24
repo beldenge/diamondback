@@ -30,6 +30,7 @@ import {
   spriteWantedDeg,
   actorSprite,
   gameFrameSec,
+  dustTicksToMs,
   poseFromTable,
   timingForPose,
   walkFrame,
@@ -528,5 +529,13 @@ describe("play stage", () => {
     expect(rect.h).toBe(STAGE_HEIGHT * 2);
     expect(rect.worldH).toBe(264 * 2);
     expect(rect.hudH).toBe(120 * 2);
+  });
+});
+
+describe("Dust 60 Hz ticks", () => {
+  it("maps screentoblack 30 and delay 45 to wall-clock ms", () => {
+    expect(dustTicksToMs(30)).toBe(500);
+    expect(dustTicksToMs(45)).toBe(750);
+    expect(gameFrameSec(3)).toBeCloseTo(0.05);
   });
 });

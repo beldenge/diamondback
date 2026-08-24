@@ -112,6 +112,9 @@ def write_prp_extract(
     counts: dict[str, int] = {}
     if write_scripts:
         counts["scripts"] = _write_scripts(df, out_dir)
+        groups = write_prp_groups(df, out_dir)
+        if groups:
+            counts["groups"] = len(groups)
     if write_frames:
         counts["frames"] = _write_frames(df, out_dir)
     timing = extract_cst_timing(df)
@@ -137,6 +140,47 @@ def _write_scripts(df: DFFile, out_dir: Path) -> int:
         if decode_and_write_script(out_dir / f"{safe}_{index}.txt", container.data):
             written += 1
     return written
+
+
+def parse_prp_groups(df: DFFile) -> list[dict]:
+    """Group table: name plus ObjectGroup +38 script container (HOUSE blackjack 498)."""
+    header = df.containers[0].data
+    if len(header) < 2364:
+        return []
+    group_count = struct.unpack_from("<i", header, 2360)[0]
+    if group_count < 0 or group_count > 10_000:
+        return []
+    groups: list[dict] = []
+    cursor = 2364
+    for _ in range(group_count):
+        if cursor + 4 > len(header):
+            break
+        logic_id = struct.unpack_from("<i", header, cursor)[0]
+        cursor += 16
+        if logic_id < 0 or logic_id >= len(df.containers):
+            continue
+        logic = df.containers[logic_id].data
+        if len(logic) < 42:
+            continue
+        name = _safe_name(pascal_string(logic, 42))
+        script = logic_id
+        if len(logic) >= 42:
+            ptr = struct.unpack_from("<i", logic, 38)[0]
+            if 0 <= ptr < len(df.containers):
+                script = ptr
+        groups.append({"name": name, "logic": logic_id, "script": script})
+    return groups
+
+
+def write_prp_groups(df: DFFile, out_dir: Path) -> list[dict]:
+    groups = parse_prp_groups(df)
+    if not groups:
+        return []
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "groups.json").write_text(
+        json.dumps(groups, indent=2) + "\n", encoding="utf-8"
+    )
+    return groups
 
 
 def parse_prp_catalog(df: DFFile) -> list[PropFrame]:
@@ -222,6 +266,27 @@ def _sibling_set_palettes(prp_path: Path) -> dict[str, Palette]:
     return cache
 
 
+def _companion_flt_palette(prp_path: Path) -> Palette | None:
+    """Same-stem sibling FLT (SALGAMES.PRP → SALGAMES.FLT).
+
+    Dust 8-bit-blits those props into the FLT still; the PRP ColorPalette
+    is often unused-white and must not be used to expand the indices.
+    """
+    parent = prp_path.parent
+    stem = prp_path.stem
+    for name in (f"{stem}.FLT", f"{stem.upper()}.FLT", f"{stem.lower()}.flt"):
+        path = parent / name
+        if not path.is_file():
+            continue
+        try:
+            pal = _palette_from_header(path)
+        except (OSError, struct.error, ImageError):
+            continue
+        if pal is not None:
+            return pal
+    return None
+
+
 def _black_ratio(indices: bytes, palette: Palette) -> float:
     n = 0
     black = 0
@@ -237,10 +302,14 @@ def _black_ratio(indices: bytes, palette: Palette) -> float:
 
 
 def _chroma_count(sprite) -> int:
+    """Opaque pixels that are not unused fill (black or white)."""
     rgba = sprite.rgba
     n = 0
     for i in range(0, len(rgba), 4):
-        if rgba[i + 3] and (rgba[i], rgba[i + 1], rgba[i + 2]) != (0, 0, 0):
+        if not rgba[i + 3]:
+            continue
+        rgb = (rgba[i], rgba[i + 1], rgba[i + 2])
+        if rgb != (0, 0, 0) and rgb != (255, 255, 255):
             n += 1
     return n
 
@@ -251,19 +320,24 @@ def _colorize_trans(
     preferred: Palette | None,
     set_pals: list[Palette],
 ):
-    """HUD sprites keep HOUSE. World overlays are SET-indexed; unused HOUSE slots are black."""
+    """Expand 8-bit sprites with the still they blit onto.
+
+    PRP ColorPalette is often unused (HOUSE black, SALGAMES white). Dust
+    indexes the current SET/FLT palette. Prefer the companion still pal
+    with the most chromatic opaque pixels.
+    """
     width, height, pos_x, pos_y, indices = decode_trans_indices(data)
-    house_spr = colorize_sprite(width, height, pos_x, pos_y, indices, house_pal)
-    if _black_ratio(indices, house_pal) < HOUSE_BLACK_RATIO:
-        return house_spr
-    opaque = sum(1 for index in indices if index != 255) or 1
-    best = house_spr
-    best_chroma = _chroma_count(house_spr)
-    seen: set[int] = {id(house_pal)}
+    own = colorize_sprite(width, height, pos_x, pos_y, indices, house_pal)
     ordered: list[Palette] = []
     if preferred is not None:
         ordered.append(preferred)
     ordered.extend(set_pals)
+    if not ordered:
+        return own
+    opaque = sum(1 for index in indices if index != 255) or 1
+    best = own
+    best_chroma = _chroma_count(own)
+    seen: set[int] = {id(house_pal)}
     for pal in ordered:
         marker = id(pal)
         if marker in seen:
@@ -312,11 +386,12 @@ def _write_one_frame(
 
 
 def _write_frames(df: DFFile, out_dir: Path) -> int:
-    # DF.EXE 0x423e59: unused 8.8 0xFFFF `sar 8` → white. INVEN HUD
-    # items sample pal 0 (HELP letter counters, gun leather flecks).
-    # HOUSE/world PRP keep DFET unused→black so index-0 holes stay
-    # dark on 8-bit stills (butbevel's hole is codec skip, not pal 0).
-    unused = (255, 255, 255) if df.path.stem.upper() == "INVEN" else (0, 0, 0)
+    # DF.EXE 0x423e59: unused 8.8 0xFFFF `sar 8` → white. HUD / minigame
+    # PRPs (INVEN, SALGAMES, CHECKERS, …) are RGB-composited onto FLT
+    # stills; unused-as-black inverts card faces and slot handles.
+    # HOUSE world overlays 8-bit-blit onto SET stills, so unused stays
+    # black and SET-recolor fills chroma (doors, saloon tables).
+    unused = (0, 0, 0) if df.path.stem.upper() == "HOUSE" else (255, 255, 255)
     palette = find_palette(df.containers[0].data, unused_rgb=unused)
     if palette is None:
         return 0
@@ -324,6 +399,9 @@ def _write_frames(df: DFFile, out_dir: Path) -> int:
         _sibling_set_palettes(df.path) if df.path.stem.upper() == "HOUSE" else {}
     )
     set_pals = list(set_by_stem.values())
+    flt_pal = _companion_flt_palette(df.path)
+    if flt_pal is not None:
+        set_pals = [flt_pal, *set_pals]
     catalog = parse_prp_catalog(df)
     written = 0
     named: set[int] = set()
@@ -339,7 +417,7 @@ def _write_frames(df: DFFile, out_dir: Path) -> int:
         stem = DOOR_VIEW_SET.get(item.state.lower()) or HOUSE_GROUP_SET.get(
             item.group.lower()
         )
-        preferred = set_by_stem.get(stem) if stem else None
+        preferred = set_by_stem.get(stem) if stem else flt_pal
         meta = _write_one_frame(
             df, item.container, dest, palette, preferred, set_pals
         )

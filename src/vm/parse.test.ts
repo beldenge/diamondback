@@ -96,6 +96,84 @@ describe("VM Jenix money", () => {
   });
 });
 
+describe("switch case fall-through", () => {
+  it("empty case labels share the next body (cardtovalue / mezphase)", async () => {
+    const proc = {
+      name: "cardtovalue",
+      params: ["thecard"],
+      body: [
+        {
+          type: "switch" as const,
+          expr: { type: "var" as const, name: "thecard" },
+          cases: [
+            { match: { type: "str" as const, value: "2h" }, body: [] },
+            { match: { type: "str" as const, value: "2d" }, body: [] },
+            {
+              match: { type: "str" as const, value: "2c" },
+              body: [{ type: "return" as const, value: { type: "num" as const, value: 2 } }],
+            },
+            { match: { type: "str" as const, value: "3h" }, body: [] },
+            {
+              match: { type: "str" as const, value: "3c" },
+              body: [{ type: "return" as const, value: { type: "num" as const, value: 3 } }],
+            },
+          ],
+        },
+      ],
+    };
+    const vm = new VM({ async call() { return 0; } });
+    expect((await vm.runProc(proc, ["2h"])).value).toBe(2);
+    expect((await vm.runProc(proc, ["2d"])).value).toBe(2);
+    expect((await vm.runProc(proc, ["2c"])).value).toBe(2);
+    expect((await vm.runProc(proc, ["3h"])).value).toBe(3);
+    expect((await vm.runProc(proc, ["3c"])).value).toBe(3);
+  });
+
+  it("mezphase 0 falls into the shared day body, not an empty return", async () => {
+    const proc = {
+      name: "bootpoker",
+      params: [],
+      body: [
+        { type: "global" as const, names: ["mezphase", "playcards"] },
+        {
+          type: "switch" as const,
+          expr: { type: "var" as const, name: "mezphase" },
+          cases: [
+            { match: { type: "num" as const, value: 0 }, body: [] },
+            {
+              match: { type: "num" as const, value: 1 },
+              body: [
+                {
+                  type: "assign" as const,
+                  target: { type: "var" as const, name: "playcards" },
+                  value: { type: "bool" as const, value: true },
+                },
+              ],
+            },
+            {
+              match: { type: "num" as const, value: 2 },
+              body: [
+                {
+                  type: "assign" as const,
+                  target: { type: "var" as const, name: "playcards" },
+                  value: { type: "bool" as const, value: false },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const vm = new VM({ async call() { return 0; } });
+    vm.globals.set("mezphase", 0);
+    await vm.runProc(proc);
+    expect(vm.globals.get("playcards")).toBe(true);
+    vm.globals.set("mezphase", 2);
+    await vm.runProc(proc);
+    expect(vm.globals.get("playcards")).toBe(false);
+  });
+});
+
 describe("VM while cap", () => {
   it("does not spin forever on while true", async () => {
     const host: OpcodeHost = {

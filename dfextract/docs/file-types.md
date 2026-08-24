@@ -252,6 +252,11 @@ with a smaller walkable subset (shooting-range overlay).
   (`playcheckers`, `openflat`, `mousedown`, …). Filenames are
   `{firstProc}_{container}.txt` so two `openflat` containers do not
   overwrite. The first of each name is also `{firstProc}.txt`.
+  SALGAMES poker/blackjack flats start with `//` comments (opcode 8004
+  `/`) then `code` — extract those too (`looks_like_flt_script`).
+- Button table at the flat’s `buttons` container: `i32` count, then
+  32-byte records (`i32` flags, Mac `top,left,bottom,right`, `i32`
+  script, 16-byte Pascal name). Written on each flat as `hits`.
 - A large container starting with `384, 512` (or similar) is an
   indexed still — the puzzle backdrop / HUD
 

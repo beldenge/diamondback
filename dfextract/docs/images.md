@@ -20,8 +20,12 @@ i16 R, G, B     # 8.8 fixed point; we take the high byte
 `R == G == B == -1` (`0xFFFF`) means “unused”. DF.EXE `0x423e59` does
 `sar r16, 8` on those 8.8 channels, so the high byte is **255 (white)**.
 DFET wrote unused as `(0,0,0)` — that was the INVEN HUD “black spots”
-(HELP letter counters, gun leather flecks). Trans sprites now follow
-the EXE (white) unless a caller passes `unused_rgb=(0,0,0)`.
+(HELP letter counters, gun leather flecks) and inverted SALGAMES card
+faces. Trans sprites follow the EXE (white) except HOUSE world overlays,
+which keep unused→black and recolor from the SET palette. Minigame
+PRPs (SALGAMES, CHECKERS, …) 8-bit-blit onto a sibling FLT still;
+that FLT ColorPalette expands the indices. Using the PRP palette
+(almost all unused-white) washes card faces to blank.
 
 SET/MOV/FLT **stills** follow DFET’s BMP VGA ends: index **0 is always
 black**, index **255 is always white**. Dust stores 255 as `(0,0,0)` in

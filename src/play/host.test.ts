@@ -6,7 +6,14 @@ import { VM } from "../vm/runtime";
 import { buildSetGraph, SET_SPAWN } from "../world/set/graph";
 import type { SceneRecord, TransitionRecord } from "../world/set/types";
 import { cameraFromPose, worldToStill } from "./facing";
-import { dirWord, DustHost, puppetClipKey, puppetFolder, soundFileUrl } from "./host";
+import {
+  dirWord,
+  DustHost,
+  puppetClipKey,
+  puppetFolder,
+  resolveFlatLoopWho,
+  soundFileUrl,
+} from "./host";
 import type { PuppetUi, VisemeLine } from "./ui";
 
 function loadProcs(rel: string) {
@@ -1252,5 +1259,385 @@ describe("first evening initactors", () => {
     expect(dogActor.y).toBe(2748);
     expect(dogActor.deg).toBe(32);
     expect(dogActor.scale).toBe(880);
+  });
+});
+
+describe("flat makeloop who", () => {
+  it("maps button me onto the current SALGAMES flat", () => {
+    const flats = ["flat 0", "flat 2", "flat 3"];
+    expect(resolveFlatLoopWho("flat", "flat 2:stay", "flat 2", flats)).toBe("flat 2");
+    expect(resolveFlatLoopWho("flat", "stay", "flat 2", flats)).toBe("flat 2");
+    expect(resolveFlatLoopWho("flat", "flat 0", "flat 2", flats)).toBe("flat 0");
+    expect(resolveFlatLoopWho("prop", "handle", "flat 3", flats)).toBe("handle");
+  });
+});
+
+describe("saloon SALGAMES scripts", () => {
+  it("parses extracted orchestrator, poker, blackjack, and slots", () => {
+    const stageRel = "FLT/_SALGAMES/setcursor _arg__1.json";
+    if (!existsSync(resolve("dfextract/out", stageRel))) {
+      return;
+    }
+    const names = (rel: string) => loadProcs(rel).map((proc) => proc.name);
+    expect(names(stageRel)).toEqual(
+      expect.arrayContaining([
+        "playcardsblackjack",
+        "playcardspoker",
+        "playslots",
+        "closecards",
+        "shuffle",
+        "drawcash",
+      ]),
+    );
+    expect(names("FLT/_SALGAMES/initgame_11.json")).toEqual(
+      expect.arrayContaining(["newgame", "pickpieces", "quitgame", "inithandle"]),
+    );
+    expect(names("FLT/_SALGAMES/initgame_2.json")).toEqual(
+      expect.arrayContaining(["initgame", "newgame", "dealcards", "makehands"]),
+    );
+    expect(names("FLT/_SALGAMES/initgame_8.json")).toEqual(
+      expect.arrayContaining(["initgame", "newgame", "dealcards", "mainbetbj"]),
+    );
+  });
+
+  it("implements putword, substring, stringlength, and button()", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.stillDown = true;
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    expect(await host.call("putword", ["ah kd qs", " ", 2, "2h"], vm)).toBe("ah 2h qs");
+    expect(await host.call("substring", ["dust:data:", "dust:"], vm)).toBe(1);
+    expect(await host.call("substring", ["2h 3h ah", "ah"], vm)).toBeGreaterThan(0);
+    expect(await host.call("substring", ["2h 3h", "kd"], vm)).toBe(-1);
+    expect(await host.call("stringlength", ["1234"], vm)).toBe(4);
+    expect(await host.call("button", [], vm)).toBe(true);
+  });
+
+  it("sendtobutton three-arg runs the named button mousedown", async () => {
+    const host = new DustHost({} as PuppetUi);
+    const ran: string[] = [];
+    host.index.add("button:flat 3:quit", {
+      name: "mousedown",
+      params: ["arg"],
+      body: [{ type: "call", call: { type: "call", name: "quitgame", args: [] } }],
+    }, "test");
+    const vm = new VM({
+      async call(name) {
+        ran.push(name);
+        return 0;
+      },
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    await vm.evalCall("sendtobutton", [
+      { type: "str", value: "flat 3" },
+      { type: "str", value: "quit" },
+      { type: "call", name: "mousedown", args: [] },
+    ]);
+    expect(ran).toContain("quitgame");
+  });
+
+  it("pointinbutton uses SALGAMES Mac rects", async () => {
+    const host = new DustHost({} as PuppetUi);
+    const intern = host as unknown as { stageHits: Map<string, { name: string; top: number; left: number; bottom: number; right: number }[]> };
+    intern.stageHits.set("flat 3", [
+      { name: "pull", top: 26, left: 431, bottom: 105, right: 517 },
+    ]);
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    expect(
+      await host.call("pointinbutton", ["flat 3", "pull", { kind: "point", x: 450, y: 50, z: 0 }], vm),
+    ).toBe(true);
+    expect(
+      await host.call("pointinbutton", ["flat 3", "pull", { kind: "point", x: 10, y: 10, z: 0 }], vm),
+    ).toBe(false);
+  });
+
+  it("deals four cards on the first and second blackjack hands", async () => {
+    if (!existsSync(resolve("dfextract/out/FLT/_SALGAMES/initgame_8.json"))) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    host.currentFlatName = "flat 2";
+    host.currentStageName = "salgames";
+    const origCall = host.call.bind(host);
+    const log: string[] = [];
+    host.call = async (name, args, ctx) => {
+      const op = name.toLowerCase();
+      if (
+        op === "delay" ||
+        op === "forceupdate" ||
+        op === "screentoblack" ||
+        op === "blacktoscreen" ||
+        op === "blackscreen" ||
+        op === "singlesound" ||
+        op === "message" ||
+        op === "drawstring"
+      ) {
+        if (op === "delay" || op === "forceupdate") {
+          log.push(op);
+        }
+        return 0;
+      }
+      if (op === "propview" || op === "propvisible") {
+        log.push(`${op}:${String(args[0])}:${String(args[1])}`);
+      }
+      return origCall(name, args, ctx);
+    };
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    for (const proc of loadProcs("FLT/_SALGAMES/initgame_8.json")) {
+      host.index.add("flat:flat 2", proc, "initgame_8");
+    }
+    for (const proc of loadProcs("FLT/_SALGAMES/setcursor _arg__1.json")) {
+      host.index.add("stage", proc, "salgames-stage");
+    }
+    host.index.add(
+      "flat:flat 2",
+      { name: "mainbetbj", params: [], body: [{ type: "return", value: { type: "num", value: 0 } }] },
+      "stub",
+    );
+    vm.globals.set("playercash", 20);
+    vm.globalNames.add("playercash");
+    await vm.inObject("flat", "flat 2", () => vm.evalCall("initgame", []));
+    await vm.inObject("flat", "flat 2", () => vm.evalCall("newgame", []));
+    expect(vm.globals.get("playercount")).toBe(2);
+    expect(vm.globals.get("dealercount")).toBe(2);
+    vm.globals.set("winner", "draw");
+    await vm.inObject("flat", "flat 2", () => vm.evalCall("newgame", []));
+    expect(vm.globals.get("playercount"), log.join(" | ")).toBe(2);
+    expect(vm.globals.get("dealercount"), log.join(" | ")).toBe(2);
+    const cards: string[] = [];
+    for (const line of log) {
+      const m = /^propvisible:([0-9jqka]{1,2}[hdsc]):true$/i.exec(line);
+      if (m?.[1]) {
+        cards.push(m[1].toLowerCase());
+      }
+    }
+    expect(new Set(cards).size).toBe(8);
+    expect(vm.globals.get("usedcount")).toBe(9);
+  }, 10000);
+
+  it("makeloop after pauseloop all still runs (blackjack resetgame)", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.currentFlatName = "flat 2";
+    const ran: string[] = [];
+    host.index.add(
+      "flat:flat 2",
+      {
+        name: "resetgame",
+        params: [],
+        body: [{ type: "call", call: { type: "call", name: "note", args: [] } }],
+      },
+      "test",
+    );
+    const orig = host.call.bind(host);
+    host.call = async (name, args, ctx) => {
+      if (name === "note") {
+        ran.push("resetgame");
+        return 0;
+      }
+      return orig(name, args, ctx);
+    };
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    await vm.evalCall("pauseloop", [
+      { type: "str", value: "flat" },
+      { type: "str", value: "all" },
+      { type: "bool", value: true },
+    ]);
+    await vm.evalCall("makeloop", [
+      { type: "str", value: "flat" },
+      { type: "str", value: "flat 2" },
+      { type: "str", value: "resetgame" },
+      { type: "num", value: 1 },
+    ]);
+    host.tickScriptClock(1);
+    await host.runQueued(vm);
+    expect(ran).toEqual(["resetgame"]);
+  });
+
+  it("pauseloop all drops already-due loops of that kind", async () => {
+    const host = new DustHost({} as PuppetUi);
+    const ran: string[] = [];
+    host.index.add(
+      "scene:scene d1",
+      {
+        name: "soundfxs",
+        params: [],
+        body: [{ type: "call", call: { type: "call", name: "note", args: [] } }],
+      },
+      "test",
+    );
+    const orig = host.call.bind(host);
+    host.call = async (name, args, ctx) => {
+      if (name === "note") {
+        ran.push("soundfxs");
+        return 0;
+      }
+      return orig(name, args, ctx);
+    };
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    await vm.evalCall("makeloop", [
+      { type: "str", value: "scene" },
+      { type: "str", value: "scene d1" },
+      { type: "str", value: "soundfxs" },
+      { type: "num", value: 1 },
+    ]);
+    host.tickScriptClock(1);
+    await vm.evalCall("pauseloop", [
+      { type: "str", value: "scene" },
+      { type: "str", value: "all" },
+      { type: "bool", value: true },
+    ]);
+    await host.runQueued(vm);
+    expect(ran).toEqual([]);
+  });
+
+  it("tick runQueued does not drain makeloop while scriptBusy even if scriptPump > 0", async () => {
+    const host = new DustHost({} as PuppetUi);
+    const ran: string[] = [];
+    host.index.add(
+      "scene:town",
+      {
+        name: "idlefx",
+        params: [],
+        body: [{ type: "call", call: { type: "call", name: "noteidle", args: [] } }],
+      },
+      "test",
+    );
+    const vm = new VM({
+      call: async (name, args, ctx) => {
+        if (name === "noteidle") {
+          ran.push("idle");
+          return 0;
+        }
+        return host.call(name, args, ctx);
+      },
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    await vm.evalCall("makeloop", [
+      { type: "str", value: "scene" },
+      { type: "str", value: "town" },
+      { type: "str", value: "idlefx" },
+      { type: "num", value: 1 },
+    ]);
+    host.tickScriptClock(1);
+    host.scriptBusy = true;
+    host.scriptPump = 1;
+    await host.runQueued(vm);
+    expect(ran).toEqual([]);
+    host.scriptPump = 0;
+    host.scriptBusy = false;
+    await host.runQueued(vm);
+    expect(ran).toEqual(["idle"]);
+  });
+
+  it("forceupdate does not run a nested makeloop during resetgame", async () => {
+    const host = new DustHost({} as PuppetUi);
+    const ran: string[] = [];
+    host.index.add(
+      "scene:town",
+      {
+        name: "idlefx",
+        params: [],
+        body: [{ type: "call", call: { type: "call", name: "noteidle", args: [] } }],
+      },
+      "test",
+    );
+    const vm = new VM({
+      call: async (name, args, ctx) => {
+        if (name === "noteidle") {
+          ran.push("idle");
+          return 0;
+        }
+        return host.call(name, args, ctx);
+      },
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    await vm.evalCall("makeloop", [
+      { type: "str", value: "scene" },
+      { type: "str", value: "town" },
+      { type: "str", value: "idlefx" },
+      { type: "num", value: 1 },
+    ]);
+    host.tickScriptClock(1);
+    host.scriptBusy = true;
+    host.scriptPump = 1;
+    await host.runQueued(vm, true);
+    expect(ran).toEqual([]);
+    host.scriptPump = 0;
+    host.scriptBusy = false;
+    await host.runQueued(vm);
+    expect(ran).toEqual(["idle"]);
+  });
+
+  it("shuffles the 52-card SALGAMES deck without hanging", async () => {
+    if (!existsSync(resolve("dfextract/out/FLT/_SALGAMES/setcursor _arg__1.json"))) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    host.rng = () => 0.5;
+    for (const proc of loadProcs("FLT/_SALGAMES/setcursor _arg__1.json")) {
+      host.index.add("stage", proc, "salgames-stage");
+    }
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    const deck =
+      "2h 3h 4h 5h 6h 7h 8h 9h 10h jh qh kh ah 2d 3d 4d 5d 6d 7d 8d 9d 10d jd qd kd ad 2s 3s 4s 5s 6s 7s 8s 9s 10s js qs ks as 2c 3c 4c 5c 6c 7c 8c 9c 10c jc qc kc ac ";
+    const out = String(
+      await vm.inObject("stage", "", () =>
+        vm.evalCall("shuffle", [{ type: "str", value: deck }]),
+      ),
+    );
+    const words = out.split(" ").filter((part) => part.length > 0);
+    expect(words).toHaveLength(52);
+    expect(new Set(words).size).toBe(52);
+    const source = deck.split(" ").filter((part) => part.length > 0);
+    expect(new Set(words)).toEqual(new Set(source));
+    expect(await host.call("findword", [out, " ", 1], vm)).not.toBe("");
+    expect(await host.call("findword", [out, " ", 52], vm)).not.toBe("");
+    expect(await host.call("findword", [out, " ", 53], vm)).toBe("");
+  });
+
+  it("extracted cardtovalue fall-through maps ranks", async () => {
+    if (!existsSync(resolve("dfextract/out/FLT/_SALGAMES/initgame_8.json"))) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    for (const proc of loadProcs("FLT/_SALGAMES/initgame_8.json")) {
+      host.index.add("flat:flat 2", proc, "initgame_8");
+    }
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    const value = (card: string) =>
+      vm.inObject("flat", "flat 2", () =>
+        vm.evalCall("cardtovalue", [{ type: "str", value: card }]),
+      );
+    expect(await value("2h")).toBe(2);
+    expect(await value("2c")).toBe(2);
+    expect(await value("10h")).toBe(10);
+    expect(await value("qh")).toBe(10);
+    expect(await value("ah")).toBe(1);
   });
 });
