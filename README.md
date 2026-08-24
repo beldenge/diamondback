@@ -2,9 +2,9 @@
 
 Browser rebuild of *Dust: A Tale of the Wired West*, plus a DreamFactory extractor.
 
-Non-commercial fan reconstruction. Not a port of CyberFlix’s engine C. Playable client is Three.js. Game logic will run extracted DreamFactory tokens in a TypeScript VM. https://diamondback.town stays the unlocked town walker.
+Non-commercial fan reconstruction. Not a port of CyberFlix’s engine C. Playable client is Three.js. Game logic will run extracted DreamFactory tokens in a TypeScript VM. https://diamondback.town is the title chooser for **Dust: Unlocked** and **Dust: Resurrected**.
 
-Hosted town sandbox: **https://diamondback.town** (GitHub Pages + CloudFront stills).
+Hosted: **https://diamondback.town** (GitHub Pages + CloudFront extract).
 
 ## Cheat sheet
 
@@ -20,11 +20,13 @@ npm test
 npm run dev
 ```
 
-Open http://localhost:5173 — Vite serves stills from `dfextract/out/` at `/extract/…`.
+Open http://localhost:5173 — title chooser. Vite serves stills from `dfextract/out/` at `/extract/…`.
 
-**Sandbox** (`/`): unlocked-doors town walker. Hosted at https://diamondback.town.
+**Dust: Unlocked** (`/?mode=unlocked`): unlocked-doors town walker.
 
-**Play mode** (`/?mode=play`): Day 1 night with the original dashboard under the stills, CST sprites that face you / walk up on talk, and a layered PUP talking-head. Needs a full local extract (PUP/CST/FLT/PRP, not just SET stills). Intros skipped unless `/?mode=play&intro=1`. Playback notes (visemes, Firefox audio, all-cast puppets, town scale): [`src/play/README.md`](src/play/README.md).
+**Dust: Resurrected** (`/?mode=resurrected` or `/?mode=play`): Day 1 night with the original dashboard under the stills, CST sprites that face you / walk up on talk, and a layered PUP talking-head. Needs a full extract (PUP/CST/FLT/PRP, not just SET stills). Intros skipped unless `&intro=1`. Playback notes (visemes, Firefox audio, all-cast puppets, town scale): [`src/play/README.md`](src/play/README.md).
+
+**The picture show** (`/?mode=movies`): full-screen Dust reels (openings, day-changes, endings). Default is `intro.mov`. `/?mode=movies&reel=intro3` picks another. Not INVEN inspectables.
 
 | Key / click | Action |
 |---|---|
@@ -119,7 +121,7 @@ If the canvas is blank on the live site: CloudFront CORS (GET/HEAD, `Access-Cont
 
 ## Not in git
 
-Original CD / DOSBox tree, extracted PNG/WAV, and `dfextract` / `dustdecompile` output stay on disk (copyrighted; too large for GitHub). A town-sandbox subset of that extract is what CloudFront serves; the CD and full dump stay local.
+Original CD / DOSBox tree, extracted PNG/WAV, and `dfextract` / `dustdecompile` output stay on disk (copyrighted; too large for GitHub). CloudFront serves the extract the hosted chooser needs; the CD stays local.
 
 ## Spec
 

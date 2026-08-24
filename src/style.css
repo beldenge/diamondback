@@ -387,3 +387,417 @@ body.play #viewport {
   color: #fff;
   filter: brightness(1.15);
 }
+
+/* Title chooser — Dust: Unlocked / Dust: Resurrected */
+#landing {
+  display: none;
+}
+
+body.landing #landing {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+  z-index: 80;
+  min-height: 100dvh;
+  animation: trail-fade 0.2s ease;
+}
+
+body.landing,
+html:has(body.landing),
+body.landing #app {
+  overflow: auto;
+  height: auto;
+  min-height: 100%;
+}
+
+body.landing #viewport,
+body.landing #hud {
+  display: none;
+}
+
+#landing[hidden] {
+  display: none;
+}
+
+.landing-backdrop {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.landing-shade {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(12, 8, 5, 0.55) 0%, rgba(12, 8, 5, 0.72) 45%, rgba(12, 8, 5, 0.88) 100%),
+    radial-gradient(ellipse at 50% 0%, transparent 20%, rgba(0, 0, 0, 0.45) 100%);
+}
+
+.landing-inner {
+  position: relative;
+  z-index: 2;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 20px 20px 36px;
+  text-align: center;
+}
+
+.landing-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 22px;
+}
+
+.landing-brand h1 {
+  margin: 0;
+  font-family: Rye, Palatino, "Palatino Linotype", serif;
+  font-size: clamp(44px, 10vw, 68px);
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #f3e6c8;
+  text-shadow:
+    0 2px 0 #3a2214,
+    0 4px 16px #000;
+}
+
+.landing-sub {
+  margin: 4px 0 0;
+  font-family: "IM Fell English", Palatino, "Palatino Linotype", serif;
+  font-size: clamp(16px, 3.2vw, 22px);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #e8d3a4;
+  text-shadow: 0 1px 6px #000;
+}
+
+.landing-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 22px;
+}
+
+.landing-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  color: inherit;
+  text-decoration: none;
+  background: #2a1c12;
+  border: 3px solid #6f3826;
+  box-shadow:
+    0 0 0 1px #c4a15a,
+    0 10px 28px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  text-align: left;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    border-color 0.15s ease,
+    filter 0.15s ease;
+}
+
+.landing-card:hover,
+.landing-card:focus-visible {
+  transform: translateY(-4px);
+  border-color: #c4a15a;
+  box-shadow:
+    0 0 0 2px #e8d3a4,
+    0 14px 32px rgba(0, 0, 0, 0.65);
+  filter: brightness(1.08);
+  outline: none;
+}
+
+.landing-card img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  object-position: center 35%;
+}
+
+.landing-badge {
+  position: absolute;
+  top: 14px;
+  right: 12px;
+  z-index: 2;
+  padding: 7px 12px 6px;
+  border: 1px solid #ffd4a8;
+  box-shadow:
+    0 0 0 1px #7a120c inset,
+    0 0 14px rgba(220, 40, 28, 0.55),
+    0 2px 8px rgba(0, 0, 0, 0.55);
+  background: #e23a2b;
+  color: #fff6e8;
+  font-family: Rye, Palatino, "Palatino Linotype", serif;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transform: rotate(8deg);
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(70, 8, 4, 0.85);
+}
+
+.landing-card-copy {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 36px 14px 12px;
+  background: linear-gradient(180deg, transparent 0%, rgba(18, 10, 6, 0.94) 42%);
+}
+
+.landing-card h2 {
+  margin: 0;
+  font-family: Rye, Palatino, "Palatino Linotype", serif;
+  font-size: clamp(18px, 2.4vw, 24px);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  color: #f3e6c8;
+}
+
+.landing-card p {
+  margin: 8px 0 0;
+  font-family: "IM Fell English", Palatino, "Palatino Linotype", serif;
+  font-size: 16px;
+  line-height: 1.35;
+  color: #e8d3a4;
+}
+
+@media (max-width: 980px) {
+  .landing-modes {
+    grid-template-columns: 1fr;
+    max-width: 420px;
+    margin: 0 auto;
+  }
+
+  .landing-inner {
+    padding: 20px 14px 40px;
+  }
+}
+
+body.gallery,
+html:has(body.gallery),
+body.gallery #app {
+  overflow: hidden;
+  height: 100%;
+}
+
+body.gallery #viewport,
+body.gallery #hud,
+body.gallery #landing {
+  display: none;
+}
+
+#gallery {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  height: 100%;
+  background: #120c08;
+  color: #f3e6c8;
+  animation: trail-fade 0.2s ease;
+}
+
+#gallery[hidden] {
+  display: none;
+}
+
+@keyframes trail-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+#gallery-rail {
+  overflow: auto;
+  padding: 18px 16px 28px;
+  border-right: 1px solid #6f3826;
+  background: linear-gradient(180deg, #2a1c12 0%, #120c08 100%);
+}
+
+.gallery-back {
+  display: inline-block;
+  margin-bottom: 12px;
+  font-family: "IM Fell English", Palatino, "Palatino Linotype", serif;
+  font-size: 15px;
+  color: #c4a15a;
+  text-decoration: none;
+}
+
+.gallery-back:hover,
+.gallery-back:focus-visible {
+  color: #f3e6c8;
+}
+
+#gallery-rail h1 {
+  margin: 0;
+  font-family: Rye, Palatino, "Palatino Linotype", serif;
+  font-size: 26px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  color: #f3e6c8;
+}
+
+#gallery-list h2 {
+  margin: 16px 0 6px;
+  font-family: "IM Fell English", Palatino, "Palatino Linotype", serif;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #c4a15a;
+}
+
+#gallery-list button {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-left: 3px solid transparent;
+  background: transparent;
+  color: #e8d3a4;
+  font-family: "IM Fell English", Palatino, "Palatino Linotype", serif;
+  font-size: 16px;
+  text-align: left;
+  cursor: pointer;
+}
+
+#gallery-list button:hover,
+#gallery-list button:focus-visible {
+  color: #f3e6c8;
+  background: rgba(196, 161, 90, 0.12);
+  outline: none;
+}
+
+#gallery-list button.is-current {
+  border-left-color: #c4a15a;
+  color: #f3e6c8;
+  background: rgba(111, 56, 38, 0.45);
+}
+
+#gallery-list button.is-default:not(.is-current)::after {
+  content: " default";
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #c4a15a;
+}
+
+#gallery-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  min-width: 0;
+  min-height: 0;
+}
+
+#gallery-stage:fullscreen,
+#gallery-stage:-webkit-full-screen,
+#gallery-stage.is-fullscreen {
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+}
+
+#gallery-movie {
+  display: block;
+  width: 50%;
+  height: auto;
+  max-height: 50%;
+  object-fit: contain;
+  image-rendering: pixelated;
+  cursor: pointer;
+}
+
+#gallery-stage:fullscreen #gallery-movie,
+#gallery-stage:-webkit-full-screen #gallery-movie,
+#gallery-movie.is-fullscreen {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+}
+
+#gallery-full {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  padding: 6px 12px 5px;
+  border: 1px solid #c4a15a;
+  background: rgba(18, 10, 6, 0.82);
+  color: #f3e6c8;
+  font-family: "IM Fell English", Palatino, "Palatino Linotype", serif;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+#gallery-full:hover,
+#gallery-full:focus-visible {
+  color: #fff;
+}
+
+#gallery-play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 10px 28px 8px;
+  border: 1px solid #c4a15a;
+  background: rgba(18, 10, 6, 0.88);
+  color: #f3e6c8;
+  font-family: Rye, Palatino, "Palatino Linotype", serif;
+  font-size: 22px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+#gallery-play:hover,
+#gallery-play:focus-visible {
+  color: #fff;
+  filter: brightness(1.1);
+}
+
+#gallery-status {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 12px;
+  margin: 0;
+  font-family: "IM Fell English", Palatino, "Palatino Linotype", serif;
+  font-size: 14px;
+  color: #c4a15a;
+  text-shadow: 0 1px 4px #000;
+  pointer-events: none;
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  #gallery {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(180px, 34%) 1fr;
+  }
+
+  #gallery-rail {
+    border-right: 0;
+    border-bottom: 1px solid #6f3826;
+  }
+}

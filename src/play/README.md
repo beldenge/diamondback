@@ -1,4 +1,4 @@
-# Play mode (`/?mode=play`)
+# Dust: Resurrected (`/?mode=resurrected` or `/?mode=play`)
 
 How the remake runs Day 1 night: original HUD under the stills, CST actors,
 PUP talking-heads, world props, night FX, and spot-movies, all driven by
@@ -11,8 +11,8 @@ map `cross`, or the script pump that runs FLT minigames (`mousedown`
 press, `makeloop` / `pauseloop`, `forceupdate` vs idle `runQueued`,
 60 Hz `delay` / fades, `findword` / `putword` holes).
 
-Town sandbox (`/`) stays an unlocked stills walker:
-[`src/world/set/README.md`](../world/set/README.md).
+Dust: Unlocked (`/?mode=unlocked`) is the sandbox stills walker:
+[`src/world/set/README.md`](../world/set/README.md). The title chooser is `/`.
 
 ---
 

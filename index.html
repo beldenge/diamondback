@@ -4,9 +4,74 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Dust — Diamondback</title>
+    <style>
+      html.boot-hidden #landing {
+        display: none !important;
+      }
+    </style>
+    <script>
+      (function () {
+        var mode = (new URLSearchParams(location.search).get("mode") || "").toLowerCase();
+        var path = location.pathname.replace(/\/+$/, "");
+        if (
+          mode === "movies" ||
+          mode === "gallery" ||
+          mode === "play" ||
+          mode === "resurrected" ||
+          mode === "unlocked" ||
+          /\/play$/.test(path)
+        ) {
+          document.documentElement.classList.add("boot-hidden");
+        }
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=Rye&display=swap"
+      rel="stylesheet"
+    />
   </head>
-  <body>
+  <body class="landing">
     <div id="app">
+      <div id="landing">
+        <img
+          class="landing-backdrop"
+          src="/landing/backdrop.jpg"
+          alt=""
+        />
+        <div class="landing-shade"></div>
+        <div class="landing-inner">
+          <header class="landing-brand">
+            <h1>Dust</h1>
+            <p class="landing-sub">A Tale of the Wired West</p>
+          </header>
+          <div class="landing-modes">
+            <a class="landing-card" href="?mode=resurrected">
+              <img src="/landing/resurrected.jpg" alt="" />
+              <span class="landing-badge">Early beta</span>
+              <div class="landing-card-copy">
+                <h2>Dust: Resurrected</h2>
+                <p>The tale of the Wired West.</p>
+              </div>
+            </a>
+            <a class="landing-card" href="?mode=unlocked">
+              <img src="/landing/unlocked.jpg" alt="" />
+              <div class="landing-card-copy">
+                <h2>Dust: Unlocked</h2>
+                <p>Roam Diamondback. Every door stands open.</p>
+              </div>
+            </a>
+            <a class="landing-card" href="?mode=movies">
+              <img src="/landing/pictureshow.jpg" alt="" />
+              <div class="landing-card-copy">
+                <h2>The Picture Show</h2>
+                <p>Openings, endings, and the days between.</p>
+              </div>
+            </a>
+          </div>
+        </div>
+      </div>
       <canvas id="viewport"></canvas>
       <div id="hud">
         <div id="hud-time"></div>

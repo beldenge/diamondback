@@ -5,7 +5,7 @@ How the remake plays Dust’s filmed town. Extract layout lives in
 **playback** book we filled in while getting Diamondback’s streets to
 match the original stills.
 
-Default URL (`/`) is this walker. There is no free-roam mode yet.
+Dust: Unlocked (`/?mode=unlocked`) is this walker. There is no 3D free-roam mode yet. The title chooser lives at `/`.
 
 ---
 
@@ -189,7 +189,7 @@ closed door. Click (`pointin*` in 512×264, origin top-left) runs
 `closescene` (leaving the tile) calls `initprop` and hides it.
 Forward (`uparrow`) while `propowner ("door")` matches calls
 `gotointerior ("apoth.set")` or `gototown ("west")`. Play mode
-(`/?mode=play`) uses those scripts; the overlay is bound to the still
+(`/?mode=play` / `/?mode=resurrected`) uses those scripts; the overlay is bound to the still
 it opened on — see [`src/play/README.md`](../../play/README.md) § HOUSE
 door overlays. Do not blit `salout` / `chin` / `hotout` onto the next
 camera.

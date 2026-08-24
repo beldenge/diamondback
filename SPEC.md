@@ -8,7 +8,7 @@
 - We won't upscale visuals or audio at this time.
 - This will not be released commercially.
 - Interpret extracted DreamFactory **tokens** at runtime (TypeScript VM). Do not hand-port 541 scripts into JSON graphs. Do not port `DF.EXE` C.
-- `https://diamondback.town` stays the unlocked town-sandbox walker forever. The full game lives on a different route / URL.
+- `https://diamondback.town` is the title chooser. **Dust: Unlocked** (`/?mode=unlocked`) is the town-sandbox walker. **Dust: Resurrected** (`/?mode=resurrected` or `/?mode=play`) is the VM game.
 - Do not build save/load in the first VM slice (format is `*.rtd`, still unknown).
 
 ## 3. Tech Stack & Principles
@@ -45,7 +45,7 @@ To be written as TypeScript interfaces when the code lands. Expected first types
 Original boot defaults (from extracted `_BOOTFILE`): `day = 1`, `clock = 2`, `phase = 1`.
 
 ## 6. Prioritized Vertical Slices / Epics
-1. **Outdoor stills walker** — `/`. TOWN + NITE from extract; 225-cell table, 52 filmed tiles; spawn O7 north. Street doors: click to open (if the lock says so), walk forward into the interior SET. Same graph is a later free-roam mode’s source of truth. Playback rules: [`src/world/set/README.md`](src/world/set/README.md). The inferred graybox (`?mode=free`) was removed.
+1. **Outdoor stills walker** — Dust: Unlocked at `/?mode=unlocked`. TOWN + NITE from extract; 225-cell table, 52 filmed tiles; spawn O7 north. Street doors: click to open (if the lock says so), walk forward into the interior SET. Same graph is a later free-roam mode’s source of truth. Playback rules: [`src/world/set/README.md`](src/world/set/README.md). The inferred graybox (`?mode=free`) was removed.
 2. **Script VM + boot + puppets** — interpret extracted tokens; Jones/Help/Jenix are the first play-verify characters, not a hand-port.
 3. **Inventory + early Day 1 progression** — bone/dog, lodging, cash path (blackjack later if needed).
 4. *(TBD)*
@@ -93,15 +93,21 @@ full A–O table.
 - Keep changes scoped to the current slice. Do not add save, menus, or dialogue until that slice.
 
 ## 9. Current Status & Next Actions
-Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
+Default run (`/`) is the title chooser. Modes:
+
+| Name | URL | What |
+|---|---|---|
+| **Dust: Unlocked** | `/?mode=unlocked` | Outdoor stills sandbox (all doors open) |
+| **Dust: Resurrected** | `/?mode=resurrected` or `/?mode=play` | VM boot, Day 1 night. `&intro=1` still plays openings in-game |
+| **The picture show** | `/?mode=movies` | Full-screen `playmovie` reels. Default `reel=intro`. Not item inspect MOVs |
 
 - `npm test` — unit tests (time, SET graph / HQ lookup, doors)
 - `npm run dev` — http://localhost:5173 (needs `dfextract/out/SET/_TOWN` + `_NITE`)
 - Hosted: https://diamondback.town (Pages). Stills from CloudFront via `VITE_EXTRACT_BASE`. Local `/extract` is unchanged.
 - Command cheat sheet: [`README.md`](README.md).
-- Spawn: Scene O7 facing north. **N** swaps day/night stills; does not change `day`.
+- Spawn: Scene O7 facing north. **N** swaps day/night stills (Unlocked only); does not change `day`.
 - Sleep has no stills UI yet (hotel bed later). Clock is discrete; `sleep()` still wakes next morning.
-- Debug query: `?clock=1|2|3`.
+- Debug query: `/?mode=unlocked&clock=1|2|3`.
 - How strips, HQ, G11, flipbook (~24 fps, no skip, no input queue), loader, and doors work: [`src/world/set/README.md`](src/world/set/README.md).
 - CST/PRP world→still (X, Y, scale, Z, pans) is **locked**: [`src/play/README.md`](src/play/README.md) § World → still. Do not revive 1/z Y/scale/Z or frozen/screen-lerped pans.
 - Still codec / palette / sizes: [`dfextract/docs/images.md`](dfextract/docs/images.md) (`255` white, cream index 2 skull, negative look, `_TOWN` vs `_NITE`).
@@ -109,12 +115,13 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 - Extractor setup: [`dfextract/README.md`](dfextract/README.md). The remake does not run that tool.
 - npm package / repo name: `diamondback`.
 
-**Next:** Play mode at `/?mode=play` runs extracted `boot()` / `advanceday()` for Day 1 night (Leroy, dog, Help, Jones, hotel/saloon casts, jug/bone, night FX, shooting stars, locked shops, spot-movies). Saloon card tables and the slot machine run extracted `SALGAMES.FLT` / `.PRP` (Jan blackjack, Mez poker, reels). Script-pump contracts for the next FLT (checkers, sleep, fights) are in [`src/play/README.md`](src/play/README.md) § Script pump. Widen remaining interiors (rooms, Dell fight, sleep). Town walker at `/` (diamondback.town) stays the sandbox. Do not inpaint remaining still holes.
+**Next:** Dust: Resurrected runs extracted `boot()` / `advanceday()` for Day 1 night (Leroy, dog, Help, Jones, hotel/saloon casts, jug/bone, night FX, shooting stars, locked shops, spot-movies). Saloon card tables and the slot machine run extracted `SALGAMES.FLT` / `.PRP` (Jan blackjack, Mez poker, reels). Script-pump contracts for the next FLT (checkers, sleep, fights) are in [`src/play/README.md`](src/play/README.md) § Script pump. Widen remaining interiors (rooms, Dell fight, sleep). Do not inpaint remaining still holes.
 
 ## 10. Decision Log
 
 | Date | Decision |
 |---|---|
+| 2026-08-24 | Title chooser at `/`. **Dust: Unlocked** = sandbox walker (`/?mode=unlocked`). **Dust: Resurrected** = play VM (`/?mode=resurrected` or `/?mode=play`). **The picture show** (`/?mode=movies`) lists full-screen reels; default is `intro.mov`. Opening movies are not a Resurrected boot option on the landing. No in-game return to the landing. |
 | 2026-08-17 | Not a DreamFactory port. No visual/audio upscale. Non-commercial. |
 | 2026-08-17 | Stack: TypeScript + Vite + Vitest. HTML/CSS menus later. Three.js for gameplay. |
 | 2026-08-17 | Slice 1 look: graybox Diamondback, somewhat recognizable. SET extract / decompile if layout is insufficient. |
@@ -165,7 +172,7 @@ Default run is the outdoor stills walker on the SET graph (TOWN/NITE).
 | 2026-08-20 | MOV scene palettes: each scene header loads 256 colors at +0x3E. `--video` / FRAMES use the current scene palette; container 0’s palette made later INTRO shots look like residuals. |
 | 2026-08-20 | MOV extract: `--video` is opt-in (not in a default `python cli.py`). Encodes every MOV with stills (overlays like `DOG1`, inspectables, `INFO/`), not only `playmovie` reels. Cross-scene group-A hold so a new scene does not stack on the previous line (INTRO 325 vs 423). TIPRE 384/264 letterboxed; NITEWARN odd size padded even. |
 | 2026-08-20 | Hosted town sandbox: GitHub Pages (https://diamondback.town) for JS; S3 + CloudFront (`d3en1dc3mw7cky.cloudfront.net`) for an allowlisted extract. `VITE_EXTRACT_BASE` is a repository Actions variable. CI does not upload stills. Public unlisted URL is an explicit override of “do not publish extract output” for this subset only. |
-| 2026-08-20 | Full game uses a TypeScript Dust-script VM (extracted tokens), not hand-ported JSON. diamondback.town stays walker-only forever. |
+| 2026-08-20 | Full game uses a TypeScript Dust-script VM (extracted tokens), not hand-ported JSON. (Superseded 2026-08-24: diamondback.town is the chooser; Unlocked is the sandbox.) |
 | 2026-08-20 | Extract holes closed this pass: PUP `animLogic` in `texts.csv`; script `*.json` AST (Dust names); `out/catalog.json`; SET Z-plane decode (`--z`); `DF.EXE` cursors/menu/strings via `dustdecompile --rsrc`; save filter is `*.rtd`. |
 | 2026-08-21 | Play mode uses Dust’s 512×384 stage: SET stills 512×264 on top, `FLT/_NEW/frame_3.png` HUD below (not an overlay). CST `actordeg` 0=south, 8 stand / 64 walk frames. Talk runs `walktopuppet`. PUP layers composite from `FRAMES/sprites.json`; jaw cycles while speech plays. Sprite `pos_x`/`pos_y` dumped. |
 | 2026-08-21 | Play speech is Web Audio + `decodePcmWav` (8-bit 11025 Hz). Firefox/Windows ~10s after first `AudioContext.resume()` before output; visemes are wall-clock, not the audio playhead. `<audio>` does not play these WAVs (`currentTime` stays 0). Notes: [`src/play/README.md`](src/play/README.md). |
