@@ -424,6 +424,11 @@ describe("per-puppet viseme cache", () => {
 
 describe("Leroy sign star", () => {
   it("uses extracted town.leroy1 via setupactor(sign)", async () => {
+    const gang = resolve("dfextract/out/CST/_GANG/Cast.json");
+    const leroyScript = resolve("dfextract/out/CST/_GANG/Leroy/Script.json");
+    if (![gang, leroyScript].every((p) => existsSync(p))) {
+      return;
+    }
     const host = new DustHost({} as PuppetUi);
     host.waypoints.set("town.leroy1", { x: 1740, y: 3536, name: "town.leroy1" });
     for (const proc of loadProcs("CST/_GANG/Cast.json")) {

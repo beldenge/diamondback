@@ -13,11 +13,18 @@ function loadProcs(rel: string) {
   return parseScript(file.tokens ?? []);
 }
 
+function extractExists(...rels: string[]): boolean {
+  return rels.every((rel) => existsSync(resolve("dfextract/out", rel)));
+}
+
 function scriptFrames(host: DustHost, n: number): void {
   host.tickScriptClock((n * host.framerateValue) / 60 + 0.0001);
 }
 
 async function bootLeroy(rng: () => number, pose = { x: 6, y: 14, facing: "N" as const }) {
+  if (!extractExists("CST/_GANG/Cast.json", "CST/_GANG/Leroy/Script.json")) {
+    return undefined;
+  }
   const host = new DustHost({} as PuppetUi);
   host.rng = rng;
   host.waypoints.set("town.leroy1", { x: 1740, y: 3536, name: "town.leroy1" });
@@ -51,7 +58,11 @@ async function bootLeroy(rng: () => number, pose = { x: 6, y: 14, facing: "N" as
 
 describe("Leroy idle from CST scripts", () => {
   it("drinks when leroyidle rolls < 8, then toidle stands", async () => {
-    const { host, vm, leroy } = await bootLeroy(() => 0);
+    const boot = await bootLeroy(() => 0);
+    if (!boot) {
+      return;
+    }
+    const { host, vm, leroy } = boot;
     expect(leroy.pose).toBe("drink");
     scriptFrames(host, 25);
     await host.runQueued(vm);
@@ -59,14 +70,22 @@ describe("Leroy idle from CST scripts", () => {
   });
 
   it("adds 2 deg when the player is outside hotdist", async () => {
-    const { leroy } = await bootLeroy(() => 0.5, { x: 0, y: 0, facing: "N" });
+    const boot = await bootLeroy(() => 0.5, { x: 0, y: 0, facing: "N" });
+    if (!boot) {
+      return;
+    }
+    const { leroy } = boot;
     expect(leroy.deg).toBe(2);
     expect(leroy.pose).toBe("stand");
   });
 
   it("turns toward the camera instead of spinning when in range", async () => {
     const pose = { x: 6, y: 14, facing: "N" as const };
-    const { leroy } = await bootLeroy(() => 0.5, pose);
+    const boot = await bootLeroy(() => 0.5, pose);
+    if (!boot) {
+      return;
+    }
+    const { leroy } = boot;
     const want = calcDeg(leroy, cameraWorldPoint(pose));
     expect(leroy.turning || leroy.deg === want).toBe(true);
     if (leroy.turning) {
@@ -76,7 +95,11 @@ describe("Leroy idle from CST scripts", () => {
   });
 
   it("re-aims when the player steps to O6", async () => {
-    const { host, vm, leroy } = await bootLeroy(() => 0.5);
+    const boot = await bootLeroy(() => 0.5);
+    if (!boot) {
+      return;
+    }
+    const { host, vm, leroy } = boot;
     let steps = 0;
     while (leroy.turning && steps < 2000) {
       host.advanceActors(1 / 60);
@@ -143,7 +166,11 @@ describe("approach walk", () => {
 
 describe("drink CST frames", () => {
   it("holds each pose for 6 script frames and does not loop", async () => {
-    const { host, leroy } = await bootLeroy(() => 0);
+    const boot = await bootLeroy(() => 0);
+    if (!boot) {
+      return;
+    }
+    const { host, leroy } = boot;
     leroy.drinkSprites = Array.from({ length: 32 }, (_, i) => ({
       path: `d${i}`,
       x: 0,
@@ -163,6 +190,16 @@ describe("drink CST frames", () => {
   });
 
   it("starts dialog via hasattention if you wait in range instead of clicking", async () => {
+    if (
+      !extractExists(
+        "CST/_GANG/Cast.json",
+        "CST/_GANG/Leroy/Script.json",
+        "PUP/_LEROY/Boot Script.json",
+        "PUP/_LEROY/day1.json",
+      )
+    ) {
+      return;
+    }
     const calls: string[] = [];
     const ui = {
       async speak(text: string) {
@@ -281,7 +318,11 @@ describe("drink CST frames", () => {
   });
 
   it("does not start a second idle runQueued on top of hasattention", async () => {
-    const { host, vm, leroy } = await bootLeroy(() => 0.5);
+    const boot = await bootLeroy(() => 0.5);
+    if (!boot) {
+      return;
+    }
+    const { host, vm, leroy } = boot;
     vm.globals.set("curattention", "leroy");
     vm.globalNames.add("curattention");
     vm.globals.set("attentionspan", 0);

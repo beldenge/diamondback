@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseScript, type ScriptFile } from "../vm/ast";
@@ -14,6 +14,16 @@ function loadProcs(rel: string) {
 
 describe("first talk delay", () => {
   it("counts forceupdate between click and first puppetspeak", async () => {
+    const needed = [
+      "CST/_GANG/Cast.json",
+      "CST/_GANG/Leroy/Script.json",
+      "PUP/_LEROY/Boot Script.json",
+      "PUP/_LEROY/day1.json",
+    ];
+    if (needed.some((rel) => !existsSync(resolve("dfextract/out", rel)))) {
+      return;
+    }
+
     const calls: string[] = [];
     const ui = {
       async speak(text: string) {

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -13,12 +13,10 @@ const gangCast = resolve(here, "../../dfextract/out/CST/_GANG/Cast.json");
 
 describe("parseScript", () => {
   it("parses Jenix day1 runyoself", () => {
-    let raw: string;
-    try {
-      raw = readFileSync(jenixDay1, "utf8");
-    } catch {
+    if (!existsSync(jenixDay1)) {
       return;
     }
+    const raw = readFileSync(jenixDay1, "utf8");
     const file = JSON.parse(raw) as ScriptFile;
     const procs = parseScript(file.tokens);
     const run = procs.find((p) => p.name === "runyoself");
@@ -31,15 +29,13 @@ describe("parseScript", () => {
   });
 
   it("parses boot, new.flt, and gang cast libraries", () => {
+    const paths = [bootFile, newFlt, gangCast];
+    if (!paths.every((path) => existsSync(path))) {
+      return;
+    }
     const names: string[] = [];
-    for (const path of [bootFile, newFlt, gangCast]) {
-      let raw: string;
-      try {
-        raw = readFileSync(path, "utf8");
-      } catch {
-        continue;
-      }
-      const file = JSON.parse(raw) as ScriptFile;
+    for (const path of paths) {
+      const file = JSON.parse(readFileSync(path, "utf8")) as ScriptFile;
       const procs = parseScript(file.tokens);
       expect(procs.length).toBeGreaterThan(0);
       names.push(...procs.map((p) => p.name));
@@ -50,12 +46,10 @@ describe("parseScript", () => {
 
 describe("VM Jenix money", () => {
   it("takes the money when playercash is 5", async () => {
-    let raw: string;
-    try {
-      raw = readFileSync(jenixDay1, "utf8");
-    } catch {
+    if (!existsSync(jenixDay1)) {
       return;
     }
+    const raw = readFileSync(jenixDay1, "utf8");
     const file = JSON.parse(raw) as ScriptFile;
     const procs = parseScript(file.tokens);
     const run = procs.find((p) => p.name === "runyoself");
