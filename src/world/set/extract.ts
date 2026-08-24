@@ -12,5 +12,10 @@ export function extractBase(): string {
 
 /** Path under the extract root, e.g. `SET/_TOWN/scenes.json`. */
 export function extractUrl(rel: string): string {
-  return `${extractBase()}/${rel.replace(/^\/+/, "")}`;
+  const encoded = rel
+    .replace(/^\/+/, "")
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+  return `${extractBase()}/${encoded}`;
 }

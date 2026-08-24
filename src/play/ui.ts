@@ -104,7 +104,43 @@ export const FACE_TABLES = [
 
 const GESTURE_TABLES = new Set(["Left", "Hands 1", "Right", "Hands 2"]);
 
-/** Rest viseme index, or hide hands until a viseme shows them. */
+/** In-flight puppet blit must not land after close / a new `open` / a new pose. */
+export function puppetPaintIsStale(
+  started: { gen: number; sheet: unknown; pose?: number },
+  live: { gen: number; sheet: unknown; pose?: number },
+): boolean {
+  return (
+    started.gen !== live.gen ||
+    started.sheet !== live.sheet ||
+    started.pose !== live.pose
+  );
+}
+
+/** Idle-1 (or any viseme frame) is the rest pose for every PUP, not the 384 header. */
+export function visemeRestFromFrame(
+  frame: VisemeFrame | undefined,
+): {
+  rest: Record<string, { x: number; y: number }>;
+  restLayers: Record<string, number>;
+} {
+  const rest: Record<string, { x: number; y: number }> = {};
+  const restLayers: Record<string, number> = {};
+  if (!frame) {
+    return { rest, restLayers };
+  }
+  for (const [name, index] of Object.entries(frame.layers ?? {})) {
+    restLayers[name] = index;
+  }
+  for (const [name, value] of Object.entries(frame.at ?? {})) {
+    const center = asCenter(value);
+    if (center) {
+      rest[name] = center;
+    }
+  }
+  return { rest, restLayers };
+}
+
+/** Rest viseme index. Missing Hands hide; missing Background hides (no invented room plate). */
 export function idleLayerIndex(
   name: string,
   restLayers?: Record<string, number>,
@@ -112,7 +148,52 @@ export function idleLayerIndex(
   if (restLayers && Object.prototype.hasOwnProperty.call(restLayers, name)) {
     return restLayers[name]!;
   }
+  // Do not invent a room plate. Outdoor Help/Dell/Cobb hide Background on
+  // idle 1; indoor puppets keep index 0 in restLayers.
+  if (name === "Background") {
+    return -1;
+  }
   return GESTURE_TABLES.has(name) ? -1 : 0;
+}
+
+/** Idle-1 extras win; sprites.json fills gaps when that fetch misses. */
+export function mergePuppetRest(
+  dump: {
+    rest?: Record<string, unknown>;
+    restLayers?: Record<string, number>;
+  },
+  idleFrame?: VisemeFrame,
+): {
+  rest: Record<string, { x: number; y: number }>;
+  restLayers: Record<string, number>;
+} {
+  const fromIdle = visemeRestFromFrame(idleFrame);
+  const rest: Record<string, { x: number; y: number }> = {};
+  for (const [name, value] of Object.entries(dump.rest ?? {})) {
+    const center = asCenter(value);
+    if (center) {
+      rest[name] = center;
+    }
+  }
+  Object.assign(rest, fromIdle.rest);
+  const restLayers: Record<string, number> = {};
+  for (const [name, value] of Object.entries(dump.restLayers ?? {})) {
+    const index = Number(value);
+    if (Number.isFinite(index)) {
+      restLayers[name] = index;
+    }
+  }
+  Object.assign(restLayers, fromIdle.restLayers);
+  return { rest, restLayers };
+}
+
+/** Viseme extras move the 384 header; missing extras keep the header. */
+export function layerBlitDest(
+  place: SpritePlace,
+  center: unknown,
+): { x: number; y: number } {
+  const at = asCenter(center);
+  return at ? spriteTopLeft(at.x, at.y, place.x, place.y) : place;
 }
 
 /** No fallback to frame 0: a missing part is skipped, not a wrong sprite. */
@@ -301,6 +382,10 @@ export class PuppetUi {
   private readonly layerAt = new Map<string, { x: number; y: number }>();
   private paintBusy = false;
   private paintAgain = false;
+  /** Bumped on `open` / `close` so a late blit cannot show the previous face. */
+  private paintGen = 0;
+  /** Bumped when layer indices / extras change so a rest blit cannot land after idle. */
+  private paintPose = 0;
   /** Speech bar on. Audio and visemes keep running when this is off. */
   private captionsOn = true;
 
@@ -362,23 +447,37 @@ export class PuppetUi {
     this.schedulePaint();
   }
 
-  open(sheet: PuppetSheet): void {
+  async open(sheet: PuppetSheet): Promise<void> {
     this.sheet = sheet;
-    this.root.hidden = false;
+    const gen = ++this.paintGen;
     this.applyIdle();
+    const pose = this.paintPose;
     this.setLine("");
     this.showEmptyBevels();
-    this.schedulePaint();
+    this.clearCanvas();
+    await this.paint();
+    if (
+      puppetPaintIsStale(
+        { gen, sheet, pose },
+        { gen: this.paintGen, sheet: this.sheet, pose: this.paintPose },
+      )
+    ) {
+      return;
+    }
+    this.root.hidden = false;
   }
 
   close(): void {
+    this.paintGen += 1;
     this.stopFidget();
-    this.stopJaw();
+    this.talking = false;
+    this.viseme = null;
     this.stopAudio();
     this.setLine("");
+    this.sheet = null;
+    this.clearCanvas();
     this.root.hidden = true;
     this.clearBevels();
-    this.sheet = null;
     this.finishSpeak();
     this.finishWait(-1);
   }
@@ -559,6 +658,7 @@ export class PuppetUi {
       }
     }
     if (changed) {
+      this.paintPose += 1;
       this.schedulePaint();
     }
   }
@@ -567,6 +667,7 @@ export class PuppetUi {
     const sheet = this.sheet;
     this.layerIndex.clear();
     this.layerAt.clear();
+    this.paintPose += 1;
     if (!sheet) {
       return;
     }
@@ -575,6 +676,10 @@ export class PuppetUi {
         continue;
       }
       this.layerIndex.set(name, idleLayerIndex(name, sheet.restLayers));
+      const at = asCenter(sheet.rest?.[name]);
+      if (at) {
+        this.layerAt.set(name, at);
+      }
     }
   }
 
@@ -601,10 +706,17 @@ export class PuppetUi {
     });
   }
 
+  private clearCanvas(): void {
+    if (this.canvas.width && this.canvas.height) {
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    }
+  }
+
   private async paint(): Promise<void> {
+    const started = { gen: this.paintGen, sheet: this.sheet, pose: this.paintPose };
     const sheet = this.sheet;
     if (!sheet) {
-      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      this.clearCanvas();
       return;
     }
     const jobs: { name: string; place: SpritePlace; img: Promise<HTMLImageElement> }[] = [];
@@ -626,6 +738,15 @@ export class PuppetUi {
     } catch {
       return;
     }
+    if (
+      puppetPaintIsStale(started, {
+        gen: this.paintGen,
+        sheet: this.sheet,
+        pose: this.paintPose,
+      })
+    ) {
+      return;
+    }
     this.ctx.imageSmoothingEnabled = false;
     this.ctx.clearRect(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
     const rest = sheet.rest ?? {};
@@ -633,10 +754,7 @@ export class PuppetUi {
       if (name === "Background" && this.backdropIsFlat(img)) {
         continue;
       }
-      const center = this.layerAt.get(name) ?? rest[name];
-      const dest = center
-        ? spriteTopLeft(center.x, center.y, place.x, place.y)
-        : place;
+      const dest = layerBlitDest(place, this.layerAt.get(name) ?? rest[name]);
       this.ctx.drawImage(img, dest.x, dest.y, place.w, place.h);
     }
   }

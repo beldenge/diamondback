@@ -75,3 +75,21 @@ export function poseForOpenedSet(
   }
   return resolveSpawn(graph);
 }
+
+/**
+ * `opensetfile` should stand now unless this is a leftover interior
+ * script name on a town graph (`gototown` will `currentscene` next).
+ * Standing at O7 first is the saloon-exit hitch: `scene d1` parses as
+ * town D1, misses the camera grid, falls through to spawn, then the
+ * real street cell loads.
+ */
+export function openSetShouldStand(graph: SetGraph, sceneName: string): boolean {
+  if (!isTownGridSize(graph.scenes.size)) {
+    return true;
+  }
+  const parsed = parseScriptScene(sceneName);
+  if (!parsed) {
+    return true;
+  }
+  return graph.cameraTiles.has(tileKey(parsed.x, parsed.y));
+}

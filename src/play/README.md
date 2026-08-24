@@ -4,9 +4,10 @@ How the remake runs Day 1 night: original HUD under the stills, CST actors,
 PUP talking-heads, world props, night FX, and spot-movies, all driven by
 extracted DreamFactory scripts (boot → `advanceday` → SET/CST/PRP). Extract formats live in
 [`dfextract/docs/`](../../dfextract/docs/). This file is the **playback**
-book so we do not re-debug speech, visemes, the Firefox audio delay,
-world→still (X, Y, scale, Z, pans), interior spawn/Z, EXAMINE pointer,
-dest-rect hits, or the map `cross`.
+book so we do not re-debug speech, visemes (per-PUP idle tracks), the
+Firefox audio delay, world→still (X, Y, scale, Z, pans), interior
+spawn/Z, HOUSE door overlays, EXAMINE pointer, dest-rect hits, or the
+map `cross`.
 
 Town sandbox (`/`) stays an unlocked stills walker:
 [`src/world/set/README.md`](../world/set/README.md).
@@ -44,9 +45,10 @@ space (`SET_SPAWN` / `header.json`). `currentview("east")` is the word,
 not `E`.
 
 `closescene` / `openscene` are **tile** hooks, not turns. An in-place
-pan in Help’s shop A2 must not `initprop` the street door (that
+pan in Help’s shop A2 must not run that scene’s `closescene` (that
 `voicesound ("doorclose1")` is arrival-only). `closesetfile` runs the
 old scene’s `closescene` so the close plays once on `gotointerior`.
+HOUSE **door overlays** are a different rule — see [HOUSE door overlays](#house-door-overlays).
 
 World→still **Y** uses that SET’s header +26 as camZ (chin **230**,
 town **62**). Hardcoding 62 puts Help in the air behind the counter.
@@ -135,16 +137,80 @@ the HUD or steal an INVEN `stdmouse` drag. `passcode` from a scene proc
 falls through to the SET keydown (walk), not to `new.flt`’s options
 `mousedown`.
 
+## HOUSE door overlays
+
+Every interior uses the same HOUSE prop named **`door`**. Click on a
+facade still runs that scene’s `mousedown` → `sendtoprop ("door",
+setupprop ("salout"))` (or `chin`, `hotout`, `apoth`, …). `setupprop`
+sets `propowner` / `propview` to that name, `propvisible true`, and a
+world `propxyz`. `initprop` is the matching close: if visible, play
+`doorclose1`/`2`/`3`, then `propvisible false` and `propowner "none"`.
+
+That sprite is a **photographed still replacement**, not furniture that
+follows the camera. `setupprop ("salout")` on sallower D1 east replaces
+the closed exit in that one photo. The same xyz world-projects onto C1
+east — dead center of the inner double-door still — if the prop stays
+visible. Chin A2, hotel `hotout`, bank `dollar`, and the other
+`setupprop` names are this same prop; blit them on the neighbor camera
+and the next building repeats the saloon bug.
+
+Scripts: the opening scene’s `closescene` is usually
+`sendtoprop ("door", initprop ())`. Dust runs `closescene` on a **tile**
+leave (`DF.EXE` `0x40eae0` dest XY), not an in-place pan. Firing that
+hook on pans replays `doorclose*` on every A2 / D1 turn.
+
+Play therefore:
+
+1. Remember the still `setupprop` opened (`door.openedAt` = current
+   scene + facing). [`host.ts`](host.ts) `propvisible`.
+2. Blit the overlay **only** on that still (`shouldBlitDoorOverlay`).
+   Do not 1:1 / Z=1 blit it onto C1, D1 west, or any other camera.
+   [`occlude.ts`](occlude.ts), [`game.ts`](game.ts).
+3. Leaving that still — turn **or** tile — runs `initprop` **once**
+   (`closeDoorIfLeftOpening`) before the dest strip. Sound and hide
+   together. Already shut → no-op. Tile leave still runs `closescene`
+   for other scene hooks; `initprop` sees `propvisible false` and does
+   not play close again.
+4. `voicesound` starts the mixer and returns. Awaiting the WAV fetch
+   held `initprop` before `propvisible (false)`, so the overlay stayed
+   up and the next pan replayed close.
+
+Do not add a per-building close. The next hotel / shop / jail exit is
+this `door` prop.
+
+Scale/Z on the **opening** still: HOUSE door field 160, header ~252px on
+the 264 still → blit scale **1**, sprite Z **1**. That 1:1 is only safe
+when the overlay is the still it replaced. Bar drinks (`buildrand*`)
+are not `door`; they keep script `propscale`.
+
+Projector: `0x40dcd0` does not draw forward ≤ 0 (behind the camera).
+That is necessary but not sufficient — C1 east looking at D1’s wall
+still has forward > 0.
+
 ### Dead ends (do not retry)
 
 | Approach | What we saw |
 |---|---|
 | Parse town `scene g8` / `g12` onto `_SALLOWER` / `_CHIN` | Music on the facade, no still, no walks. `gotointerior` stands at SET header spawn (+48), not the street cell. |
-| Hardcode camZ **62** in every SET | Help floats behind the counter. World→still Y uses **that** SET’s +26 (chin **230**, town **62**). |
+| Resolve `voicesound ("swingdoor")` in `_SALOON1` | Silent inner saloon double doors. `swingdoor.wav` is UNILIB; `opentrackfile ("saloon1.snd")` must not steal that lookup. |
+| Skip PRP trans sprites over 256×256 / 20 KB | No `salout` PNG; click-to-exit in the saloon has sound but no open-door overlay. |
+| Colorize HOUSE world overlays with HOUSE.PRP unused-black | Silhouette doors and card tables. Dust 8-bit-blits those onto the SET; extract recolors any sprite whose HOUSE unused-black ratio is ≥ 0.5. |
+| `force-cache` + 1-day PNG `max-age` | Re-extracted gamblers/blackjack/table1 stay black until the browser cache dies. Extract PNGs revalidate (`no-cache` + ETag). |
+| Isao `actordeg 64` / **192** at `sallower.isao` | Both are profiles (perpendicular to the keys). (2,3) S still is an upright with the keyboard toward the lens; rest heading is **0** (south) into the keys so the south aisle sees his back (wanted 128). Idle sways 236–20 through south. |
+| Hardcode camZ **62** in every SET | Help floats behind the counter. Interior **door overlays** (salout z=174) sit at that SET’s +26 (sallower **180**); town 62 throws them off the top of the still. Use `cameraZOf(world)`. |
+| Filter props with exact `prop.set === currentSet` | `sallower` vs `_SALLOWER` hid the exit overlay after a catalog hop. Same SET, different spellings. |
+| Actor Z-slack on HOUSE door overlays | Door sprites replace the still wall. `GROUND_Z_SLACK` 1 left them behind the doorway. Pinning to hotspot Z=4 still dropped the lower leaf on floor Z=3 / a stale street plane — only the lintel stayed open. Wall overlays blit at Z=1. |
+| INVEN field 96 on HOUSE door overlays | `salout` 232×252 is authored 1:1 (hotspot → y=11..263). PRP dest with default 1450 × 96 / (1000 × 156) is ~0.89 and leaves a strip of closed door above the HUD. Door +0x2a is **160**; 1450×160 is ~1.49×. **Only the HOUSE `door` prop** blits at scale 1. Bar drinks (`buildrand*`, z=147 vs camZ 180) kept getting that 1:1 blit and looked huge — they use script `propscale` 800–1100. |
+| Open door on every still / close sound every pan | HOUSE `door` is a still replacement for the pose `setupprop` opened. World-projecting it onto C1 E paints the leaf on the inner doors; `initprop` on every pan replays close. Bind to `openedAt`; close **once** when leaving that still. Book: [HOUSE door overlays](#house-door-overlays). |
 | Skip interior `FRAMES/z/` | Help paints in front of the counter. Draw when `spriteZ ≤ stillZ`. `python cli.py --type set --z`. |
-| `closescene` / `initprop` on in-place pans | `doorclose1` on every A2 turn. Those hooks are **tile** steps (`isTileStep`), not facing changes. |
+| Scene `closescene` on in-place pans | `doorclose1` on every A2 turn. Those hooks are **tile** steps (`isTileStep`). Overlay close on a turn is `closeDoorIfLeftOpening`, not `closescene`. |
 | `closesetfile` without the old scene’s `closescene` | Street door still visible; the close plays later on pans. |
-| `loadedScriptFiles` blocking reinstall after `removePrefix("set"\|"scene:")` | Town `keydown` gone; walk freeze on shop exit. Reinstall when `!index.has(key)`. |
+| `loadedScriptFiles` blocking reinstall after `removePrefix("set"\|"scene:")` | Town `keydown` gone; walk freeze on shop exit. Reinstall when `!index.has(key)`. Cache parsed scripts; do not refetch every `gototown`. |
+| `screentoblack` / `blacktoscreen` as no-ops | Saloon exit hitch: no fade, then O7 flashes before the street cell. Dust fades 30 ticks (0.5 s) to black, swaps the SET, fades up. Do not stand at town spawn when `currentscene` is still interior `d1`. |
+| Skip `showHold` when `setPose` matches boot’s pre-set O7 N | First `opensetfile` no-ops; MeshBasicMaterial stays white (HUD + Leroy/jug, no town) until a turn. Skip only if a still is already on screen. |
+| Load NEW.FLT flats without running `openflat` | HUD portrait stays the cowboy baked into `frame_3.png`. Engine `openstagefile` shows mainpanel (`noface` / `makeloop makeface`). `initall` `stoploop ("flat", "all")` then `opensetfile` must re-arm that loop. |
+| Tick `runQueued` during `boot()` | Animation loop and `advanceday` share the VM. `makeface` due during boot is dropped; `stoploop` did not clear `dueLoops`, so re-arm thought the portrait was still live. Do not tick scripts until boot returns; `stoploop` cancels due callbacks; `ensureHudPortrait` after boot. |
+| `#play-hud-face` under `#actor-layer` | Raising the still overlay to z-index 42 (full-height door) hid the HOUSE face. Portrait stacks with `#play-hand`, above the actor layer. |
 | Prefetch two viseme JSON files | Choice-line jaw lags while the WAV plays (Leroy and Help). Warm **every** ident; `puppetspeak` awaits the track before `play()`. |
 | Uncapped SET still + all-CST sprite decode | Turn/walk hangs 1–2s or eats the key. Current strip is high-priority; neighbor strips prefetch at depth 2; shared inflight cap 8. Do not skip plates. |
 | New face blit per 60 Hz tick (`paintGen` drops in-flight jaws) | Idle head, then a late jump. One blit; queue the latest pose; share one `Image` onload. |
@@ -157,11 +223,14 @@ falls through to the SET keydown (walk), not to `new.flt`’s options
 | Viseme ticks as the `0x40B060` wait / `continue` overdue tracks | Glances every ~2 s; idle 4 twice in a row. Wait is WAV ms; glances 3×; one clip per wake; 4 s floor after `idlespeak`. |
 | `tryMove` on hold-to-repeat / a tap queued during the strip | Hold W past the G12 dog. After the filmstrip, fire boot `keydown` / `keyrepeat`, not a raw SET step. |
 | Hide portrait / skip CST blit when the next PNG is still decoding | Face and town people flicker on `makeface` / a deg step. Keep the last blit; high-priority the plate in view. |
+| `openpuppetfile` unhide with the previous canvas | Next talk flashes the last face. `screentoblack` is a no-op here; clear + drop stale blits, show the UI after the new sheet paints. |
+| Talking-head under `#actor-layer` / rest from sprite headers | Help outdoor idle painted the shop-interior plate and stacked both sleeves on the chest (384 headers). Rest is **idle 1** extras for every PUP (`Background: -1` on Help1/Dell1/Cobb; Help2 indoor keeps the plate). Unencoded `idle 1.json` / `Hands 1` 404s drop that rest. Encode extract path segments; do not default Background to frame 0. `#puppet-ui` stacks above the actor layer. |
+| Viseme / CSV cache keyed only by ident (`idle 1`) | Every PUP names **`idle 1`–`idle 4`**. Boot-warming Leroy then talking to Help plays Leroy extras on Help’s sheet (shop plate + Picasso head). Rest can look fine — live idle used the ident cache. Key `folder/ident`. Book: [PUP viseme tracks](#pup-viseme-tracks). |
 | `pointinactor` as ±40×80 px around the feet hotspot | Head unclickable; `touch` on the dirt. Chin Help is `actorscale` 5800 — 80px is the chest. Use CST dest Mac Rect (`0x415271`). |
 | Map `cross` at 1-based `scenerow * 20 + 93` | `scene g15` y=393, clipped off the parchment. Opcode is 1-based for pig `isadj`; the grid is **0-based** tiles from (222, 93). Slot 2 of `1,1,1,2,2,2` has no frame (blink). |
 | `infoyoself` on every inventory `stdmouse` | Not Dust. Panel click selects `handitem`; EXAMINE inspects. |
 
-Code: interiors [`sceneName.ts`](sceneName.ts) / [`graph.ts`](../world/set/graph.ts); hits [`facing.ts`](facing.ts) `spriteDestRect`; EXAMINE [`hud.ts`](hud.ts) / [`game.ts`](game.ts); map X [`hud.ts`](hud.ts) `mapCrossHotspot`; choice idle [`host.ts`](host.ts) `waitPuppetEvent` / [`ui.ts`](ui.ts).
+Code: interiors [`sceneName.ts`](sceneName.ts) / [`graph.ts`](../world/set/graph.ts); hits [`facing.ts`](facing.ts) `spriteDestRect`; EXAMINE [`hud.ts`](hud.ts) / [`game.ts`](game.ts); map X [`hud.ts`](hud.ts) `mapCrossHotspot`; choice idle [`host.ts`](host.ts) `waitPuppetEvent` / [`ui.ts`](ui.ts); viseme cache [`host.ts`](host.ts) `puppetClipKey`.
 
 ---
 
@@ -186,9 +255,10 @@ Silent idle blinks and glances must **not** take that lock — only
 spoken idle (`idlespeak`) does.
 
 While a choice is waiting, Dust does not freeze the puppet. `puppetevent`
-(`DF.EXE` `0x431330`) looks up **`idle 1`…`idle 4`** on the current PUP
-and gives each clip its own timer: interval `(rand15 * duration_ms /
-0x7FFF) + 1` 60 Hz ticks (`0x40B060`). CSV tags pick the kind (`blink`,
+(`DF.EXE` `0x431330`) looks up **`idle 1`…`idle 4`** on the **open** PUP
+(not a global clip of that name) and gives each clip its own timer:
+interval `(rand15 * duration_ms / 0x7FFF) + 1` 60 Hz ticks (`0x40B060`).
+CSV tags pick the kind (`blink`,
 `gesture 1`, `idlespeak`); idle 1 defaults to blink, idle 4 to speak
 (Mayor’s spoken idle is `idle 3`). Blinks use **1/3** of the clip length,
 glances **3×** — that spacing is ours, not the EXE. Do not feed viseme
@@ -514,9 +584,11 @@ Background is a real room plate (not a flat studio fill). Hands were already
 in viseme tracks (Leroy raises Hands 1 mid-greeting); we just were not
 painting those tables.
 
-Idle pose comes from `FRAMES/sprites.json` `rest` / `restLayers` (first viseme
-frame). Hands are usually `-1` at rest and appear mid-line; Bolivar rests with
-hands up. Do not default Hands to frame 0.
+Idle pose comes from viseme **idle 1** extras (`rest` / `restLayers` in
+`FRAMES/sprites.json`). Outdoor Help/Dell/Cobb hide `Background`; Help2's
+indoor idle keeps the shop plate. Hands are usually `-1` at rest and appear
+mid-line; Bolivar rests with hands up. Do not default Hands or Background to
+frame 0. Extract URLs encode spaces (`idle 1.json`, `Hands 1/…`).
 
 Sprite blit: DFET hotspot is **(256, 192)** on the 384-tall stage. Viseme
 extras are **hotspot** `(centerY, centerX)` on the 512×264 still, not bounding-
@@ -528,13 +600,72 @@ Load **per-line** viseme JSON (`AUDIO/visemes/<ident>.json`), not the
 `visemes.json` blob. Last viseme tick / 60 matches the WAV length. Clock is
 **60 Hz**. Warm every ident when the puppet opens so a choice reply is not a
 late fetch while the WAV already plays. `puppetspeak` **awaits** that track
-before `play()`. Sidecar dump: `python sprites.py` writes `sprites.json`, visemes,
+before `play()`. Ident is unique **inside that PUP** — see [PUP viseme tracks](#pup-viseme-tracks).
+Sidecar dump: `python sprites.py` writes `sprites.json`, visemes,
 and `scripts.json` for every PUP without rewriting PNGs.
 
 Do not start a new face blit that **drops** an in-flight one (`paintGen`).
 60 Hz viseme ticks would cancel jaw PNGs that are still loading, so the idle
 head sat through the line and jumped later. One blit at a time; queue the
 latest pose. Share one `Image` load per URL — do not overwrite `onload`.
+
+---
+
+## PUP viseme tracks
+
+Each `.pup` file has its own dialogue table and 82-byte viseme tracks
+(DFET ident at record+280, `animLogic` container). `openpuppetfile`
+loads **that** file. `puppetevent` then looks up `idle 1`…`idle 4` on
+the open PUP — those names are the engine idle slots, not a global clip
+library. Extract writes `PUP/_<CHAR>/AUDIO/visemes/<ident>.json`.
+
+Authored **idle 1** (first frame):
+
+| PUP | Background | Head `at` | What paints |
+|---|---|---|---|
+| `_HELP1` (street `walktopuppet`) | **`-1`** | `[253, 44]` | Town still shows through |
+| `_HELP2` (shop `runpuppet`) | `0`, photo `[256, 132]` | `[253, 44]` | Indoor shop plate |
+| `_LEROY` | `0`, flat brown | `[249, 120]` | Flat fill skipped (`isFlatBackdrop`) |
+| `_DELL1` / `_COBB` | **`-1`** | their own extras | Same outdoor hide as Help1 |
+
+Help’s `FRAMES/Background/0.png` is the shop interior. Leroy’s is a
+studio fill. Applying Leroy’s `Background: 0` to Help1 draws the shop
+on the street. Applying Leroy’s Head `[249, 120]` to Help’s head sprite
+(authored for y=44) is a ~76 px miss — Picasso. Rest can look fine:
+`loadPuppetSheet` already fetches **that** folder’s `idle 1.json`. The
+live blink / glance / `idlespeak` path used a cache keyed only by ident,
+so the first fidget swapped in Leroy’s track. Help1 vs Help2 share
+`idle 1` too — hiding Background for every Help talk would drop the
+indoor plate.
+
+Play therefore:
+
+1. Cache visemes as `puppetClipKey(folder, ident)` (`PUP/_HELP1/idle 1`).
+   In-flight loads use the same key so a boot-warm of Leroy cannot
+   satisfy Help’s fetch. [`host.ts`](host.ts) `loadVisemeLine`.
+2. Keep `texts.csv` maps per folder. Reopening an already-loaded PUP
+   restores that bag (idle WAV/text, `help.1` vs `leroy.12`).
+3. Rest still comes from **that** PUP’s idle 1 extras. Outdoor
+   Help/Dell/Cobb hide Background; indoor Help2 keeps the plate. Do not
+   default Background to frame 0. Encode spaces in extract URLs
+   (`idle 1.json`, `Hands 1`).
+4. Do not special-case Help. The next street talk after Leroy (Dell,
+   Cobb, Jones, …) is the same ident collision.
+
+### Dead ends (do not retry)
+
+| Approach | What we saw |
+|---|---|
+| Rest from idle 1 + hide Background when unspecified | Rest looked OK until the first fidget. Live idle still applied Leroy’s track. |
+| Encode `idle 1.json` / `Hands 1` | 404s dropped extras (sleeves stacked on the 384 header) but did not stop the ident-cache mix. |
+| `#puppet-ui` above `#actor-layer` | The shop plate was the PUP Background layer, not the CST actor. |
+| Always skip Help’s Background | Indoor Help2 must keep the shop plate. Help1 vs Help2 share `idle 1`. |
+| Clear the viseme map on `openpuppetfile` | Drops warm tracks; a Help fetch still joins Leroy’s in-flight `idle 1` job if the key is ident-only. Key the pending map too. |
+
+Tests: [`host.test.ts`](host.test.ts) per-puppet viseme cache (Leroy then
+Help, in-flight race, Help2 plate, Help1 after Help2, idle 2 / idle 4
+speak, CSV restore, late fetch, Cobb); [`viseme.test.ts`](viseme.test.ts)
+Help vs Leroy extras and idle 2/4 dumps.
 
 ---
 
@@ -593,3 +724,5 @@ can stall the same device. Cue the bed and start it on a later user click
 - PUP viseme bytes / 60 Hz: [`dfextract/docs/reconstruction-gaps.md`](../../dfextract/docs/reconstruction-gaps.md)
 - Speech ADPCM → WAV: [`dfextract/docs/audio.md`](../../dfextract/docs/audio.md)
 - Sprite hotspots: [`dfextract/docs/images.md`](../../dfextract/docs/images.md)
+- HOUSE door overlays (all buildings): this file, [HOUSE door overlays](#house-door-overlays)
+- PUP viseme tracks (per-character `idle 1`–`4`): this file, [PUP viseme tracks](#pup-viseme-tracks)

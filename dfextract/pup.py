@@ -125,8 +125,20 @@ def parse_viseme_track(data: bytes) -> list[dict]:
 
 
 def rest_pose_from_visemes(visemes: dict) -> tuple[dict, dict]:
-    """Idle hotspot centers and layer indices from the first viseme rest frame."""
+    """Idle hotspot centers and layer indices from `idle 1`, else the first line.
+
+    Outdoor Help/Dell/Cobb hide Background on idle 1. Taking an arbitrary
+    speech line first would paint their indoor plate on the street.
+    """
+    ordered: list[dict] = []
+    for key in ("idle 1", "idle1"):
+        line = visemes.get(key)
+        if line:
+            ordered.append(line)
     for line in visemes.values():
+        if line not in ordered:
+            ordered.append(line)
+    for line in ordered:
         frames = line.get("frames") or []
         if not frames:
             continue

@@ -41,12 +41,20 @@ function serveTree(root: string): Connect.NextHandleFunction {
         return;
       }
       const ext = path.extname(file).toLowerCase();
+      const etag = `"${st.size.toString(16)}-${Math.trunc(st.mtimeMs)}"`;
+      if (req.headers["if-none-match"] === etag) {
+        res.statusCode = 304;
+        res.end();
+        return;
+      }
       res.setHeader("Content-Type", MIME[ext] ?? "application/octet-stream");
       res.setHeader("Content-Length", String(st.size));
-      res.setHeader(
-        "Cache-Control",
-        ext === ".wav" || ext === ".png" ? "public, max-age=86400" : "no-store",
-      );
+      res.setHeader("ETag", etag);
+      res.setHeader("Last-Modified", st.mtime.toUTCString());
+      // PNGs change when extract is re-run. A 1-day max-age plus
+      // fetch `force-cache` kept HOUSE table silhouettes after the
+      // SET-palette recolor. Revalidate; 304 if mtime/size match.
+      res.setHeader("Cache-Control", ext === ".wav" ? "public, max-age=86400" : "no-cache");
       fs.createReadStream(file).pipe(res);
     });
   };

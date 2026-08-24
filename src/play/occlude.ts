@@ -1,5 +1,9 @@
 import { STILL_HEIGHT, STILL_WIDTH } from "../world/set/types";
-import { CAMERA_SETBACK } from "./facing";
+import {
+  CAMERA_SETBACK,
+  engineStillScale,
+  PRP_SCALE_FIELD,
+} from "./facing";
 
 /**
  * Dust SET Z is 1–24 (DFET: 24 levels, 24 = sky, 0 unused / “super close”).
@@ -62,6 +66,83 @@ export function actorBlitZ(
     return computed;
   }
   return Math.min(computed, feet);
+}
+
+/**
+ * HOUSE door overlays sit at SET camZ (salout z=174, sallower +26=180).
+ * They replace the still's door. Pinning to the hotspot wall Z (often 4)
+ * still loses the lower leaf: floor/wainscot or a stale street Z is 2–3,
+ * so `spriteZ ≤ stillZ` keeps only the top of the opening. Blit at Z=1
+ * so every overlay pixel wins against the closed-door still.
+ */
+export const WALL_OVERLAY_Z = 48;
+
+export function isWallOverlay(objZ: number, camZ: number): boolean {
+  return Math.abs(objZ - camZ) <= WALL_OVERLAY_Z;
+}
+
+/** HOUSE `door` group — salout / hotout / pharm / … still replacements. */
+export function isDoorOverlay(name: string): boolean {
+  return name.toLowerCase() === "door";
+}
+
+/** HOUSE door overlays replace one photographed still (the pose they opened on). */
+export function doorOpenedStillMatches(
+  opened: { scene: string; facing: string } | undefined,
+  scene: string,
+  facing: string,
+): boolean {
+  if (!opened) {
+    return false;
+  }
+  return (
+    opened.scene.trim().toLowerCase() === scene.trim().toLowerCase() &&
+    opened.facing.toUpperCase() === facing.toUpperCase()
+  );
+}
+
+/** Blit HOUSE `door` only on the still `setupprop` opened. Other props always pass. */
+export function shouldBlitDoorOverlay(
+  prop: { name: string; openedAt?: { scene: string; facing: string } },
+  scene: string,
+  facing: string,
+): boolean {
+  if (!isDoorOverlay(prop.name)) {
+    return true;
+  }
+  return doorOpenedStillMatches(prop.openedAt, scene, facing);
+}
+
+/** Always in front of SET Z 2–24. `computed` / hotspot unused on purpose. */
+export function wallOverlayBlitZ(
+  _computed: number,
+  _zPlane: Uint8Array | null,
+  _hx: number,
+  _hy: number,
+  _width = STILL_WIDTH,
+  _height = STILL_HEIGHT,
+): number {
+  return 1;
+}
+
+/**
+ * HOUSE door overlays are still-plane replacements. setInfo +0x2a is
+ * **160** (not INVEN 96). `stdscale` 1450 × 96 / (1000 × lens-forward)
+ * shrinks sallower `salout` ~11% and leaves a strip of closed door
+ * above the HUD. 1450 × 160 overshoots (~1.49×). The header is 252px
+ * on a 264 still; blit 1:1 with the projected hotspot.
+ *
+ * Only the `door` prop. Bar drinks (`buildrand*`, z≈147) sit near camZ
+ * but use script `propscale` 800–1100.
+ */
+export function propStillScale(
+  prop: { name: string; scale?: number },
+  lensForward: number,
+): number {
+  if (isDoorOverlay(prop.name)) {
+    return 1;
+  }
+  return engineStillScale(prop.scale || 1450, lensForward, PRP_SCALE_FIELD);
 }
 
 /** Painter’s algorithm: farther still-forward first, nearer last (on top). */

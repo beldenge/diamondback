@@ -78,9 +78,9 @@ first PUP-only runs. Those are stale. Use `out/PUP/_JENIX`.
 |---|---|
 | `Boot Script.txt`, `day1.txt`, `day2.txt`, … | Conversation / AI scripts. Name comes from the PUP script table |
 | same names with `.json` | Token AST (Dust opcode names). `.txt` still prints Titanic 4.0 names |
-| `AUDIO/texts.csv` | Columns: `ID`, `container`, `Identifier`, `Text`, `animLogic`. `Identifier` is `jenix.5`; `Text` is the spoken line; `container` is the WAV’s container index; `animLogic` is the per-line viseme/anim integer |
-| `AUDIO/visemes/<ident>.json` | Per-line 60 Hz face/hand keyframes. Play mode must not parse `visemes.json`. |
-| `FRAMES/sprites.json` | Layer placement plus `rest` / `restLayers` from the first viseme frame |
+| `AUDIO/texts.csv` | Columns: `ID`, `container`, `Identifier`, `Text`, `animLogic`. `Identifier` is unique **inside this PUP** (`jenix.5`, plus engine slots `idle 1`–`idle 4` in every character). `Text` is the spoken line (idle tags are `blink` / `idlespeak`, not subtitles); `container` is the WAV’s container index; `animLogic` is the per-line viseme/anim integer |
+| `AUDIO/visemes/<ident>.json` | Per-line 60 Hz face/hand keyframes for **this** PUP. Play must key `folder/ident` — `idle 1.json` is a different track in `_LEROY` vs `_HELP1`. Do not parse `visemes.json`. |
+| `FRAMES/sprites.json` | Layer placement plus `rest` / `restLayers` from **this** PUP’s idle-1 viseme frame |
 | `scripts.json` | Script filenames in this PUP (`Boot Script.json`, `day1.json`, …) |
 | `AUDIO/<Identifier>.wav` | Speech for that line (8-bit or 16-bit mono PCM) |
 | `FRAMES/Background/frame_<id>.png` | Backdrop plate for the talking head |

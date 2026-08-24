@@ -119,16 +119,23 @@ describe("catalog", () => {
     }
   });
 
-  it("has overlay art for matching street doors and skips unusable ones", () => {
-    expect(overlaySprite(townDoor("town-apoth"), false)).toContain("/door/apoth/");
-    expect(overlaySprite(townDoor("town-saloon"), false)).toContain("/door/saloon/");
-    expect(overlaySprite(townDoor("apoth-out"), false)).toBeUndefined();
-    expect(overlaySprite(townDoor("town-court"), false)).toBeUndefined();
-    expect(overlaySprite(townDoor("town-court"), true)).toBeUndefined();
+  it("overlays every catalog door except known-wrong street facades", () => {
+    const skipFacade = new Set(["hotel", "chin", "paper", "undertak"]);
+    for (const door of DOORS) {
+      if (door.autoWalk || !door.sprite) {
+        continue;
+      }
+      const url = overlaySprite(door, false);
+      if (skipFacade.has(door.sprite)) {
+        expect(url, door.id).toBeUndefined();
+        continue;
+      }
+      expect(url, door.id).toContain(`/door/${door.sprite}/`);
+    }
     expect(overlaySprite(townDoor("town-hotel"), false)).toBeUndefined();
-    expect(overlaySprite(townDoor("town-chin"), false)).toBeUndefined();
-    expect(overlaySprite(townDoor("town-paper"), false)).toBeUndefined();
-    expect(overlaySprite(townDoor("town-undertak"), false)).toBeUndefined();
+    expect(overlaySprite(townDoor("apoth-out"), false)).toContain("/door/pharm/");
+    expect(overlaySprite(townDoor("saloon-out"), false)).toContain("/door/salout/");
+    expect(overlaySprite(townDoor("hotel-out"), false)).toContain("/door/hotout/");
   });
 
   it("sends court to NITECOUR at night", () => {

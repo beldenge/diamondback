@@ -3,7 +3,13 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildSetGraph, SET_SPAWN } from "../world/set/graph";
 import type { SceneRecord, TransitionRecord } from "../world/set/types";
-import { parseScriptScene, pascalSceneName, poseForOpenedSet, scriptSceneName } from "./sceneName";
+import {
+  openSetShouldStand,
+  parseScriptScene,
+  pascalSceneName,
+  poseForOpenedSet,
+  scriptSceneName,
+} from "./sceneName";
 
 function loadGraph(folder: string) {
   const scenesPath = resolve(`dfextract/out/SET/${folder}/scenes.json`);
@@ -74,5 +80,25 @@ describe("opensetfile spawn", () => {
     const pose = poseForOpenedSet(graph, "scene a2", "W");
     expect(pose).toEqual(SET_SPAWN._NITE);
     expect(pose).not.toEqual({ x: 0, y: 1, facing: "W" });
+  });
+
+  it("does not stand at O7 when gototown still has interior scene d1", () => {
+    const graph = loadGraph("_NITE");
+    if (!graph) {
+      return;
+    }
+    expect(openSetShouldStand(graph, "scene d1")).toBe(false);
+    expect(openSetShouldStand(graph, "scene a2")).toBe(false);
+    expect(openSetShouldStand(graph, "scene g8")).toBe(true);
+    expect(openSetShouldStand(graph, "scene g15")).toBe(true);
+  });
+
+  it("always stands when opening an interior SET", () => {
+    const graph = loadGraph("_SALLOWER");
+    if (!graph) {
+      return;
+    }
+    expect(openSetShouldStand(graph, "scene g8")).toBe(true);
+    expect(openSetShouldStand(graph, "scene d1")).toBe(true);
   });
 });

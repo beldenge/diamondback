@@ -35,6 +35,7 @@ export class StillsView {
     this.material = new MeshBasicMaterial({ depthTest: false });
     this.mesh = new Mesh(new PlaneGeometry(STILL_WIDTH, STILL_HEIGHT), this.material);
     this.mesh.position.z = 0;
+    this.mesh.visible = false;
     this.scene.add(this.mesh);
     this.overlayMaterial = new MeshBasicMaterial({
       depthTest: false,
@@ -71,6 +72,10 @@ export class StillsView {
 
   cached(url: string): boolean {
     return this.cache.has(url);
+  }
+
+  hasStill(): boolean {
+    return this.displayed !== null;
   }
 
   /** Paint if the PNG is already decoded. */
@@ -137,6 +142,7 @@ export class StillsView {
     this.touch(url);
     this.material.map = texture;
     this.material.needsUpdate = true;
+    this.mesh.visible = true;
   }
 
   private load(url: string, priority: MediaPriority): Promise<Texture> {
@@ -206,7 +212,7 @@ export class StillsView {
 
 async function decodeStillTexture(url: string, priority: MediaPriority): Promise<Texture> {
   const res = await fetch(url, {
-    cache: "force-cache",
+    cache: "no-cache",
     priority: priority === "high" ? "high" : "low",
   });
   if (!res.ok) {

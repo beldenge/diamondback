@@ -5,13 +5,95 @@ import { parseScript, type ScriptFile } from "../vm/ast";
 import { VM } from "../vm/runtime";
 import { buildSetGraph, SET_SPAWN } from "../world/set/graph";
 import type { SceneRecord, TransitionRecord } from "../world/set/types";
-import { dirWord, DustHost, puppetFolder } from "./host";
-import type { PuppetUi } from "./ui";
+import { cameraFromPose, worldToStill } from "./facing";
+import { dirWord, DustHost, puppetClipKey, puppetFolder, soundFileUrl } from "./host";
+import type { PuppetUi, VisemeLine } from "./ui";
 
 function loadProcs(rel: string) {
   const raw = readFileSync(resolve("dfextract/out", rel), "utf8");
   const file = JSON.parse(raw) as ScriptFile;
   return parseScript(file.tokens ?? []);
+}
+
+function visemePath(folder: string, ident = "idle 1"): string {
+  return resolve("dfextract/out", folder, "AUDIO/visemes", `${ident}.json`);
+}
+
+function makePuppetHost(): {
+  host: DustHost;
+  intern: {
+    currentPuppetFolder: string;
+    puppetLines: Map<string, { text: string; wav: string }>;
+    loadVisemeLine(ident: string): Promise<VisemeLine | undefined>;
+    fidgetSilent(ident: string): void;
+    speak(ident: string): Promise<void>;
+  };
+  spoken: VisemeLine[];
+  fidgeted: VisemeLine[];
+  late: VisemeLine[];
+} {
+  const spoken: VisemeLine[] = [];
+  const fidgeted: VisemeLine[] = [];
+  const late: VisemeLine[] = [];
+  const host = new DustHost({
+    skipLine() {},
+    clear() {},
+    addBevel() {},
+    async speak(_text: string, _wav: string | undefined, viseme: unknown) {
+      if (viseme) {
+        spoken.push(viseme as VisemeLine);
+      }
+    },
+    async fidget(_wav, viseme) {
+      if (viseme) {
+        fidgeted.push(viseme);
+      }
+    },
+    async preloadVoices() {},
+    open() {},
+    close() {},
+    setViseme(viseme: VisemeLine) {
+      late.push(viseme);
+    },
+  } as unknown as PuppetUi);
+  const intern = host as unknown as {
+    currentPuppetFolder: string;
+    puppetLines: Map<string, { text: string; wav: string }>;
+    loadVisemeLine(ident: string): Promise<VisemeLine | undefined>;
+    fidgetSilent(ident: string): void;
+    speak(ident: string): Promise<void>;
+  };
+  return { host, intern, spoken, fidgeted, late };
+}
+
+function mockExtractDisk(): () => void {
+  const orig = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const decoded = decodeURIComponent(String(input));
+    const marker = "/extract/";
+    const at = decoded.indexOf(marker);
+    if (at < 0) {
+      return orig(input);
+    }
+    const rel = decoded.slice(at + marker.length).split("?")[0];
+    if (rel.toLowerCase().endsWith(".wav")) {
+      return { ok: false, status: 404 } as Response;
+    }
+    const disk = resolve("dfextract/out", rel);
+    if (!existsSync(disk)) {
+      return { ok: false, status: 404, json: async () => ({}), text: async () => "" } as Response;
+    }
+    const text = readFileSync(disk, "utf8");
+    return {
+      ok: true,
+      json: async () => JSON.parse(text),
+      text: async () => text,
+      arrayBuffer: async () => new TextEncoder().encode(text).buffer,
+    } as Response;
+  }) as typeof fetch;
+  return () => {
+    globalThis.fetch = orig;
+  };
 }
 
 describe("SET script reload", () => {
@@ -24,7 +106,7 @@ describe("SET script reload", () => {
     const orig = globalThis.fetch;
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (!url.includes("Boot Script.json")) {
+      if (!decodeURIComponent(url).includes("Boot Script.json")) {
         return orig(input);
       }
       return {
@@ -142,6 +224,194 @@ describe("puppet folders", () => {
     expect(puppetFolder("leroy")).toBe("PUP/_LEROY");
     expect(puppetFolder("jenix.pup")).toBe("PUP/_JENIX");
     expect(puppetFolder("ISAO")).toBe("PUP/_ISAO");
+  });
+
+  it("keys shared idle idents per PUP folder", () => {
+    expect(puppetClipKey("PUP/_LEROY", "idle 1")).toBe("PUP/_LEROY/idle 1");
+    expect(puppetClipKey("PUP/_HELP1", "Idle 1")).toBe("PUP/_HELP1/idle 1");
+    expect(puppetClipKey("PUP/_LEROY", "idle 1")).not.toBe(
+      puppetClipKey("PUP/_HELP1", "idle 1"),
+    );
+  });
+});
+
+describe("per-puppet viseme cache", () => {
+  it("does not reuse a boot-warmed Leroy idle 1 on Help or Dell", async () => {
+    const folders = ["PUP/_LEROY", "PUP/_HELP1", "PUP/_DELL1"] as const;
+    if (folders.some((folder) => !existsSync(visemePath(folder)))) {
+      return;
+    }
+    const { host, intern, fidgeted } = makePuppetHost();
+    const restore = mockExtractDisk();
+    try {
+      intern.currentPuppetFolder = "PUP/_LEROY";
+      const leroyJob = intern.loadVisemeLine("idle 1");
+      intern.currentPuppetFolder = "PUP/_HELP1";
+      const helpJob = intern.loadVisemeLine("idle 1");
+      const [leroy, help] = await Promise.all([leroyJob, helpJob]);
+      expect(leroy?.frames[0]?.layers.Background).toBe(0);
+      expect(leroy?.frames[0]?.at?.Head).toEqual([249, 120]);
+      expect(help?.frames[0]?.layers.Background).toBe(-1);
+      expect(help?.frames[0]?.at?.Head).toEqual([253, 44]);
+      expect(help).not.toBe(leroy);
+
+      await host.preloadPuppet("help1.pup");
+      const helpAgain = await intern.loadVisemeLine("idle 1");
+      expect(helpAgain).toBe(help);
+      intern.fidgetSilent("idle 1");
+      expect(fidgeted[0]).toBe(help);
+
+      intern.currentPuppetFolder = "PUP/_DELL1";
+      const dell = await intern.loadVisemeLine("idle 1");
+      expect(dell?.frames[0]?.layers.Background).toBe(-1);
+      expect(dell?.frames[0]?.at?.Head).toEqual([253, 97]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("restores outdoor Help1 after indoor Help2 (same ident, two PUPs)", async () => {
+    if (
+      !existsSync(visemePath("PUP/_HELP1")) ||
+      !existsSync(visemePath("PUP/_HELP2"))
+    ) {
+      return;
+    }
+    const { host, intern, fidgeted } = makePuppetHost();
+    const restore = mockExtractDisk();
+    try {
+      await host.preloadPuppet("help2.pup");
+      const indoor = await intern.loadVisemeLine("idle 1");
+      expect(indoor?.frames[0]?.layers.Background).toBe(0);
+      intern.fidgetSilent("idle 1");
+      expect(fidgeted.at(-1)?.frames[0]?.at?.Background).toEqual([256, 132]);
+
+      await host.preloadPuppet("help1.pup");
+      const outdoor = await intern.loadVisemeLine("idle 1");
+      expect(outdoor).not.toBe(indoor);
+      expect(outdoor?.frames[0]?.layers.Background).toBe(-1);
+      intern.fidgetSilent("idle 1");
+      expect(fidgeted.at(-1)?.frames[0]?.layers.Background).toBe(-1);
+      expect(fidgeted.at(-1)?.frames[0]?.at?.Head).toEqual([253, 44]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps idle 2 glances and idle 4 speech on the open PUP", async () => {
+    const needed = [
+      visemePath("PUP/_LEROY", "idle 2"),
+      visemePath("PUP/_LEROY", "idle 4"),
+      visemePath("PUP/_HELP1", "idle 2"),
+      visemePath("PUP/_HELP1", "idle 4"),
+    ];
+    if (needed.some((path) => !existsSync(path))) {
+      return;
+    }
+    const { host, intern, spoken, fidgeted } = makePuppetHost();
+    const restore = mockExtractDisk();
+    try {
+      await host.preloadPuppet("leroy.pup");
+      const leroyGlance = await intern.loadVisemeLine("idle 2");
+      const leroySpeak = await intern.loadVisemeLine("idle 4");
+      expect(leroyGlance?.frames[1]?.layers.Head).toBe(6);
+      expect(leroySpeak?.ticks).toBe(77);
+      expect(leroySpeak?.frames[0]?.layers.Background).toBe(0);
+
+      await host.preloadPuppet("help1.pup");
+      const helpGlance = await intern.loadVisemeLine("idle 2");
+      const helpSpeak = await intern.loadVisemeLine("idle 4");
+      expect(helpGlance).not.toBe(leroyGlance);
+      expect(helpSpeak).not.toBe(leroySpeak);
+      expect(helpGlance?.frames[0]?.layers.Background).toBe(-1);
+      expect(helpGlance?.frames[1]?.layers.Head).toBe(3);
+      intern.fidgetSilent("idle 2");
+      expect(fidgeted.at(-1)).toBe(helpGlance);
+      await intern.speak("idle 4");
+      expect(spoken.at(-1)).toBe(helpSpeak);
+      expect(spoken.at(-1)?.ticks).toBe(102);
+      expect(spoken.at(-1)?.frames[0]?.layers.Background).toBe(-1);
+      expect(spoken.at(-1)?.frames[0]?.at?.Head).toEqual([253, 44]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("restores each PUP's texts.csv when reopening", async () => {
+    if (
+      !existsSync(visemePath("PUP/_LEROY")) ||
+      !existsSync(visemePath("PUP/_HELP1"))
+    ) {
+      return;
+    }
+    const { host, intern } = makePuppetHost();
+    const restore = mockExtractDisk();
+    try {
+      await host.preloadPuppet("leroy.pup");
+      expect(intern.puppetLines.has("leroy.12")).toBe(true);
+      expect(intern.puppetLines.has("help.1")).toBe(false);
+      expect(intern.puppetLines.get("idle 4")?.wav).toMatch(/_LEROY/);
+
+      await host.preloadPuppet("help1.pup");
+      expect(intern.puppetLines.has("help.1")).toBe(true);
+      expect(intern.puppetLines.has("leroy.12")).toBe(false);
+      expect(intern.puppetLines.get("idle 4")?.wav).toMatch(/_HELP1/);
+
+      await host.preloadPuppet("leroy.pup");
+      expect(intern.puppetLines.has("leroy.12")).toBe(true);
+      expect(intern.puppetLines.has("help.1")).toBe(false);
+      expect(intern.puppetLines.get("idle 4")?.wav).toMatch(/_LEROY/);
+    } finally {
+      restore();
+    }
+  });
+
+  it("late idle fetch after a folder switch is still that PUP's track", async () => {
+    if (
+      !existsSync(visemePath("PUP/_LEROY")) ||
+      !existsSync(visemePath("PUP/_HELP1"))
+    ) {
+      return;
+    }
+    const { intern, fidgeted, late } = makePuppetHost();
+    const restore = mockExtractDisk();
+    try {
+      intern.currentPuppetFolder = "PUP/_LEROY";
+      const leroy = await intern.loadVisemeLine("idle 1");
+      expect(leroy?.frames[0]?.layers.Background).toBe(0);
+
+      intern.currentPuppetFolder = "PUP/_HELP1";
+      intern.fidgetSilent("idle 1");
+      expect(fidgeted).toEqual([]);
+      const help = await intern.loadVisemeLine("idle 1");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(help).not.toBe(leroy);
+      expect(help?.frames[0]?.layers.Background).toBe(-1);
+      expect(late[0]).toBe(help);
+    } finally {
+      restore();
+    }
+  });
+
+  it("does not reuse Leroy idle 1 on Cobb", async () => {
+    if (
+      !existsSync(visemePath("PUP/_LEROY")) ||
+      !existsSync(visemePath("PUP/_COBB"))
+    ) {
+      return;
+    }
+    const { intern } = makePuppetHost();
+    const restore = mockExtractDisk();
+    try {
+      intern.currentPuppetFolder = "PUP/_LEROY";
+      await intern.loadVisemeLine("idle 1");
+      intern.currentPuppetFolder = "PUP/_COBB";
+      const cobb = await intern.loadVisemeLine("idle 1");
+      expect(cobb?.frames[0]?.layers.Background).toBe(-1);
+      expect(cobb?.frames[0]?.at?.Head).toEqual([233, 82]);
+    } finally {
+      restore();
+    }
   });
 });
 
@@ -331,6 +601,237 @@ describe("interior scene lookup", () => {
   });
 });
 
+describe("saloon piano player", () => {
+  it("seats Isao facing south into the keys, not an east/west profile", () => {
+    const disk = resolve("dfextract/out/CST/_GANG/Isao/Script.json");
+    if (!existsSync(disk)) {
+      return;
+    }
+    const procs = loadProcs("CST/_GANG/Isao/Script.json");
+    const setup = procs.find((proc) => proc.name === "setupactor");
+    const idle = procs.find((proc) => proc.name === "isaoidle");
+    expect(JSON.stringify(setup)).toContain(
+      '"name":"actordeg","args":[{"type":"me"},{"type":"num","value":0}]',
+    );
+    expect(JSON.stringify(setup)).not.toContain('"value":64');
+    expect(JSON.stringify(setup)).not.toContain('"value":192');
+    expect(JSON.stringify(idle)).toContain('"value":20');
+    expect(JSON.stringify(idle)).toContain('"value":236');
+    expect(JSON.stringify(idle)).not.toContain('"value":192');
+  });
+});
+
+describe("interior door setupprop", () => {
+  it("places salout on sallower and keeps it in nearbyProps", async () => {
+    const doorScript = resolve("dfextract/out/PRP/_HOUSE/setcursor _arg__562.json");
+    if (!existsSync(doorScript)) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    host.currentSet = "sallower";
+    host.currentScene = "scene d1";
+    host.currentDir = "E";
+    for (const proc of loadProcs("PRP/_HOUSE/setcursor _arg__562.json")) {
+      host.index.add("prop:door", proc, "door");
+    }
+    const door = host.ensureProp("door");
+    door.shop = "house";
+    door.spriteRoot = "PRP/_HOUSE";
+    door.sprites = {
+      salout: [{ path: "FRAMES/door/salout/00_c623.png", x: 138, y: 60, w: 232, h: 252 }],
+    };
+    host.view = {
+      pose: { x: 3, y: 0, facing: "E" },
+      world: "_SALLOWER",
+      graph: {
+        scenes: new Map(),
+        cameraTiles: new Set(["3,0"]),
+        transitions: [],
+        byFrom: new Map(),
+        cameraZ: 180,
+      },
+      walk() {},
+      async setPose() {},
+      log() {},
+      refreshActors() {},
+      projectWorld(obj) {
+        return worldToStill(obj, cameraFromPose(this.pose, 180));
+      },
+    };
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => ({ ok: false }) as Response) as typeof fetch;
+    try {
+      await vm.inObject("prop", "door", () =>
+        vm.evalCall("setupprop", [{ type: "str", value: "salout" }]),
+      );
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+    expect(door.visible).toBe(true);
+    expect(door.view).toBe("salout");
+    expect(door.owner).toBe("salout");
+    expect(door.set).toBe("sallower");
+    expect(door.x).toBe(988);
+    expect(door.y).toBe(134);
+    expect(door.z).toBe(174);
+    expect(door.openedAt).toEqual({ scene: "scene d1", facing: "E" });
+    host.currentSet = "_SALLOWER";
+    expect(host.nearbyProps().some((prop) => prop.name === "door")).toBe(true);
+  });
+
+  it("shuts the D1 east overlay once when leaving that still", async () => {
+    const doorScript = resolve("dfextract/out/PRP/_HOUSE/setcursor _arg__562.json");
+    if (!existsSync(doorScript)) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    host.currentScene = "scene d1";
+    host.currentDir = "E";
+    for (const proc of loadProcs("PRP/_HOUSE/setcursor _arg__562.json")) {
+      host.index.add("prop:door", proc, "door");
+    }
+    const door = host.ensureProp("door");
+    door.visible = true;
+    door.owner = "salout";
+    door.value = 1;
+    door.openedAt = { scene: "scene d1", facing: "E" };
+    door.x = 988;
+    door.y = 134;
+    door.z = 174;
+    const closes: string[] = [];
+    const origCall = host.call.bind(host);
+    host.call = async (name, args, ctx) => {
+      if (name === "voicesound") {
+        closes.push(String(args[0]));
+      }
+      return origCall(name, args, ctx);
+    };
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => ({ ok: false }) as Response) as typeof fetch;
+    try {
+      await host.closeDoorIfLeftOpening(vm, "scene d1", "E");
+      expect(door.visible).toBe(true);
+      expect(closes).toEqual([]);
+      await host.closeDoorIfLeftOpening(vm, "scene d1", "W");
+      expect(door.visible).toBe(false);
+      expect(door.owner).toBe("none");
+      expect(closes).toEqual(["doorclose1"]);
+      await host.closeDoorIfLeftOpening(vm, "scene c1", "E");
+      await host.closeDoorIfLeftOpening(vm, "scene d1", "N");
+      expect(closes).toEqual(["doorclose1"]);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it("does not replay close when D1 closescene runs after the overlay already shut", async () => {
+    const doorScript = resolve("dfextract/out/PRP/_HOUSE/setcursor _arg__562.json");
+    const d1 = resolve("dfextract/out/SET/_SALLOWER/Scene D1.json");
+    if (!existsSync(doorScript) || !existsSync(d1)) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    host.currentScene = "scene d1";
+    for (const proc of loadProcs("PRP/_HOUSE/setcursor _arg__562.json")) {
+      host.index.add("prop:door", proc, "door");
+    }
+    for (const proc of loadProcs("SET/_SALLOWER/Scene D1.json")) {
+      host.index.add("scene:scene d1", proc, "d1");
+    }
+    const door = host.ensureProp("door");
+    door.visible = true;
+    door.owner = "salout";
+    door.value = 1;
+    door.openedAt = { scene: "scene d1", facing: "E" };
+    const closes: string[] = [];
+    const origCall = host.call.bind(host);
+    host.call = async (name, args, ctx) => {
+      if (name === "voicesound") {
+        closes.push(String(args[0]));
+      }
+      return origCall(name, args, ctx);
+    };
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => ({ ok: false }) as Response) as typeof fetch;
+    try {
+      await host.closeDoorIfLeftOpening(vm, "scene c1", "W");
+      expect(closes).toEqual(["doorclose1"]);
+      await host.onLeave(vm);
+      expect(closes).toEqual(["doorclose1"]);
+      expect(door.visible).toBe(false);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it("shuts a chin A2 overlay on turn, not only saloon D1", async () => {
+    const doorScript = resolve("dfextract/out/PRP/_HOUSE/setcursor _arg__562.json");
+    if (!existsSync(doorScript)) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    for (const proc of loadProcs("PRP/_HOUSE/setcursor _arg__562.json")) {
+      host.index.add("prop:door", proc, "door");
+    }
+    const door = host.ensureProp("door");
+    door.visible = true;
+    door.owner = "chin";
+    door.value = 1;
+    door.openedAt = { scene: "scene a2", facing: "W" };
+    const closes: string[] = [];
+    const origCall = host.call.bind(host);
+    host.call = async (name, args, ctx) => {
+      if (name === "voicesound") {
+        closes.push(String(args[0]));
+      }
+      return origCall(name, args, ctx);
+    };
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => ({ ok: false }) as Response) as typeof fetch;
+    try {
+      await host.closeDoorIfLeftOpening(vm, "scene a2", "W");
+      expect(door.visible).toBe(true);
+      await host.closeDoorIfLeftOpening(vm, "scene a2", "E");
+      expect(door.visible).toBe(false);
+      expect(closes).toEqual(["doorclose1"]);
+      await host.closeDoorIfLeftOpening(vm, "scene a1", "W");
+      expect(closes).toEqual(["doorclose1"]);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+});
+
+describe("unilib clips after opentrackfile", () => {
+  it("plays swingdoor from UNILIB while the saloon track is open", () => {
+    expect(soundFileUrl("swingdoor", "_SALOON1")).toContain("SND/_UNILIB/swingdoor.wav");
+    expect(soundFileUrl("knock1", "_SALOON1")).toContain("SND/_UNILIB/knock1.wav");
+    expect(soundFileUrl("doorclose1", "_NIGHT")).toContain("SND/_UNILIB/doorclose1.wav");
+    expect(soundFileUrl("crowdnoise", "_SALOON1")).toContain("SND/_SALOON1/crowdnoise.wav");
+    expect(soundFileUrl("saloonsep.snd", "_SALOON1")).toContain("SND/_SALOON1/saloonsep.snd.wav");
+  });
+});
+
 describe("fade does not halt theme", () => {
   it("leaves playtheme running through gotospecial's visualeffect", async () => {
     const host = new DustHost({} as PuppetUi);
@@ -344,6 +845,36 @@ describe("fade does not halt theme", () => {
     expect(host.currentTheme).toBe("saloonsep.snd");
     await host.call("halttheme", [], vm);
     expect(host.currentTheme).toBe("none");
+  });
+
+  it("runs screentoblack then blacktoscreen with the script tick counts", async () => {
+    const fades: string[] = [];
+    const host = new DustHost({} as PuppetUi);
+    host.view = {
+      pose: { x: 3, y: 0, facing: "E" },
+      world: "_SALLOWER",
+      graph: { scenes: new Map(), cameraTiles: new Set(), transitions: [], byFrom: new Map() },
+      walk() {},
+      async setPose() {},
+      log() {},
+      refreshActors() {},
+      async fadeToBlack(ticks) {
+        fades.push(`out${ticks}`);
+      },
+      async fadeFromBlack(ticks) {
+        fades.push(`in${ticks}`);
+      },
+      cutToBlack() {
+        fades.push("cut");
+      },
+    };
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    await host.call("screentoblack", ["current", 30], vm);
+    await host.call("blacktoscreen", ["set", 30], vm);
+    await host.call("blackscreen", [], vm);
+    expect(fades).toEqual(["out30", "in30", "cut"]);
   });
 });
 

@@ -535,11 +535,9 @@ function cullStill(hit: RawProject): StillHit | null {
   if (hit.lensForward > TILE_SPAN * 6) {
     return null;
   }
+  // DF.EXE `0x40dcd0` first `ret` at `0x40dd48`: forward ≤ 0 does not draw.
   if (hit.lensForward <= 0) {
-    if (hit.lensForward < -16 || Math.abs(hit.right) > 48) {
-      return null;
-    }
-    return { x: hit.x, y: hit.y, forward: 0, lensForward: hit.lensForward };
+    return null;
   }
   if (hit.lensForward < SCALE_MIN_FORWARD) {
     return null;

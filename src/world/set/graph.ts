@@ -41,6 +41,8 @@ export function parseDir(value: number | string): Dir | null {
  * not the scene table (interiors may transpose names onto these tiles).
  * `gotointerior` does not pass a scene; Dust stands here.
  */
+export const WORLD_TOWN = "town";
+
 export const SET_SPAWN: Record<string, WalkerPose> = {
   _APOTH: { x: 2, y: 1, facing: "W" },
   _BANK: { x: 3, y: 1, facing: "W" },
@@ -78,6 +80,39 @@ export const SET_SPAWN: Record<string, WalkerPose> = {
   _TOWN: { x: 6, y: 14, facing: "N" },
   _UNDERTAK: { x: 0, y: 1, facing: "E" },
 };
+
+/**
+ * `sallower` / `_SALLOWER` / `sallower.set` are one SET. Town and nite
+ * share the street grid (`propset "town"`).
+ */
+export function setFolderKey(name: string): string {
+  const lower = name.trim().replace(/\.set$/i, "").toLowerCase();
+  if (!lower) {
+    return "";
+  }
+  if (lower === WORLD_TOWN || lower === "nite" || lower === "_nite" || lower === "_town") {
+    return "town";
+  }
+  return lower.replace(/^_/, "");
+}
+
+export function setNamesEqual(a: string, b: string): boolean {
+  const left = setFolderKey(a);
+  const right = setFolderKey(b);
+  return Boolean(left) && left === right;
+}
+
+export function setFolderFromWorld(world: string): string {
+  const trimmed = world.trim();
+  if (!trimmed || trimmed === WORLD_TOWN || /^town(\.set)?$/i.test(trimmed)) {
+    return "_TOWN";
+  }
+  if (/^_?nite(\.set)?$/i.test(trimmed)) {
+    return "_NITE";
+  }
+  const key = setFolderKey(trimmed);
+  return key ? `_${key.toUpperCase()}` : "_TOWN";
+}
 
 /** SET header +26. Used as camZ in `0x40dcd0` Y. */
 export const SET_CAMERA_Z: Record<string, number> = {
@@ -117,6 +152,21 @@ export const SET_CAMERA_Z: Record<string, number> = {
   _TOWN: 62,
   _UNDERTAK: 220,
 };
+
+/**
+ * World→still Y camZ. Prefer the SET map from `world` so a stale town
+ * graph cannot drop interior door overlays (z ≈ camZ) off the still.
+ */
+export function cameraZOf(world: string, graph?: { cameraZ?: number }): number {
+  const mapped = SET_CAMERA_Z[setFolderFromWorld(world)];
+  if (mapped != null) {
+    return mapped;
+  }
+  if (graph?.cameraZ != null && graph.cameraZ > 0) {
+    return graph.cameraZ;
+  }
+  return SET_CAMERA_Z._TOWN;
+}
 
 export function buildSetGraph(
   scenes: SceneRecord[],
@@ -287,8 +337,6 @@ export function resolveSpawn(graph: SetGraph): WalkerPose {
   return { ...TOWN_SPAWN_FALLBACK };
 }
 
-export const WORLD_TOWN = "town";
-
 export function framesFolder(world: string, night: boolean): string {
   if (world === WORLD_TOWN) {
     return night ? "_NITE" : "_TOWN";
@@ -319,28 +367,39 @@ export async function loadSetGraph(
   }
   const scenes = (await scenesRes.json()) as SceneRecord[];
   const transitions = (await transRes.json()) as TransitionRecord[];
+  const header = SET_SPAWN[folder] && SET_CAMERA_Z[folder] != null
+    ? undefined
+    : await loadSetHeader(folder, fetchImpl);
   return buildSetGraph(
     scenes,
     transitions,
-    SET_SPAWN[folder] ?? (await loadSetSpawn(folder, fetchImpl)),
-    SET_CAMERA_Z[folder],
+    SET_SPAWN[folder] ?? header?.spawn,
+    SET_CAMERA_Z[folder] ?? header?.cameraZ,
   );
 }
 
-async function loadSetSpawn(
+async function loadSetHeader(
   folder: string,
   fetchImpl: typeof fetch,
-): Promise<WalkerPose | undefined> {
+): Promise<{ spawn?: WalkerPose; cameraZ?: number } | undefined> {
   try {
     const res = await fetchImpl(extractUrl(`SET/${folder}/header.json`));
     if (!res.ok) {
       return undefined;
     }
-    const raw = (await res.json()) as { x?: unknown; y?: unknown; facing?: unknown };
+    const raw = (await res.json()) as {
+      x?: unknown;
+      y?: unknown;
+      facing?: unknown;
+      cameraZ?: unknown;
+    };
     const facing = parseDir(String(raw.facing ?? ""));
-    if (typeof raw.x === "number" && typeof raw.y === "number" && facing) {
-      return { x: raw.x, y: raw.y, facing };
-    }
+    const spawn =
+      typeof raw.x === "number" && typeof raw.y === "number" && facing
+        ? { x: raw.x, y: raw.y, facing }
+        : undefined;
+    const cameraZ = typeof raw.cameraZ === "number" && raw.cameraZ > 0 ? raw.cameraZ : undefined;
+    return { spawn, cameraZ };
   } catch {
     /* optional sidecar */
   }

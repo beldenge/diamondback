@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { worldToStill } from "./game";
+import { skipRedundantStillShow, worldToStill } from "./game";
 import type { ActorState } from "./host";
 
 function actor(x: number, y: number): ActorState {
@@ -53,5 +53,18 @@ describe("worldToStill", () => {
   it("hides someone behind the camera", () => {
     const pose = { x: 6, y: 14, facing: "N" as const };
     expect(worldToStill(actor(1740, 4000), pose)).toBeNull();
+  });
+});
+
+describe("boot still show", () => {
+  const o7n = { world: "town", x: 6, y: 14, facing: "N" as const };
+
+  it("still loads O7 N on first opensetfile (no plate yet)", () => {
+    expect(skipRedundantStillShow(false, o7n, o7n)).toBe(false);
+  });
+
+  it("skips a second setPose of the same town cell once the still is up", () => {
+    expect(skipRedundantStillShow(true, o7n, o7n)).toBe(true);
+    expect(skipRedundantStillShow(true, o7n, { ...o7n, facing: "E" })).toBe(false);
   });
 });

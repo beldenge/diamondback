@@ -23,6 +23,7 @@ from image import (
     find_palette,
     pup_palette,
 )
+from prp import write_prp_extract
 from pup import write_pup_frames
 
 REPO = HERE.parent
@@ -31,6 +32,7 @@ BOLIVAR = DUST / "DUSTCD" / "PUPPETS" / "BOLIVAR.PUP"
 EXTRA = DUST / "DUSTCD" / "DATA" / "EXTRA.CST"
 GANG = DUST / "DUSTCD" / "DATA" / "GANG.CST"
 INVEN = DUST / "DUSTCD" / "DATA" / "INVEN.PRP"
+HOUSE = DUST / "DUSTCD" / "DATA" / "HOUSE.PRP"
 
 
 class TestFrames(unittest.TestCase):
@@ -216,6 +218,61 @@ class TestFrames(unittest.TestCase):
                 help_trans += 1
         self.assertGreater(help_white, 20)
         self.assertEqual(help_trans, 0)
+
+    def test_house_world_overlays_are_not_silhouettes(self) -> None:
+        """World PRP sprites index the SET palette, not HOUSE unused-black."""
+        if not HOUSE.exists():
+            self.skipTest("HOUSE.PRP not present")
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            written = write_prp_extract(
+                read_df_file(HOUSE), dest, write_scripts=False, write_frames=True
+            )
+            self.assertGreater(written.get("frames", 0), 50)
+            world_groups = ("door", "gamblers", "blackjack", "table1")
+            checked = 0
+            for png in (dest / "FRAMES").glob("*/*/*.png"):
+                if png.parent.parent.name not in world_groups:
+                    continue
+                chroma = 0
+                with Image.open(png) as image:
+                    for pixel in image.getdata():
+                        if len(pixel) == 4:
+                            red, green, blue, alpha = pixel
+                        else:
+                            red, green, blue = pixel[:3]
+                            alpha = 255
+                        if alpha and (red, green, blue) != (0, 0, 0):
+                            chroma += 1
+                self.assertGreater(chroma, 50, f"{png.relative_to(dest)} is a silhouette")
+                checked += 1
+            self.assertGreater(checked, 20)
+
+    def test_committed_saloon_tables_have_felt(self) -> None:
+        """On-disk HOUSE overlays must keep SET chroma (green felt), not cache a silhouette dump."""
+        root = REPO / "dfextract" / "out" / "PRP" / "_HOUSE" / "FRAMES"
+        samples = (
+            root / "gamblers" / "sit" / "00_c166.png",
+            root / "blackjack" / "sit" / "00_c499.png",
+            root / "table1" / "stand" / "00_c508.png",
+        )
+        if not all(path.exists() for path in samples):
+            self.skipTest("HOUSE frames not dumped")
+        for path in samples:
+            felt = 0
+            chroma = 0
+            with Image.open(path) as image:
+                for pixel in image.convert("RGBA").getdata():
+                    red, green, blue, alpha = pixel
+                    if not alpha:
+                        continue
+                    if (red, green, blue) != (0, 0, 0):
+                        chroma += 1
+                    if green > 40 and green > red + 20:
+                        felt += 1
+            self.assertGreater(chroma, 1000, f"{path.name} is a silhouette")
+            if path.parent.parent.name != "table1":
+                self.assertGreater(felt, 200, f"{path.name} has no green felt")
 
 
 if __name__ == "__main__":

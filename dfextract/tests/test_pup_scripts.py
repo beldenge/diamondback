@@ -114,6 +114,18 @@ class TestPupScripts(unittest.TestCase):
         self.assertEqual(layers["Jaw"], 0)
         self.assertEqual(layers["Hands 1"], -1)
 
+    def test_rest_pose_prefers_idle_1_background(self) -> None:
+        at, layers = rest_pose_from_visemes({
+            "help.1": {
+                "frames": [{"at": {"Head": [1, 1]}, "layers": {"Background": 0}}],
+            },
+            "idle 1": {
+                "frames": [{"at": {"Body": [255, 169]}, "layers": {"Background": -1}}],
+            },
+        })
+        self.assertEqual(layers["Background"], -1)
+        self.assertEqual(at["Body"], [255, 169])
+
     def test_jenix_play_sidecars(self) -> None:
         path = PUPPETS / "JENIX.PUP"
         if not path.exists():

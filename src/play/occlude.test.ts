@@ -2,13 +2,20 @@ import { describe, expect, it } from "vitest";
 import {
   actorBlitZ,
   CONTACT_SHADOW_ALPHA,
+  doorOpenedStillMatches,
+  shouldBlitDoorOverlay,
   exeSpriteZ,
   blitSpriteZ,
+  isDoorOverlay,
+  isWallOverlay,
   paintFarToNear,
+  propStillScale,
   restoreSpriteAlpha,
   spriteBitsFromImageData,
   spriteOverZ,
+  wallOverlayBlitZ,
 } from "./occlude";
+import { engineStillScale, PRP_SCALE_FIELD } from "./facing";
 
 describe("SET Z vs actor", () => {
   it("uses EXE lens-forward sprite Z (N7 E jug on dirt, O7 N Leroy)", () => {
@@ -74,6 +81,59 @@ describe("SET Z vs actor", () => {
     z[200 * 512 + 300] = 3;
     expect(actorBlitZ(10, z, 300, 200)).toBe(10);
     expect(actorBlitZ(5, z, 300, 200)).toBe(5);
+  });
+
+  it("draws a camZ door overlay over closer floor Z, not only the lintel", () => {
+    expect(isWallOverlay(174, 180)).toBe(true);
+    expect(isWallOverlay(0, 180)).toBe(false);
+    const z = new Uint8Array(512 * 264);
+    z.fill(4);
+    for (let y = 180; y < 264; y++) {
+      z.fill(3, y * 512, y * 512 + 512);
+    }
+    expect(actorBlitZ(7, z, 267, 143)).toBe(7);
+    const doorZ = wallOverlayBlitZ(7, z, 267, 143);
+    expect(doorZ).toBe(1);
+    expect(spriteOverZ(doorZ, 3)).toBe(true);
+    expect(spriteOverZ(doorZ, 4)).toBe(true);
+    expect(spriteOverZ(4, 3)).toBe(false);
+  });
+
+  it("does not perspective-shrink a HOUSE door overlay", () => {
+    expect(isDoorOverlay("door")).toBe(true);
+    expect(isDoorOverlay("buildrand1")).toBe(false);
+    expect(propStillScale({ name: "door", scale: 1450 }, 156)).toBe(1);
+    expect(propStillScale({ name: "buildrand1", scale: 800 }, 156)).toBeCloseTo(
+      engineStillScale(800, 156, PRP_SCALE_FIELD),
+    );
+  });
+
+  it("keeps an open door on the still it opened on", () => {
+    const opened = { scene: "scene d1", facing: "E" };
+    expect(doorOpenedStillMatches(opened, "scene d1", "E")).toBe(true);
+    expect(doorOpenedStillMatches(opened, "scene d1", "W")).toBe(false);
+    expect(doorOpenedStillMatches(opened, "scene c1", "E")).toBe(false);
+    expect(doorOpenedStillMatches(undefined, "scene d1", "E")).toBe(false);
+  });
+
+  it("blits HOUSE door only on the opening still, for every building", () => {
+    const saloon = { name: "door", openedAt: { scene: "scene d1", facing: "E" } };
+    const chin = { name: "door", openedAt: { scene: "scene a2", facing: "W" } };
+    expect(shouldBlitDoorOverlay(saloon, "scene d1", "E")).toBe(true);
+    expect(shouldBlitDoorOverlay(saloon, "scene d1", "W")).toBe(false);
+    expect(shouldBlitDoorOverlay(saloon, "scene c1", "E")).toBe(false);
+    expect(shouldBlitDoorOverlay(chin, "scene a2", "W")).toBe(true);
+    expect(shouldBlitDoorOverlay(chin, "scene a2", "E")).toBe(false);
+    expect(shouldBlitDoorOverlay({ name: "door" }, "scene d1", "E")).toBe(false);
+    expect(shouldBlitDoorOverlay({ name: "buildrand1" }, "scene c1", "E")).toBe(true);
+  });
+
+  it("does not 1:1-blit bar drinks just because z is near camZ", () => {
+    expect(isWallOverlay(147, 180)).toBe(true);
+    expect(propStillScale({ name: "buildrand2", scale: 1100 }, 156)).not.toBe(1);
+    expect(propStillScale({ name: "buildrand2", scale: 1100 }, 156)).toBeCloseTo(
+      engineStillScale(1100, 156, PRP_SCALE_FIELD),
+    );
   });
 
   it("keeps Help-black clothing opaque after a canvas round-trip", () => {

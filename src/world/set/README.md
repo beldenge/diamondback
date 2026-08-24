@@ -188,7 +188,11 @@ closed door. Click (`pointin*` in 512×264, origin top-left) runs
 `setupprop ("apoth")` etc.: one house-prop overlay + owner flag.
 `closescene` (leaving the tile) calls `initprop` and hides it.
 Forward (`uparrow`) while `propowner ("door")` matches calls
-`gotointerior ("apoth.set")` or `gototown ("west")`.
+`gotointerior ("apoth.set")` or `gototown ("west")`. Play mode
+(`/?mode=play`) uses those scripts; the overlay is bound to the still
+it opened on — see [`src/play/README.md`](../../play/README.md) § HOUSE
+door overlays. Do not blit `salout` / `chin` / `hotout` onto the next
+camera.
 
 We hand-port that table in `doors.ts`. We do not interpret DreamFactory
 scripts at runtime.
@@ -243,11 +247,11 @@ swaps those names onto filmed cells (225-cell TOWN/NITE/TARGET stay put).
 
 Interior stills use the same 5-motion + dest-HQ walker on that SET’s
 graph. Interiors were re-dumped as `{frame0}_{offset}.png` like town.
-Some `setupprop` states have no usable overlay: missing PRP PNGs
-(`pharm`, `salout`, …), solid-black extracts (court / school / padre),
-or a sprite that does not match the facade (hotel double doors, Rattler
-glass, Sidewinder, curiosities). The door still **opens** (state + sound);
-we skip the blit.
+HOUSE world overlays (doors, card tables, …) are 8-bit into the **current
+SET** palette. Extract recolors any sprite that would bake HOUSE
+unused-black. Skip a blit only when the sprite is a different door than
+the facade still (hotel, chin, paper, undertak). Opening still works
+(sound + walk in).
 
 Stairs (`salup.mov` / `hotup.mov` / `mayup.mov` and the down reels) are
 skipped: face the steps and walk forward. Room doors are click-then-walk.

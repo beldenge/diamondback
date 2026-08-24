@@ -108,10 +108,15 @@ bottom 120). Frame dumps now write that placement next to the PNGs:
 - PRP: `x`,`y`,`w`,`h` on each `props.json` row, plus `sprites.json` sidecar
 
 Bolivar/Leroy backgrounds sit at `(0, 60)` — a 264-tall plate centered
-on 384. Some plates are real rooms (Bolivar); Leroy/Jenix are a flat
-studio fill, so play mode keeps the SET still behind the puppet. Paint
-**Body then Head** (table order). Head includes the beard; a Body-over-Head
-composite left a front-facing beard ring that did not turn. Face
+on 384. Some plates are real rooms (Bolivar, Help2 shop); Leroy/Jenix are a
+flat studio fill, so play mode keeps the SET still behind the puppet.
+Outdoor Help1/Dell1/Cobb visemes set Background **`-1`** (no plate). That
+index is authored per PUP viseme track — do not reuse another character’s
+`idle 1` (`Background: 0` on Help1 is the shop interior PNG). Play:
+[`src/play/README.md`](../../src/play/README.md) § PUP viseme tracks.
+Paint **Body then Head** (table order). Head includes the beard; a
+Body-over-Head composite left a front-facing beard ring that did not
+turn. Face
 parts (`Head`, `Jaw`, `Eyes`, `Nose`, `Eyebrows`) share that stage.
 `Left` / `Right` / `Hands 1` / `Hands 2` are viseme-driven gesture overlays
 (often `-1` / hidden at rest; some puppets rest with a hand up). Missing

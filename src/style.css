@@ -60,7 +60,8 @@ body,
 
 #play-stage:has(#puppet-ui:not([hidden])) #play-hud,
 #play-stage:has(#puppet-ui:not([hidden])) #play-hand,
-#play-stage:has(#puppet-ui:not([hidden])) #play-hud-face {
+#play-stage:has(#puppet-ui:not([hidden])) #play-hud-face,
+#play-stage:has(#puppet-ui:not([hidden])) #actor-layer {
   visibility: hidden;
   pointer-events: none;
 }
@@ -73,7 +74,8 @@ body,
   height: calc(264 / 384 * 100%);
   overflow: hidden;
   contain: paint;
-  z-index: 1;
+  /* Above the HUD bar so a 120px overlap cannot hide the lower door. */
+  z-index: 42;
   pointer-events: none;
 }
 
@@ -115,6 +117,15 @@ body.play #viewport {
   z-index: 0;
 }
 
+#play-fade {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 50;
+}
+
 #play-hud {
   position: absolute;
   left: 0;
@@ -136,7 +147,8 @@ body.play #viewport {
   display: block;
   image-rendering: pixelated;
   pointer-events: none;
-  z-index: 41;
+  /* Above #actor-layer (42). Same idea as #play-hand (45). */
+  z-index: 44;
 }
 
 #play-hud-face[hidden] {
@@ -160,7 +172,8 @@ body.play #viewport {
   position: absolute;
   left: 0;
   top: 0;
-  z-index: 18;
+  /* Above #actor-layer (42) and HUD chrome. Talking-head must cover the still. */
+  z-index: 46;
   pointer-events: none;
   background: transparent;
   border: 0;

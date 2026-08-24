@@ -2,7 +2,15 @@ import type { Proc } from "../vm/ast";
 import { num, str, VM, type OpcodeHost, type Point, type Value } from "../vm/runtime";
 import { extractUrl } from "../world/set/extract";
 import type { Dir, SetGraph, WalkerPose } from "../world/set/types";
-import { loadSetGraph, parseDir, sceneByName, tileKey, WORLD_TOWN } from "../world/set/graph";
+import {
+  cameraZOf,
+  loadSetGraph,
+  parseDir,
+  sceneByName,
+  setNamesEqual,
+  tileKey,
+  WORLD_TOWN,
+} from "../world/set/graph";
 import { routeToStar, TILE_SPAN, type RoutePoint, type StarPath } from "../world/set/path";
 import {
   actorSprite,
@@ -17,6 +25,8 @@ import {
   gameFrameSec,
   playerWorldPoint,
   PRP_SCALE_FIELD,
+  pointInSpriteDest,
+  spriteDestRect,
   timingForPose,
   worldSpriteHitsPoint,
   worldToStill,
@@ -24,9 +34,9 @@ import {
   type StillHit,
 } from "./facing";
 import type { ViewCamera } from "./facing";
+import { doorOpenedStillMatches, propStillScale } from "./occlude";
 import { ScriptIndex, loadScriptJson } from "./scripts";
 import {
-  asCenter,
   dustIdleInterval,
   dustTick,
   PUPPET_IDLE_CLIPS,
@@ -35,6 +45,7 @@ import {
   puppetIdleDurationUnits,
   puppetIdleKind,
   puppetTicksToMs,
+  mergePuppetRest,
   type PuppetSheet,
   type PuppetUi,
   type SpritePlace,
@@ -55,7 +66,15 @@ import {
   movieFolder,
   type MovieTimeline,
 } from "./movies";
-import { isTownGridSize, parseScriptScene, poseForOpenedSet, scriptSceneName } from "./sceneName";
+import {
+  isTownGridSize,
+  openSetShouldStand,
+  parseScriptScene,
+  poseForOpenedSet,
+  scriptSceneName,
+} from "./sceneName";
+
+type PuppetLine = { text: string; wav: string; viseme?: VisemeLine };
 
 export interface Waypoint {
   x: number;
@@ -124,6 +143,8 @@ export interface PropState {
   poseTiming: Record<string, number[]>;
   /** Game frames since the current view; used with `poseTiming`. */
   animTick: number;
+  /** Scene + facing when `setupprop` showed this HOUSE door overlay. */
+  openedAt?: { scene: string; facing: string };
   ball?: { vx: number; vy: number; vz: number; remaining: number };
 }
 
@@ -152,6 +173,10 @@ export interface WorldView {
     frames: { url: string; holdSec: number; action?: number }[],
     clips: { url: string; startSec: number; channel?: string }[],
   ): Promise<void>;
+  /** Dust `screentoblack` / `blacktoscreen` ticks (60 Hz). */
+  fadeToBlack?(ticks: number): Promise<void>;
+  fadeFromBlack?(ticks: number): Promise<void>;
+  cutToBlack?(): void;
 }
 
 /** Scene dumps that actually contain scripts (not every cell in the 225 table). */
@@ -212,10 +237,9 @@ export class DustHost implements OpcodeHost {
   currentDir: Dir | string = "N";
   currentPuppet = "none";
   readonly puppetNames: string[] = [];
-  private puppetLines = new Map<
-    string,
-    { text: string; wav: string; viseme?: VisemeLine }
-  >();
+  /** `texts.csv` rows per PUP folder. `puppetLines` is the open file’s bag. */
+  private puppetLineBags = new Map<string, Map<string, PuppetLine>>();
+  private loosePuppetLines = new Map<string, PuppetLine>();
   private visemeLines = new Map<string, VisemeLine>();
   private visemeLoads = new Map<string, Promise<VisemeLine | undefined>>();
   private currentPuppetFolder = "";
@@ -268,6 +292,11 @@ export class DustHost implements OpcodeHost {
   private soundVolumes = new Map<string, number>();
   private shopSprites = new Map<string, Record<string, Record<string, SpritePlace[]>>>();
   private loadedScriptFiles = new Set<string>();
+  private readonly scriptProcs = new Map<string, Proc[]>();
+  private readonly setGraphs = new Map<string, SetGraph>();
+  private readonly waypointBags = new Map<string, { points: Waypoint[]; paths: StarPath[] }>();
+  /** FLT `flats.json` names, 1-based for `gotoflat (2)`. */
+  private stageFlatNames: string[] = ["mainpanel"];
   private puppetSheet: PuppetSheet | null = null;
   private gangSprites: Record<string, Record<string, SpritePlace[]>> = {};
 
@@ -329,15 +358,29 @@ export class DustHost implements OpcodeHost {
       case "puppetgrab":
       case "keyaborts":
       case "menuvisible":
-      case "blackscreen":
-      case "blacktoscreen":
-      case "screentoblack":
       case "clut":
       case "visualeffect":
       case "plain":
       case "showcursor":
       case "flushevents":
         return 0;
+      case "blackscreen":
+        this.view?.cutToBlack?.();
+        return 0;
+      case "screentoblack": {
+        const ticks = fadeTicks(args);
+        if (this.view?.fadeToBlack) {
+          await this.view.fadeToBlack(ticks);
+        }
+        return 0;
+      }
+      case "blacktoscreen": {
+        const ticks = fadeTicks(args);
+        if (this.view?.fadeFromBlack) {
+          await this.view.fadeFromBlack(ticks);
+        }
+        return 0;
+      }
       case "closetrackfile":
       case "halttheme":
         this.stopBed();
@@ -551,7 +594,10 @@ export class DustHost implements OpcodeHost {
       case "currentsound":
         return "none";
       case "voicesound":
-        await this.playVoice(str(args[0]));
+        // Mixer start, not a wait. Awaiting fetch held `initprop` before
+        // `propvisible (false)` so a pan-away door replayed close and
+        // kept the overlay up.
+        void this.playVoice(str(args[0]));
         return 0;
       case "singlesound":
       case "dualsound":
@@ -609,6 +655,8 @@ export class DustHost implements OpcodeHost {
         return 0;
       case "openstagefile":
         await this.openStage(str(args[0]));
+        // Engine shows the default flat (`openflat` → mainpanel `noface`).
+        await this.activateFlat(ctx, this.currentFlatName);
         return 0;
       case "opensetfile":
         await this.openSet(str(args[0]));
@@ -618,6 +666,9 @@ export class DustHost implements OpcodeHost {
             await ctx.runProc(hook);
           }
         }
+        // `initall` does `stoploop ("flat", "all")` then `opensetfile`.
+        // Re-run mainpanel `openflat` so `makeface` is not left dead.
+        await this.rearmHudFlat(ctx);
         return 0;
       case "closesetfile":
         await ctx.inObject("scene", this.currentScene, () => ctx.evalCall("closescene", []));
@@ -650,7 +701,10 @@ export class DustHost implements OpcodeHost {
         }
         return this.currentFlatName;
       case "gotoflat":
-        this.currentFlatName = str(args[0]).toLowerCase();
+        await this.activateFlat(
+          ctx,
+          resolveFlatName(args[0], this.stageFlatNames, this.currentFlatName),
+        );
         return this.currentFlatName;
       case "currentscene":
         if (args.length) {
@@ -703,7 +757,19 @@ export class DustHost implements OpcodeHost {
         return this.ensureProp(str(args[0])).owner;
       case "propvisible":
         if (args.length >= 2) {
-          this.ensureProp(str(args[0])).visible = Boolean(args[1]);
+          const prop = this.ensureProp(str(args[0]));
+          const on = truthyArg(args[1]);
+          prop.visible = on;
+          if (on && prop.name === "door") {
+            prop.openedAt = {
+              scene: this.currentScene,
+              facing: String(this.view?.pose.facing ?? this.currentDir),
+            };
+          }
+          if (!on) {
+            prop.openedAt = undefined;
+          }
+          this.view?.refreshActors();
         }
         return this.ensureProp(str(args[0])).visible;
       case "actorvisible":
@@ -1106,9 +1172,55 @@ export class DustHost implements OpcodeHost {
           this.loops.delete(key);
         }
       }
+      this.dropDueLoops((loop) => loop.kind === type);
       return;
     }
     this.loops.delete(this.loopKey(type, name));
+    this.dropDueLoops((loop) => loop.kind === type && loop.who === name);
+  }
+
+  private dropDueLoops(match: (loop: ScriptLoop) => boolean): void {
+    for (let i = this.dueLoops.length - 1; i >= 0; i -= 1) {
+      if (match(this.dueLoops[i]!)) {
+        this.dueLoops.splice(i, 1);
+      }
+    }
+  }
+
+  private hudFlatLoopAlive(who: string): boolean {
+    const hit = (loop: ScriptLoop) => loop.kind === "flat" && loop.who === who;
+    return [...this.loops.values()].some(hit) || this.dueLoops.some(hit);
+  }
+
+  /** Mainpanel `noface` after boot / initall. No-op if makeface is already armed. */
+  async ensureHudPortrait(ctx: VM): Promise<void> {
+    if ((this.currentFlatName || "mainpanel") !== "mainpanel") {
+      return;
+    }
+    await this.rearmHudFlat(ctx);
+  }
+
+  /**
+   * Dust shows a flat by running its `openflat` (and `closeflat` on the
+   * one that was up). NEW.FLT mainpanel `openflat` is `noface`.
+   */
+  private async activateFlat(ctx: VM, name: string): Promise<void> {
+    const dest = (name || "mainpanel").toLowerCase();
+    const prev = this.currentFlatName.toLowerCase();
+    if (prev && prev !== "none" && prev !== dest) {
+      await ctx.inObject("flat", prev, () => ctx.evalCall("closeflat", []));
+    }
+    this.currentFlatName = dest;
+    await ctx.inObject("flat", dest, () => ctx.evalCall("openflat", []));
+  }
+
+  /** After `stoploop ("flat", "all")`, the HUD portrait loop is gone. */
+  private async rearmHudFlat(ctx: VM): Promise<void> {
+    const who = (this.currentFlatName || "mainpanel").toLowerCase();
+    if (who !== "mainpanel" || this.hudFlatLoopAlive(who)) {
+      return;
+    }
+    await ctx.inObject("flat", who, () => ctx.evalCall("openflat", []));
   }
 
   private pauseLoop(kind: string, who: string, paused: boolean): void {
@@ -1384,7 +1496,11 @@ export class DustHost implements OpcodeHost {
       if (!actor.visible) {
         return false;
       }
-      if (actor.set && actor.set !== world && actor.set !== this.currentSet) {
+      if (
+        actor.set &&
+        !setNamesEqual(actor.set, world) &&
+        !setNamesEqual(actor.set, this.currentSet)
+      ) {
         return false;
       }
       return viewStill(this.view, actor) !== null;
@@ -1394,6 +1510,14 @@ export class DustHost implements OpcodeHost {
   skipRemainingSpeech(): void {
     this.skipSpeech = true;
     this.ui.skipLine();
+  }
+
+  private get puppetLines(): Map<string, PuppetLine> {
+    return this.puppetLineBags.get(this.currentPuppetFolder) ?? this.loosePuppetLines;
+  }
+
+  private cachedViseme(ident: string): VisemeLine | undefined {
+    return this.visemeLines.get(puppetClipKey(this.currentPuppetFolder, ident));
   }
 
   private async speak(ident: string): Promise<void> {
@@ -1417,8 +1541,20 @@ export class DustHost implements OpcodeHost {
     if (line?.wav) {
       void voices.preload([line.wav]);
     }
-    const viseme = this.visemeLines.get(key) ?? line?.viseme;
+    const viseme = this.cachedViseme(key) ?? line?.viseme;
     void this.ui.fidget(line?.wav, viseme, ident);
+    if (viseme) {
+      return;
+    }
+    void this.loadVisemeLine(key).then((loaded) => {
+      if (!loaded) {
+        return;
+      }
+      if (line) {
+        line.viseme = loaded;
+      }
+      this.ui.setViseme(loaded);
+    });
   }
 
   /**
@@ -1435,12 +1571,12 @@ export class DustHost implements OpcodeHost {
       limitTicks > 0 ? startTick + limitTicks : Number.POSITIVE_INFINITY;
     const tracks = PUPPET_IDLE_CLIPS.flatMap((ident) => {
       const line = this.puppetLines.get(ident);
-      if (!line && !this.visemeLines.has(ident)) {
+      if (!line && !this.cachedViseme(ident)) {
         return [];
       }
       const kind = puppetIdleKind(ident, line?.text ?? "");
       const wavSec = line?.wav ? voices.bufferDuration(line.wav) : 0;
-      const visemeTicks = this.visemeLines.get(ident)?.ticks ?? 0;
+      const visemeTicks = this.cachedViseme(ident)?.ticks ?? 0;
       const duration = puppetIdleDurationUnits(wavSec, visemeTicks, kind);
       const rand15 = Math.floor(this.rng() * 0x8000);
       return [
@@ -1556,31 +1692,33 @@ export class DustHost implements OpcodeHost {
   }
 
   private async loadVisemeLine(ident: string): Promise<VisemeLine | undefined> {
-    const hit = this.visemeLines.get(ident);
-    if (hit) {
-      return hit;
-    }
-    const pending = this.visemeLoads.get(ident);
-    if (pending) {
-      return pending;
-    }
     const folder = this.currentPuppetFolder;
     if (!folder) {
       return undefined;
     }
+    const key = ident.toLowerCase();
+    const cacheKey = puppetClipKey(folder, key);
+    const hit = this.visemeLines.get(cacheKey);
+    if (hit) {
+      return hit;
+    }
+    const pending = this.visemeLoads.get(cacheKey);
+    if (pending) {
+      return pending;
+    }
     const job = (async () => {
       const data = await fetchJson<VisemeLine>(
-        extractUrl(`${folder}/AUDIO/visemes/${ident}.json`),
+        extractUrl(`${folder}/AUDIO/visemes/${key}.json`),
       ).catch(() => null);
       if (!data?.frames?.length) {
         return undefined;
       }
-      this.visemeLines.set(ident, data);
+      this.visemeLines.set(cacheKey, data);
       return data;
     })().finally(() => {
-      this.visemeLoads.delete(ident);
+      this.visemeLoads.delete(cacheKey);
     });
-    this.visemeLoads.set(ident, job);
+    this.visemeLoads.set(cacheKey, job);
     return job;
   }
 
@@ -1639,7 +1777,10 @@ export class DustHost implements OpcodeHost {
       await this.addScriptFile("flat:mainpanel", `${folder}/openflat.json`);
       await this.addScriptFile("flat:death", `${folder}/death.json`);
     }
-    this.currentFlatName = "mainpanel";
+    this.stageFlatNames = flats?.flats?.length
+      ? flats.flats.map((flat) => flat.name.toLowerCase())
+      : ["mainpanel"];
+    this.currentFlatName = this.stageFlatNames[0] ?? "mainpanel";
   }
 
   private async openShop(name: string): Promise<void> {
@@ -1760,7 +1901,11 @@ export class DustHost implements OpcodeHost {
     const logical = name.replace(/\.set$/i, "").toLowerCase();
     this.currentSet = logical === "nite" ? "town" : logical;
     this.currentSetFile = name.toLowerCase();
-    const graph = await loadSetGraph(folder);
+    let graph = this.setGraphs.get(folder);
+    if (!graph) {
+      graph = await loadSetGraph(folder);
+      this.setGraphs.set(folder, graph);
+    }
     await this.loadWaypoints(folder);
     this.index.removePrefix("set");
     this.index.removePrefix("scene:");
@@ -1771,19 +1916,23 @@ export class DustHost implements OpcodeHost {
       : [...graph.scenes.values()]
           .map((scene) => scene.name)
           .filter((name, i, all) => Boolean(name) && all.indexOf(name) === i);
-    for (const fileName of files) {
-      await this.addScriptFile(
-        `scene:${fileName.toLowerCase()}`,
-        `SET/${folder}/${fileName}.json`,
-      );
-    }
+    await Promise.all(
+      files.map((fileName) =>
+        this.addScriptFile(`scene:${fileName.toLowerCase()}`, `SET/${folder}/${fileName}.json`),
+      ),
+    );
     if (this.view) {
       const world = this.currentSet === "town" ? WORLD_TOWN : folder;
       const facing = parseDir(String(this.currentDir)) ?? this.view.pose.facing;
-      const pose = poseForOpenedSet(graph, this.currentScene, facing);
-      await this.view.setPose(world, pose);
-      this.currentScene = this.sceneNameForPose(graph, pose.x, pose.y);
-      this.currentDir = pose.facing;
+      if (openSetShouldStand(graph, this.currentScene)) {
+        const pose = poseForOpenedSet(graph, this.currentScene, facing);
+        await this.view.setPose(world, pose);
+        this.currentScene = this.sceneNameForPose(graph, pose.x, pose.y);
+        this.currentDir = pose.facing;
+      } else {
+        this.view.world = world;
+        this.view.graph = graph;
+      }
     }
   }
 
@@ -1795,7 +1944,11 @@ export class DustHost implements OpcodeHost {
       return;
     }
     try {
-      const procs = await loadScriptJson(rel);
+      let procs = this.scriptProcs.get(rel);
+      if (!procs) {
+        procs = await loadScriptJson(rel);
+        this.scriptProcs.set(rel, procs);
+      }
       for (const proc of procs) {
         this.index.add(key, proc, rel);
       }
@@ -1885,6 +2038,7 @@ export class DustHost implements OpcodeHost {
       }
       const wavs: string[] = [];
       const idents: string[] = [];
+      const lines = new Map<string, PuppetLine>();
       if (csvText) {
         for (const row of parseCsv(csvText)) {
           const ident = row[2]?.toLowerCase();
@@ -1892,11 +2046,12 @@ export class DustHost implements OpcodeHost {
             continue;
           }
           const wav = extractUrl(`${folder}/AUDIO/${row[2]}.wav`);
-          this.puppetLines.set(ident, { text: dustMacRoman(row[3] ?? ident), wav });
+          lines.set(ident, { text: dustMacRoman(row[3] ?? ident), wav });
           wavs.push(wav);
           idents.push(ident);
         }
       }
+      this.puppetLineBags.set(folder, lines);
       this.puppetWavs.set(folder, wavs);
       this.puppetIdents.set(folder, idents);
       this.loadedPuppets.add(stem);
@@ -1916,7 +2071,7 @@ export class DustHost implements OpcodeHost {
     if (show) {
       this.currentPuppet = name.toLowerCase();
       if (this.puppetSheet) {
-        this.ui.open(this.puppetSheet);
+        await this.ui.open(this.puppetSheet);
       }
     } else {
       this.currentPuppet = "none";
@@ -1939,13 +2094,19 @@ export class DustHost implements OpcodeHost {
   }
 
   async loadWaypoints(folder: string): Promise<void> {
-    const waypoints = await fetchJson<Waypoint[]>(extractUrl(`SET/${folder}/waypoints.json`)).catch(
-      () => [] as Waypoint[],
-    );
-    this.waypoints = new Map(waypoints.map((w) => [w.name.toLowerCase(), w]));
-    this.paths = await fetchJson<StarPath[]>(extractUrl(`SET/${folder}/paths.json`)).catch(
-      () => [] as StarPath[],
-    );
+    let bag = this.waypointBags.get(folder);
+    if (!bag) {
+      const waypoints = await fetchJson<Waypoint[]>(extractUrl(`SET/${folder}/waypoints.json`)).catch(
+        () => [] as Waypoint[],
+      );
+      const paths = await fetchJson<StarPath[]>(extractUrl(`SET/${folder}/paths.json`)).catch(
+        () => [] as StarPath[],
+      );
+      bag = { points: waypoints, paths };
+      this.waypointBags.set(folder, bag);
+    }
+    this.waypoints = new Map(bag.points.map((w) => [w.name.toLowerCase(), w]));
+    this.paths = bag.paths;
   }
 
   log(message: string): void {
@@ -2039,15 +2200,7 @@ export class DustHost implements OpcodeHost {
   }
 
   private soundUrl(name: string): string {
-    const stem = name.replace(/\.(snd|wav)$/i, "");
-    const lower = stem.toLowerCase();
-    if (name.toLowerCase().endsWith(".snd") || name.toLowerCase().includes(".snd")) {
-      return extractUrl(`SND/${this.trackFolder}/${stem}.snd.wav`);
-    }
-    const file = name.toLowerCase().endsWith(".wav") ? name : `${stem}.wav`;
-    const unilib = /^(knock|door|inven|gun|hey|hotbell|gate|ricochet|manfalls|pageturn)/.test(lower);
-    const folder = unilib ? "_UNILIB" : this.trackFolder;
-    return extractUrl(`SND/${folder}/${file}`);
+    return soundFileUrl(name, this.trackFolder);
   }
 
   hitsHeldItem(point: Point, handitem: string): boolean {
@@ -2116,7 +2269,13 @@ export class DustHost implements OpcodeHost {
       if (prop.view === "large" || prop.view === "panel" || prop.view === "hilite") {
         return true;
       }
-      if (prop.set && prop.set !== this.currentSet && prop.set !== "town") {
+      const world = this.view?.world ?? "";
+      if (
+        prop.set &&
+        prop.set !== "town" &&
+        !setNamesEqual(prop.set, this.currentSet) &&
+        !setNamesEqual(prop.set, world)
+      ) {
         return false;
       }
       return true;
@@ -2128,7 +2287,9 @@ export class DustHost implements OpcodeHost {
     if (!still || !this.view) {
       return false;
     }
-    const cam = this.view.viewCamera?.() ?? cameraFromPose(this.view.pose, this.view.graph?.cameraZ);
+    const cam =
+      this.view.viewCamera?.() ??
+      cameraFromPose(this.view.pose, cameraZOf(this.view.world, this.view.graph));
     return worldSpriteHitsPoint(
       point.x,
       point.y,
@@ -2146,24 +2307,35 @@ export class DustHost implements OpcodeHost {
       return Math.abs(prop.x - point.x) < 40 && Math.abs(prop.y - point.y) < 40;
     }
     const still = viewStill(this.view, prop);
-    if (!still) {
+    if (!still || !this.view) {
       return false;
     }
     const view = (prop.view || "small").toLowerCase();
     const frames =
       prop.sprites[view] ??
+      prop.sprites.sit ??
+      prop.sprites.stand ??
       prop.sprites.small ??
       prop.sprites.base ??
       Object.values(prop.sprites)[0];
-    return worldSpriteHitsPoint(
+    const frame = frames?.[0];
+    if (!frame || frame.w <= 0 || frame.h <= 0) {
+      return worldSpriteHitsPoint(
+        point.x,
+        point.y,
+        still.x,
+        still.y,
+        frame,
+        prop.scale || 1450,
+        still.lensForward,
+        PRP_SCALE_FIELD,
+      );
+    }
+    const stillScale = propStillScale(prop, still.lensForward);
+    return pointInSpriteDest(
       point.x,
       point.y,
-      still.x,
-      still.y,
-      frames?.[0],
-      prop.scale || 1450,
-      still.lensForward,
-      PRP_SCALE_FIELD,
+      spriteDestRect(still.x, still.y, frame, stillScale),
     );
   }
 
@@ -2343,6 +2515,34 @@ export class DustHost implements OpcodeHost {
   }
 
   /**
+   * The open-door overlay replaces one still. Leaving that still (turn or
+   * tile) runs `initprop` once: close sound + hide. D1 `closescene` is the
+   * same call on tile leave; skip if already shut.
+   */
+  async closeDoorIfLeftOpening(
+    ctx: VM,
+    destScene: string,
+    destFacing: string,
+  ): Promise<void> {
+    const door = this.props.get("door");
+    if (!door?.visible) {
+      return;
+    }
+    const opened = door.openedAt ?? {
+      scene: this.currentScene,
+      facing: String(this.view?.pose.facing ?? this.currentDir),
+    };
+    if (doorOpenedStillMatches(opened, destScene, destFacing)) {
+      return;
+    }
+    await ctx.inObject("prop", "door", () => ctx.evalCall("initprop", []));
+    door.visible = false;
+    door.owner = "none";
+    door.openedAt = undefined;
+    this.view?.refreshActors();
+  }
+
+  /**
    * Boot `keydown`, or Dust `keyrepeat` (sets `isrepeat`, then `keydown`)
    * while a move key is held. Scene gates run on that path.
    */
@@ -2454,51 +2654,51 @@ export function puppetFolder(stem: string): string {
   return `PUP/_${name}`;
 }
 
+/**
+ * `idle 1`–`idle 4` (and any other ident) live in that PUP’s folder.
+ * DF.EXE `openpuppetfile` loads that file’s viseme table; a global
+ * ident cache paints Leroy extras on Help (shop plate + Picasso head).
+ */
+export function puppetClipKey(folder: string, ident: string): string {
+  const root = folder.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  return `${root}/${ident.trim().toLowerCase()}`;
+}
+
 async function loadPuppetSheet(folder: string): Promise<PuppetSheet | null> {
-  const data = await fetchJson<{
-    layers?: Record<string, SpritePlace[]>;
-    rest?: Record<string, unknown>;
-    restLayers?: Record<string, number>;
-  }>(extractUrl(`${folder}/FRAMES/sprites.json`)).catch(() => null);
+  const [data, idleLine] = await Promise.all([
+    fetchJson<{
+      layers?: Record<string, SpritePlace[]>;
+      rest?: Record<string, unknown>;
+      restLayers?: Record<string, number>;
+    }>(extractUrl(`${folder}/FRAMES/sprites.json`)).catch(() => null),
+    fetchJson<VisemeLine>(extractUrl(`${folder}/AUDIO/visemes/idle 1.json`)).catch(
+      () => null,
+    ),
+  ]);
   if (!data?.layers) {
     return null;
   }
-  const rest = normalizeCenters(data.rest);
-  const restLayers: Record<string, number> = {};
-  if (data.restLayers) {
-    for (const [name, value] of Object.entries(data.restLayers)) {
-      const index = Number(value);
-      if (Number.isFinite(index)) {
-        restLayers[name] = index;
-      }
-    }
-  }
+  const merged = mergePuppetRest(data, idleLine?.frames?.[0]);
   return {
     folder,
     layers: data.layers,
-    rest: Object.keys(rest).length ? rest : undefined,
-    restLayers: Object.keys(restLayers).length ? restLayers : undefined,
+    rest: Object.keys(merged.rest).length ? merged.rest : undefined,
+    restLayers: Object.keys(merged.restLayers).length ? merged.restLayers : undefined,
   };
-}
-
-function normalizeCenters(
-  raw: Record<string, unknown> | undefined,
-): Record<string, { x: number; y: number }> {
-  const out: Record<string, { x: number; y: number }> = {};
-  if (!raw) {
-    return out;
-  }
-  for (const [name, value] of Object.entries(raw)) {
-    const center = asCenter(value);
-    if (center) {
-      out[name] = center;
-    }
-  }
-  return out;
 }
 
 function setFolderFromFile(name: string): string | undefined {
   return SET_FILE[name.toLowerCase()];
+}
+
+/** `screentoblack ("current", 30)` — duration is the last number. */
+function fadeTicks(args: Value[]): number {
+  for (let i = args.length - 1; i >= 0; i--) {
+    if (typeof args[i] === "number") {
+      return Math.max(0, num(args[i]));
+    }
+  }
+  return 0;
 }
 
 const DIR_WORD: Record<string, string> = {
@@ -2507,6 +2707,42 @@ const DIR_WORD: Record<string, string> = {
   E: "east",
   W: "west",
 };
+
+/**
+ * Dust keeps `unilib.snd` open after later `opentrackfile` calls. Saloon
+ * `openset` switches the track to `saloon1.snd`; Scene D1/C1 still play
+ * `voicesound ("swingdoor")` from UNILIB. Prefix `door` covers dooropen
+ * and doorclose names; swingdoor does not match that.
+ */
+const UNILIB_CLIP =
+  /^(knock|door|inven|gun|hey|hotbell|gate|ricochet|manfalls|pageturn|swingdoor|dellgrunt)/;
+
+export function soundFileUrl(name: string, trackFolder: string): string {
+  const stem = name.replace(/\.(snd|wav)$/i, "");
+  const lower = stem.toLowerCase();
+  if (name.toLowerCase().endsWith(".snd") || name.toLowerCase().includes(".snd")) {
+    return extractUrl(`SND/${trackFolder}/${stem}.snd.wav`);
+  }
+  const file = name.toLowerCase().endsWith(".wav") ? name : `${stem}.wav`;
+  const folder = UNILIB_CLIP.test(lower) ? "_UNILIB" : trackFolder;
+  return extractUrl(`SND/${folder}/${file}`);
+}
+
+/**
+ * Dust `gotoflat (2)` is **1-based** into the stage's flats list
+ * (NEW.FLT: 1 mainpanel, 2 map, 3 avatar). Names pass through.
+ */
+export function resolveFlatName(
+  arg: Value,
+  flats: readonly string[],
+  fallback: string,
+): string {
+  if (typeof arg === "number" && Number.isFinite(arg)) {
+    return flats[Math.trunc(arg) - 1] ?? fallback;
+  }
+  const name = str(arg).toLowerCase();
+  return name || fallback;
+}
 
 export function dirWord(dir: Dir | string): string {
   const upper = String(dir).toUpperCase();

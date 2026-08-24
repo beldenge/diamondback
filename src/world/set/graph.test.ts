@@ -1,7 +1,19 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildSetGraph, holdFrame, hqFrame, parseDir, resolveSpawn, sceneByName, SET_CAMERA_Z, SET_SPAWN } from "./graph";
+import {
+  buildSetGraph,
+  cameraZOf,
+  holdFrame,
+  hqFrame,
+  parseDir,
+  resolveSpawn,
+  sceneByName,
+  SET_CAMERA_Z,
+  SET_SPAWN,
+  setFolderFromWorld,
+  setNamesEqual,
+} from "./graph";
 import {
   applyTransition,
   isSwipePointer,
@@ -207,6 +219,12 @@ describe("extracted interior graphs", () => {
     }
     expect(SET_CAMERA_Z._CHIN).toBe(230);
     expect(SET_CAMERA_Z._SALLOWER).toBe(180);
+    expect(cameraZOf("_SALLOWER")).toBe(180);
+    expect(cameraZOf("sallower")).toBe(180);
+    expect(cameraZOf("sallower.set", { cameraZ: 62 })).toBe(180);
+    expect(setFolderFromWorld("sallower")).toBe("_SALLOWER");
+    expect(setNamesEqual("sallower", "_SALLOWER")).toBe(true);
+    expect(setNamesEqual("sallower", "sallower.set")).toBe(true);
   });
 });
 

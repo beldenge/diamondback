@@ -47,7 +47,7 @@ keyframes**: `len / 82` records, `durationTicks` records (the i16 at
 record+4). Each record is 82 bytes / 41 i16s: tick at +0 (60 Hz), then
 11 layer slots starting at +16 (3×i16 each, first = index into that
 face table, `-1` = hide). Last tick / 60 equals the WAV length.
-Written as `AUDIO/visemes/<ident>.json` (play mode) and `AUDIO/visemes.json` (full extract blob; do not fetch that in the browser).
+Written as `AUDIO/visemes/<ident>.json` (play mode) and `AUDIO/visemes.json` (full extract blob; do not fetch that in the browser). Ident is unique **inside this PUP file**. Every character names engine idle slots `idle 1`–`idle 4`; play caches `PUP/_NAME/ident`, not ident alone. Book: [`src/play/README.md`](../../src/play/README.md) § PUP viseme tracks.
 
 ### Container 2 — script directory
 

@@ -5,6 +5,7 @@ import {
   actorStillHeight,
   ACTOR_SCALE_REF,
   CST_SCALE_FIELD,
+  PRP_SCALE_FIELD,
   enginePinholeY,
   engineStillScale,
   calcDeg,
@@ -37,6 +38,7 @@ import {
   wrapDeg,
 } from "./facing";
 import { TILE_SPAN } from "../world/set/path";
+import { STILL_HEIGHT } from "../world/set/types";
 import { playStageRect, STAGE_HEIGHT, STAGE_WIDTH } from "./stage";
 
 function actor(x: number, y: number, deg = 0): ActorState {
@@ -242,6 +244,22 @@ describe("CST sprite pick (DF.EXE 0x4154c0)", () => {
     expect(place?.path).not.toBe("alt32");
   });
 
+  it("faces Isao south into the piano from the south aisle", () => {
+    // (2,3) S still: upright, keys toward the lens. Isao sits on the
+    // bench (south of the cabinet) facing the keys. 64 and 192 are both
+    // profiles (perpendicular). actordeg 0 → wanted 128 → back plate.
+    const isaoStand = Array.from({ length: 11 }, (_, i) => {
+      const deg = 48 + i * 16;
+      return { path: `isao${deg}`, deg, pose: 0 };
+    });
+    const isao = { x: 644, y: 1128 };
+    const south = cameraFromPose({ x: 2, y: 3, facing: "S" }, 180);
+    expect(spriteWantedDeg(0, isao, south)).toBe(128);
+    expect(pickCstFrame(isaoStand, 0, isao, south, 0, [1])?.path).toBe("isao128");
+    expect(pickCstFrame(isaoStand, 64, isao, south, 0, [1])?.path).toBe("isao64");
+    expect(pickCstFrame(isaoStand, 192, isao, south, 0, [1])?.path).toBe("isao192");
+  });
+
   it("still picks the front 8-dir plate when the actor faces the lens", () => {
     const stand = Array.from({ length: 8 }, (_, i) => ({
       path: `s${i}`,
@@ -326,6 +344,33 @@ describe("worldToStill", () => {
   it("hides someone behind the camera", () => {
     const pose = { x: 6, y: 14, facing: "N" as const };
     expect(worldToStill(actor(1740, 4000), pose)).toBeNull();
+  });
+
+  it("lands interior exit door overlays on the still with SET cameraZ", () => {
+    // setupprop("salout"): (988, 134, 174) on sallower D1 E. Header +26 is 180.
+    const salout = { x: 988, y: 134, z: 174 };
+    const d1e = { x: 3, y: 0, facing: "E" as const };
+    const hit = worldToStill(salout, cameraFromPose(d1e, 180));
+    expect(hit).not.toBeNull();
+    expect(hit!.x).toBe(267);
+    expect(hit!.y).toBe(143);
+    expect(hit!.lensForward).toBe(156);
+    const place = { x: 138, y: 60, w: 232, h: 252 };
+    const shrunk = engineStillScale(1450, hit!.lensForward, PRP_SCALE_FIELD);
+    const gap = spriteDestRect(hit!.x, hit!.y, place, shrunk);
+    expect(STILL_HEIGHT - gap.bottom).toBeGreaterThan(8);
+    const dest = spriteDestRect(hit!.x, hit!.y, place, 1);
+    expect(dest.left).toBe(149);
+    expect(dest.top).toBe(11);
+    expect(dest.right).toBe(381);
+    expect(dest.bottom).toBe(263);
+    const townCam = worldToStill(salout, cameraFromPose(d1e, 62));
+    expect(townCam!.y).toBeLessThan(0);
+    expect(worldToStill(salout, cameraFromPose({ x: 3, y: 0, facing: "W" }, 180))).toBeNull();
+    // C1 E looks at D1's east wall — salout still projects unless we hide it
+    // and skip the blit (`shouldBlitDoorOverlay`). Projector-alone is not enough.
+    expect(worldToStill(salout, cameraFromPose({ x: 2, y: 0, facing: "E" }, 180))).not.toBeNull();
+    expect(worldToStill(salout, cameraFromPose({ x: 3, y: 0, facing: "N" }, 180))).toBeNull();
   });
 
   it("keeps someone 4 tiles down the street in view", () => {

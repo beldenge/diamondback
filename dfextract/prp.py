@@ -11,11 +11,13 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
-from container import DFError, DFFile
+from container import DFError, DFFile, HEADER_SIZE, MAGIC
 from image import (
     ImageError,
+    Palette,
+    colorize_sprite,
     decode_indexed_image,
-    decode_trans_sprite,
+    decode_trans_indices,
     find_palette,
     sprite_record,
     write_indexed_png,
@@ -37,6 +39,64 @@ class PropFrame:
 def _safe_name(name: str) -> str:
     cleaned = "".join(ch if ch.isalnum() or ch in "._- " else "_" for ch in name)
     return cleaned.strip() or "unnamed"
+
+
+# HOUSE `propview` / group → SET whose ColorPalette the overlay indexes.
+# Dust 8-bit-blits these onto the current SET; HOUSE unused slots are black.
+DOOR_VIEW_SET = {
+    "study": "MAYHALL",
+    "dine": "MAYHALL",
+    "hall": "MAYSTUDY",
+    "hall2": "MAYDINE",
+    "room": "MAYUPPER",
+    "exit": "MAYROOM",
+    "front": "MAYHALL",
+    "horse": "LIVERY",
+    "rice": "CHIN",
+    "lock": "JAIL",
+    "shop": "STORE",
+    "pharm": "APOTH",
+    "car": "STAGE",
+    "dollar": "BANK",
+    "doc1": "DOCTOR1",
+    "doc2": "DOCTOR1",
+    "doc3": "DOCTOR2",
+    "doc4": "DOCTOR2",
+    "buick": "HOTUPPER",
+    "laurel": "HOTUPPER",
+    "playroom": "HOTUPPER",
+    "blood": "HOTUPPER",
+    "inside": "HOTROOM",
+    "hotout": "HOTLOWER",
+    "salout": "SALLOWER",
+    "oona": "SALUPPER",
+    "sophie": "SALUPPER",
+    "ruby": "SALUPPER",
+    "salroom": "SALROOM",
+    "underout": "UNDERTAK",
+    "flipout": "PAPER",
+    "padre": "SCHOOL",
+    "courtout": "COURT",
+    "schoolin": "COURT",
+    "schoolout": "SCHOOL",
+    "padreout": "PADRE",
+    "courtoutnite": "NITECOUR",
+    "schoolinnite": "NITECOUR",
+    "schooloutnite": "NITESCHO",
+    "court": "TOWN",
+    "courtinnite": "NITE",
+    "nitemayo": "NITE",
+}
+
+# World props that are not a door `propview` (card tables, …).
+HOUSE_GROUP_SET = {
+    "gamblers": "SALLOWER",
+    "blackjack": "SALLOWER",
+    "table1": "SALLOWER",
+}
+
+# HOUSE unused-black above this → 8-bit SET blit, not a HUD sprite.
+HOUSE_BLACK_RATIO = 0.5
 
 
 def write_prp_extract(
@@ -129,18 +189,120 @@ def parse_prp_catalog(df: DFFile) -> list[PropFrame]:
     return catalog
 
 
-def _write_one_frame(df: DFFile, container_id: int, dest: Path, palette) -> dict | None:
+def _palette_from_header(path: Path) -> Palette | None:
+    """Read only container 0 so we do not load whole SET files for a palette."""
+    with path.open("rb") as fh:
+        head = fh.read(HEADER_SIZE)
+        if len(head) < 40 or head[32:40] != MAGIC:
+            return None
+        count = struct.unpack_from("<I", head, 20)[0]
+        if count < 1:
+            return None
+        fh.seek(HEADER_SIZE)
+        off0 = struct.unpack("<I", fh.read(4))[0]
+        fh.seek(off0)
+        _cid, size = struct.unpack("<iI", fh.read(8))
+        data = fh.read(size)
+    return find_palette(data)
+
+
+def _sibling_set_palettes(prp_path: Path) -> dict[str, Palette]:
+    """Load every sibling SET ColorPalette (container 0 only)."""
+    parent = prp_path.parent
+    cache: dict[str, Palette] = {}
+    if not parent.is_dir():
+        return cache
+    for path in sorted(parent.glob("*.SET")):
+        try:
+            pal = _palette_from_header(path)
+        except (OSError, struct.error, ImageError):
+            continue
+        if pal is not None:
+            cache[path.stem.upper()] = pal
+    return cache
+
+
+def _black_ratio(indices: bytes, palette: Palette) -> float:
+    n = 0
+    black = 0
+    colors = palette.colors
+    ncolors = len(colors)
+    for index in indices:
+        if index == 255:
+            continue
+        n += 1
+        if index < ncolors and colors[index] == (0, 0, 0):
+            black += 1
+    return black / n if n else 0.0
+
+
+def _chroma_count(sprite) -> int:
+    rgba = sprite.rgba
+    n = 0
+    for i in range(0, len(rgba), 4):
+        if rgba[i + 3] and (rgba[i], rgba[i + 1], rgba[i + 2]) != (0, 0, 0):
+            n += 1
+    return n
+
+
+def _colorize_trans(
+    data: bytes,
+    house_pal: Palette,
+    preferred: Palette | None,
+    set_pals: list[Palette],
+):
+    """HUD sprites keep HOUSE. World overlays are SET-indexed; unused HOUSE slots are black."""
+    width, height, pos_x, pos_y, indices = decode_trans_indices(data)
+    house_spr = colorize_sprite(width, height, pos_x, pos_y, indices, house_pal)
+    if _black_ratio(indices, house_pal) < HOUSE_BLACK_RATIO:
+        return house_spr
+    opaque = sum(1 for index in indices if index != 255) or 1
+    best = house_spr
+    best_chroma = _chroma_count(house_spr)
+    seen: set[int] = {id(house_pal)}
+    ordered: list[Palette] = []
+    if preferred is not None:
+        ordered.append(preferred)
+    ordered.extend(set_pals)
+    for pal in ordered:
+        marker = id(pal)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        sprite = colorize_sprite(width, height, pos_x, pos_y, indices, pal)
+        chroma = _chroma_count(sprite)
+        if chroma > best_chroma:
+            best = sprite
+            best_chroma = chroma
+            if pal is preferred and chroma >= 0.25 * opaque:
+                return best
+    return best
+
+
+def _write_one_frame(
+    df: DFFile,
+    container_id: int,
+    dest: Path,
+    palette,
+    preferred: Palette | None = None,
+    set_pals: list[Palette] | None = None,
+) -> dict | None:
     if container_id < 0 or container_id >= len(df.containers):
         return None
     data = df.containers[container_id].data
     if len(data) < 16:
         return None
     height, width = struct.unpack_from("<hh", data, 0)
+    # Interior door overlays (salout, rice, …) are trans sprites larger
+    # than 256×256 / 20 KB. Decode trans first; indexed stills fail that
+    # codec and fall through.
     try:
-        if 1 <= height <= 256 and 1 <= width <= 256 and len(data) < 20_000:
-            sprite = decode_trans_sprite(data, palette)
-            write_png(dest, sprite)
-            return sprite_record(sprite, dest.name)
+        sprite = _colorize_trans(data, palette, preferred, set_pals or [])
+        write_png(dest, sprite)
+        return sprite_record(sprite, dest.name)
+    except ImageError:
+        pass
+    try:
         if len(data) >= 64:
             write_indexed_png(dest, decode_indexed_image(data), palette)
             return {"w": width, "h": height}
@@ -158,6 +320,10 @@ def _write_frames(df: DFFile, out_dir: Path) -> int:
     palette = find_palette(df.containers[0].data, unused_rgb=unused)
     if palette is None:
         return 0
+    set_by_stem = (
+        _sibling_set_palettes(df.path) if df.path.stem.upper() == "HOUSE" else {}
+    )
+    set_pals = list(set_by_stem.values())
     catalog = parse_prp_catalog(df)
     written = 0
     named: set[int] = set()
@@ -170,7 +336,13 @@ def _write_frames(df: DFFile, out_dir: Path) -> int:
             / item.state
             / f"{item.index_in_state:02d}_c{item.container}.png"
         )
-        meta = _write_one_frame(df, item.container, dest, palette)
+        stem = DOOR_VIEW_SET.get(item.state.lower()) or HOUSE_GROUP_SET.get(
+            item.group.lower()
+        )
+        preferred = set_by_stem.get(stem) if stem else None
+        meta = _write_one_frame(
+            df, item.container, dest, palette, preferred, set_pals
+        )
         if meta is not None:
             written += 1
             named.add(item.container)

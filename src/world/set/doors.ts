@@ -79,28 +79,67 @@ function stairDoor(
   };
 }
 
-/** PRP door PNG filenames (`00_c<container>.png`). */
-/**
- * Usable open-door sprites. Omitted on purpose: court/school/padre dumps
- * are solid black; hotel / chin / paper / undertak sprites are a different
- * door than the facade still. Opening still works (sound + walk in).
- */
+/** PRP door PNG filenames (`00_c<container>.png`). HOUSE.PRP door group. */
 const DOOR_PNG: Record<string, string> = {
   apoth: "00_c563.png",
   bank: "00_c565.png",
   store: "00_c567.png",
+  hotel: "00_c569.png",
+  chin: "00_c571.png",
   doctor: "00_c573.png",
   back: "00_c575.png",
   saloon: "00_c577.png",
   jail: "00_c579.png",
   livery: "00_c581.png",
+  paper: "00_c583.png",
   stage: "00_c585.png",
+  undertak: "00_c587.png",
   mayor: "00_c589.png",
   nitemayo: "00_c591.png",
+  study: "00_c593.png",
+  dine: "00_c595.png",
+  hall: "00_c597.png",
+  hall2: "00_c599.png",
+  room: "00_c601.png",
+  exit: "00_c603.png",
+  front: "00_c605.png",
+  horse: "00_c607.png",
+  rice: "00_c609.png",
+  lock: "00_c611.png",
+  shop: "00_c613.png",
+  pharm: "00_c615.png",
+  car: "00_c617.png",
+  sophie: "00_c619.png",
+  oona: "00_c621.png",
+  salout: "00_c623.png",
+  hotout: "00_c625.png",
+  dollar: "00_c627.png",
   doc1: "00_c629.png",
   doc2: "00_c631.png",
   doc4: "00_c633.png",
+  buick: "00_c635.png",
+  laurel: "00_c637.png",
+  playroom: "00_c639.png",
+  blood: "00_c641.png",
+  inside: "00_c643.png",
+  ruby: "00_c645.png",
+  salroom: "00_c647.png",
+  padre: "00_c649.png",
+  underout: "00_c651.png",
+  flipout: "00_c653.png",
+  padreout: "00_c655.png",
+  courtout: "00_c657.png",
+  court: "00_c659.png",
+  schoolin: "00_c661.png",
+  schoolout: "00_c663.png",
+  courtoutnite: "00_c665.png",
+  courtinnite: "00_c667.png",
+  schoolinnite: "00_c669.png",
+  schooloutnite: "00_c671.png",
 };
+
+/** Street sprites that are a different door than the facade still. */
+const SKIP_OVERLAY = new Set(["hotel", "chin", "paper", "undertak"]);
 
 export function closeSfx(door: DoorDef): DoorSfx {
   if (door.openSound === "dooropen2") {
@@ -116,11 +155,15 @@ export function closeSfx(door: DoorDef): DoorSfx {
 }
 
 export function doorSpriteUrl(state: string): string | undefined {
-  const file = DOOR_PNG[state];
+  const key = state.trim().toLowerCase();
+  if (!key || SKIP_OVERLAY.has(key)) {
+    return undefined;
+  }
+  const file = DOOR_PNG[key];
   if (!file) {
     return undefined;
   }
-  return extractUrl(`PRP/_HOUSE/FRAMES/door/${state}/${file}`);
+  return extractUrl(`PRP/_HOUSE/FRAMES/door/${key}/${file}`);
 }
 
 export function hitTest(box: HitBox, x: number, y: number): boolean {

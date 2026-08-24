@@ -37,6 +37,7 @@ import {
   type DoorDef,
 } from "../world/set/doors";
 import {
+  cameraZOf,
   frameUrl,
   framesFolder,
   hqFrame,
@@ -52,12 +53,12 @@ import {
   actorSprite,
   actorStillHeight,
   CST_SCALE_FIELD,
-  PRP_SCALE_FIELD,
   cameraFromPose,
   lerpViewCamera,
   filmstripT,
   SPRITE_HOTSPOT_X,
   SPRITE_HOTSPOT_Y,
+  TIME_TICK_HZ,
   spriteStillTopLeft,
   worldToStill,
   worldToStillFilmstrip,
@@ -68,8 +69,13 @@ import {
   actorBlitZ,
   exeSpriteZ,
   blitSpriteZ,
+  isDoorOverlay,
+  isWallOverlay,
+  shouldBlitDoorOverlay,
   paintFarToNear,
   spriteBitsFromImageData,
+  wallOverlayBlitZ,
+  propStillScale,
   zPlaneFromImageData,
   type SpriteBits,
 } from "./occlude";
@@ -116,6 +122,25 @@ const CURSORS: Record<string, string> = {
 
 export { worldToStill } from "./facing";
 
+/**
+ * `opensetfile` often `setPose`s the pose boot already stored (O7 N).
+ * Skip the still load only when that plate is already on screen — otherwise
+ * the MeshBasicMaterial stays white (HUD + sprites, no town).
+ */
+export function skipRedundantStillShow(
+  alreadyShown: boolean,
+  cur: { world: string; x: number; y: number; facing: string },
+  next: { world: string; x: number; y: number; facing: string },
+): boolean {
+  return (
+    alreadyShown &&
+    cur.world === next.world &&
+    cur.x === next.x &&
+    cur.y === next.y &&
+    cur.facing === next.facing
+  );
+}
+
 export class PlayGame implements WorldView {
   pose: WalkerPose = { x: 6, y: 14, facing: "N" };
   world = WORLD_TOWN;
@@ -151,6 +176,9 @@ export class PlayGame implements WorldView {
   private scriptsReady = false;
   private logLine = "";
   private readonly actorLayer: HTMLDivElement;
+  private readonly fadeEl: HTMLDivElement;
+  private fadeOpacity = 0;
+  private fadeGen = 0;
   private readonly actorCanvas: HTMLCanvasElement;
   private readonly actorCtx: CanvasRenderingContext2D;
   private readonly pick = new Uint16Array(STILL_WIDTH * STILL_HEIGHT);
@@ -232,6 +260,8 @@ export class PlayGame implements WorldView {
     this.movieCtx = movieCtx;
     this.movieCtx.imageSmoothingEnabled = false;
     this.handEl = document.createElement("canvas");
+    this.fadeEl = document.createElement("div");
+    this.fadeEl.id = "play-fade";
     this.handEl.id = "play-hand";
     this.handEl.hidden = true;
     const handCtx = this.handEl.getContext("2d", { alpha: true });
@@ -248,6 +278,7 @@ export class PlayGame implements WorldView {
       this.hudFace,
       this.movieEl,
       this.handEl,
+      this.fadeEl,
     );
     app?.append(this.stageEl, this.captionEl);
     this.renderer = new WebGLRenderer({ canvas, antialias: false });
@@ -268,9 +299,7 @@ export class PlayGame implements WorldView {
     this.flats.onSelect = (name) => void this.selectInventoryItem(name);
     this.flats.onInfo = () => void this.examineHeldItem();
     this.flats.onClose = () => {
-      this.host.currentFlatName = "mainpanel";
-      this.restoreHandSlot();
-      this.syncHud();
+      void this.closeHudFlat();
     };
     this.stageEl.append(this.ui.root, this.flats.root);
     this.hudEl.addEventListener("click", (event) => this.onHudClick(event));
@@ -309,7 +338,7 @@ export class PlayGame implements WorldView {
   }
 
   viewCamera(): ViewCamera {
-    const camZ = this.graph?.cameraZ;
+    const camZ = cameraZOf(this.world, this.graph);
     const strip = this.filmstrip();
     if (strip) {
       return lerpViewCamera(strip.from, strip.to, strip.t, camZ);
@@ -318,7 +347,7 @@ export class PlayGame implements WorldView {
   }
 
   projectWorld(obj: { x: number; y: number; z?: number }): StillHit | null {
-    const camZ = this.graph?.cameraZ;
+    const camZ = cameraZOf(this.world, this.graph);
     const strip = this.filmstrip();
     if (strip) {
       return worldToStillFilmstrip(obj, strip.from, strip.to, strip.t, camZ);
@@ -355,8 +384,13 @@ export class PlayGame implements WorldView {
     this.stageEl.style.top = `${rect.y}px`;
     this.stageEl.style.width = `${rect.w}px`;
     this.stageEl.style.height = `${rect.h}px`;
+    this.canvas.style.position = "absolute";
+    this.canvas.style.left = "0";
+    this.canvas.style.top = "0";
     this.canvas.style.width = `${rect.worldW}px`;
     this.canvas.style.height = `${rect.worldH}px`;
+    this.actorLayer.style.width = `${rect.worldW}px`;
+    this.actorLayer.style.height = `${rect.worldH}px`;
     this.renderer.setSize(rect.worldW, rect.worldH, false);
     this.view.layout(rect.worldW, rect.worldH);
     this.stageScale = rect.scale;
@@ -390,14 +424,70 @@ export class PlayGame implements WorldView {
   async setPose(world: string, pose: WalkerPose): Promise<void> {
     const folder = framesFolder(world, this.isNight());
     const graph = await this.graphFor(folder, world);
+    const same = skipRedundantStillShow(
+      this.view.hasStill(),
+      { world: this.world, x: this.pose.x, y: this.pose.y, facing: this.pose.facing },
+      { world, x: pose.x, y: pose.y, facing: pose.facing },
+    );
     this.world = world;
     this.graph = graph;
     this.pose = pose;
     this.host.currentScene = this.host.sceneNameForPose(graph, pose.x, pose.y);
     this.host.currentDir = pose.facing;
+    if (same) {
+      return;
+    }
     await this.showHold();
     this.preloadNeighbors();
     this.host.noticeCamera();
+  }
+
+  /** Dust `screentoblack` — 30 ticks is 0.5 s at 60 Hz. */
+  async fadeToBlack(ticks: number): Promise<void> {
+    await this.animateFade(1, ticks);
+  }
+
+  /** Dust `blacktoscreen` after the new SET still is up. */
+  async fadeFromBlack(ticks: number): Promise<void> {
+    await this.animateFade(0, ticks);
+  }
+
+  cutToBlack(): void {
+    this.fadeGen += 1;
+    this.fadeOpacity = 1;
+    this.fadeEl.style.opacity = "1";
+  }
+
+  private async animateFade(target: number, ticks: number): Promise<void> {
+    const gen = ++this.fadeGen;
+    const ms = (Math.max(0, Math.trunc(ticks) || 0) / TIME_TICK_HZ) * 1000;
+    const from = this.fadeOpacity;
+    if (ms <= 0 || from === target) {
+      this.fadeOpacity = target;
+      this.fadeEl.style.opacity = String(target);
+      return;
+    }
+    const t0 = performance.now();
+    await new Promise<void>((resolve) => {
+      const step = (now: number) => {
+        if (gen !== this.fadeGen) {
+          resolve();
+          return;
+        }
+        const u = Math.min(1, (now - t0) / ms);
+        const value = from + (target - from) * u;
+        this.fadeOpacity = value;
+        this.fadeEl.style.opacity = String(value);
+        if (u >= 1) {
+          this.fadeOpacity = target;
+          this.fadeEl.style.opacity = String(target);
+          resolve();
+          return;
+        }
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
   }
 
   async playMovie(
@@ -595,6 +685,7 @@ export class PlayGame implements WorldView {
       }
       this.scriptsReady = true;
       this.layoutActors();
+      await this.host.ensureHudPortrait(this.vm);
       this.booting = false;
       this.preloadNeighbors();
       await this.host.onArrive(this.vm);
@@ -624,14 +715,24 @@ export class PlayGame implements WorldView {
 
   private tick(): void {
     const dt = Math.min(this.clock.getDelta(), 0.05);
-    if (!this.talking && this.host.scriptPump === 0 && !this.host.scriptBusy) {
+    // Boot owns the VM (`boot` / `advanceday`). Do not drain `makeface`
+    // or runQueued on the same VM until that returns.
+    const scriptsLive = !this.booting && this.scriptsReady;
+    if (
+      scriptsLive &&
+      !this.talking &&
+      this.host.scriptPump === 0 &&
+      !this.host.scriptBusy
+    ) {
       this.host.advanceActors(dt);
     }
-    this.host.tickScriptClock(dt);
-    // Click/key already owns the VM (`talking`). Idle `hasattention` owns
-    // it via `scriptBusy` — do not start a second runQueued on top.
-    if (!this.talking) {
-      void this.host.runQueued(this.vm);
+    if (scriptsLive) {
+      this.host.tickScriptClock(dt);
+      // Click/key already owns the VM (`talking`). Idle `hasattention` owns
+      // it via `scriptBusy` — do not start a second runQueued on top.
+      if (!this.talking) {
+        void this.host.runQueued(this.vm);
+      }
     }
     if (this.anim) {
       this.driveAnim(this.anim, dt);
@@ -831,6 +932,16 @@ export class PlayGame implements WorldView {
         this.flats.setItems(items);
       }
     }
+  }
+
+  /** Overlay dismiss: back on mainpanel so `noface` can run again. */
+  private async closeHudFlat(): Promise<void> {
+    this.host.currentFlatName = "mainpanel";
+    if (this.scriptsReady) {
+      await this.host.call("gotoflat", ["mainpanel"], this.vm);
+    }
+    this.restoreHandSlot();
+    this.syncHud();
   }
 
   /**
@@ -1156,11 +1267,21 @@ export class PlayGame implements WorldView {
   private playTransition(tr: SetTransition): void {
     const dest = applyTransition(tr);
     this.pendingTileStep = isTileStep(this.pose, dest);
-    if (this.pendingTileStep) {
-      void this.host.onLeave(this.vm);
-    }
     this.busy = true;
     this.pending = tr;
+    const destScene = this.host.sceneNameForPose(this.graph, dest.x, dest.y);
+    void (async () => {
+      await this.host.closeDoorIfLeftOpening(this.vm, destScene, dest.facing);
+      if (this.pendingTileStep) {
+        await this.host.onLeave(this.vm);
+      }
+      if (this.pending === tr) {
+        this.startStillStrip(tr, dest);
+      }
+    })();
+  }
+
+  private startStillStrip(tr: SetTransition, dest: WalkerPose): void {
     const folder = this.stillsFolder();
     const motion = transitionStillUrls(tr, folder);
     const destHq = poseHqUrl(this.graph, dest, folder);
@@ -1365,6 +1486,7 @@ export class PlayGame implements WorldView {
     this.pick.fill(0);
     this.pickNames.length = 1;
     const cam = this.viewCamera();
+    const camZ = cam.z ?? cameraZOf(this.world, this.graph);
     const zPlane = this.liveZPlane();
     const seen = new Set<string>();
     const draws: {
@@ -1426,6 +1548,12 @@ export class PlayGame implements WorldView {
       if (prop.view === "large" || prop.view === "panel" || prop.view === "hilite") {
         continue;
       }
+      const strip = this.filmstrip();
+      const look = strip ? strip.to : this.pose;
+      const scene = this.host.sceneNameForPose(this.graph, look.x, look.y);
+      if (!shouldBlitDoorOverlay(prop, scene, look.facing)) {
+        continue;
+      }
       const still = this.projectWorld(prop);
       if (!still) {
         continue;
@@ -1449,15 +1577,21 @@ export class PlayGame implements WorldView {
           bits: last.bits,
           topLeft: spriteStillTopLeft(still.x, still.y, last.place, last.stillScale),
           stillScale: last.stillScale,
-          z: actorBlitZ(exeSpriteZ(still.lensForward, prop.zclip), zPlane, still.x, still.y),
+          z: this.propBlitZ(
+            prop.name,
+            exeSpriteZ(still.lensForward, prop.zclip),
+            zPlane,
+            still.x,
+            still.y,
+            prop.z,
+            camZ,
+          ),
         });
         seen.add(key);
         continue;
       }
       const place = sizedPlace(raw, bits.w, bits.h);
-      const stillScale =
-        actorStillHeight(place.h, prop.scale || 1450, still.lensForward, PRP_SCALE_FIELD) /
-        place.h;
+      const stillScale = propStillScale(prop, still.lensForward);
       this.lastActorDraw.set(key, { bits, place, stillScale });
       seen.add(key);
       draws.push({
@@ -1466,7 +1600,15 @@ export class PlayGame implements WorldView {
         bits,
         topLeft: spriteStillTopLeft(still.x, still.y, place, stillScale),
         stillScale,
-        z: actorBlitZ(exeSpriteZ(still.lensForward, prop.zclip), zPlane, still.x, still.y),
+        z: this.propBlitZ(
+          prop.name,
+          exeSpriteZ(still.lensForward, prop.zclip),
+          zPlane,
+          still.x,
+          still.y,
+          prop.z,
+          camZ,
+        ),
       });
     }
     for (const name of [...this.lastActorDraw.keys()]) {
@@ -1493,6 +1635,24 @@ export class PlayGame implements WorldView {
     this.actorCtx.putImageData(frame, 0, 0);
     this.layoutHand();
     this.layoutPortrait();
+  }
+
+  /**
+   * Door overlays replace the still's door. Blit at Z=1 so the lower
+   * leaf is not clipped by closer floor Z or a stale street plane.
+   */
+  private propBlitZ(
+    name: string,
+    computed: number,
+    zPlane: Uint8Array | null,
+    hx: number,
+    hy: number,
+    objZ: number,
+    camZ: number,
+  ): number {
+    return isDoorOverlay(name) && isWallOverlay(objZ, camZ)
+      ? wallOverlayBlitZ(computed, zPlane, hx, hy)
+      : actorBlitZ(computed, zPlane, hx, hy);
   }
 
   /** HOUSE `noface` HUD portrait. `propdeg` picks nitefaces; timing tables play glances. */
@@ -1720,6 +1880,8 @@ function propSprite(prop: PropState): { path: string; x: number; y: number; w: n
   const view = (prop.view || "base").toLowerCase();
   const frames =
     prop.sprites[view] ??
+    prop.sprites.sit ??
+    prop.sprites.stand ??
     prop.sprites.small ??
     prop.sprites.base ??
     Object.values(prop.sprites)[0];
@@ -1776,7 +1938,7 @@ function decodeStillImage(url: string, priority: MediaPriority = "low"): Promise
 
 async function fetchStillImageData(url: string, priority: MediaPriority): Promise<ImageData> {
   const res = await fetch(url, {
-    cache: "force-cache",
+    cache: "no-cache",
     priority: priority === "high" ? "high" : "low",
   });
   if (!res.ok) {
