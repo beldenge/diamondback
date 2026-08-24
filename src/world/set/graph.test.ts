@@ -8,6 +8,7 @@ import {
   isTileStep,
   stillClickInput,
   stepPose,
+  queuedWalk,
   swipeWalkInput,
   transitionForInput,
   turnFacing,
@@ -132,6 +133,11 @@ describe("walker", () => {
     expect(walkInputFromCode("KeyA")).toBe("left");
     expect(walkInputFromCode("KeyD")).toBe("right");
     expect(walkInputFromKeys(["KeyW", "KeyA"])).toBe("forward");
+    expect(queuedWalk(null, [])).toBeNull();
+    expect(queuedWalk("left", [])).toEqual({ input: "left", repeat: false });
+    expect(queuedWalk("forward", ["KeyW"])).toEqual({ input: "forward", repeat: true });
+    expect(queuedWalk(null, ["KeyW"])).toEqual({ input: "forward", repeat: true });
+    expect(queuedWalk("left", ["KeyW"])).toEqual({ input: "left", repeat: false });
     expect(isSwipePointer("touch")).toBe(true);
     expect(isSwipePointer("pen")).toBe(true);
     expect(isSwipePointer("mouse")).toBe(false);

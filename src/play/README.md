@@ -126,7 +126,10 @@ chest-to-shins box around the feet hotspot missed hats and kept
 `setcursor` uses `realdist < hotdist`. Play does **not** walk from
 still click bands (those 22%/48% overlays stole the sign). Dust walked
 from chrome *outside* 0–512 or from keys. Mouse + keyboard still walk
-with ←/→/↑ (or WASD). Touch/pen **swipe** (across = turn, up = walk;
+with ←/→/↑ (or WASD). A held key is Dust `keyrepeat` (boot `keydown`
+with `isrepeat`); a tap queued during a strip is the same `keydown`.
+Do not `tryMove` either — Scene G12’s dog (and doors that `if isrepeat`)
+live on those hooks. Touch/pen **swipe** (across = turn, up = walk;
 down is not a back step) is the mobile stand-in; it must not start on
 the HUD or steal an INVEN `stdmouse` drag. `passcode` from a scene proc
 falls through to the SET keydown (walk), not to `new.flt`’s options
@@ -148,11 +151,17 @@ falls through to the SET keydown (walk), not to `new.flt`’s options
 | Avatar EXAMINE on DOM `click` after `#play-stage` `pointerdown` | First press lost. Dust is button `mousedown` + `trackbut`. Overlay fires on **pointerdown**; HUD buttons win over item sprites. |
 | `infoyoself` on boot `handitem` `helpbut` | Empty shop `infoyoself`. `addinven ("helpbut")` is chrome, not an inspect target. |
 | `skipNextClick` after a captured actionframe `pointerdown` | Next real EXAMINE / world click eaten. `preventDefault` on that pointerdown already kills the synthetic `click`. |
+| `puppetevent` as a click-only Promise | Hold a Yes/No and Leroy never fidgets. `0x431330` runs four `idle 1`–`4` timers (`0x40B060`); `puppetevent (240)` returns -2. |
+| `idlefx` every 240 ticks | Same spoken line at 4 s, no blinks. The EXE plays named idle clips with a random per-clip wait, not that script. |
+| Await `speak()` for blinks / glances | Hourglass and dead bevels on every silent fidget. Only `idlespeak` awaits `puppetspeak`; blinks/gestures `fidget()` with `waitEvent` still live. |
+| Viseme ticks as the `0x40B060` wait / `continue` overdue tracks | Glances every ~2 s; idle 4 twice in a row. Wait is WAV ms; glances 3×; one clip per wake; 4 s floor after `idlespeak`. |
+| `tryMove` on hold-to-repeat / a tap queued during the strip | Hold W past the G12 dog. After the filmstrip, fire boot `keydown` / `keyrepeat`, not a raw SET step. |
+| Hide portrait / skip CST blit when the next PNG is still decoding | Face and town people flicker on `makeface` / a deg step. Keep the last blit; high-priority the plate in view. |
 | `pointinactor` as ±40×80 px around the feet hotspot | Head unclickable; `touch` on the dirt. Chin Help is `actorscale` 5800 — 80px is the chest. Use CST dest Mac Rect (`0x415271`). |
 | Map `cross` at 1-based `scenerow * 20 + 93` | `scene g15` y=393, clipped off the parchment. Opcode is 1-based for pig `isadj`; the grid is **0-based** tiles from (222, 93). Slot 2 of `1,1,1,2,2,2` has no frame (blink). |
 | `infoyoself` on every inventory `stdmouse` | Not Dust. Panel click selects `handitem`; EXAMINE inspects. |
 
-Code: interiors [`sceneName.ts`](sceneName.ts) / [`graph.ts`](../world/set/graph.ts); hits [`facing.ts`](facing.ts) `spriteDestRect`; EXAMINE [`hud.ts`](hud.ts) / [`game.ts`](game.ts); map X [`hud.ts`](hud.ts) `mapCrossHotspot`.
+Code: interiors [`sceneName.ts`](sceneName.ts) / [`graph.ts`](../world/set/graph.ts); hits [`facing.ts`](facing.ts) `spriteDestRect`; EXAMINE [`hud.ts`](hud.ts) / [`game.ts`](game.ts); map X [`hud.ts`](hud.ts) `mapCrossHotspot`; choice idle [`host.ts`](host.ts) `waitPuppetEvent` / [`ui.ts`](ui.ts).
 
 ---
 
@@ -173,6 +182,25 @@ not keep a Continue button on the still. **C** hides or shows the bar
 cursor is `watch` (hourglass) and the five bevels do not highlight or
 accept a click — Leroy’s Yes/No stay on screen through `leroy.12` but
 are not live until the line ends. After speech, arrow + hover again.
+Silent idle blinks and glances must **not** take that lock — only
+spoken idle (`idlespeak`) does.
+
+While a choice is waiting, Dust does not freeze the puppet. `puppetevent`
+(`DF.EXE` `0x431330`) looks up **`idle 1`…`idle 4`** on the current PUP
+and gives each clip its own timer: interval `(rand15 * duration_ms /
+0x7FFF) + 1` 60 Hz ticks (`0x40B060`). CSV tags pick the kind (`blink`,
+`gesture 1`, `idlespeak`); idle 1 defaults to blink, idle 4 to speak
+(Mayor’s spoken idle is `idle 3`). Blinks use **1/3** of the clip length,
+glances **3×** — that spacing is ours, not the EXE. Do not feed viseme
+playback ticks (Leroy idle 2 is 29) into `0x40B060`; that is how long
+the face moves, not the wait. One clip per wake; overdue neighbors
+re-roll so idle 2 and idle 3 do not dump together. After `idlespeak`,
+wait at least 240 ticks so the line cannot stutter. Idle 1–3 WAVs are
+silent (~1 s); spoken idle is ~2.6 s on Leroy. Do **not**
+hammer `idlefx` every 240 ticks — that script is not this loop, and it
+made the same line fire at 4 s. `idlespeak` csv text is a tag, not a
+subtitle. `puppetevent (240)` returns **-2** at that
+mark (auto-continue); `puppetevent (-1)` keeps waiting.
 
 Choices are **five horizontal bevels** that **replace** the HUD band
 (24px × 5 = 120), not floating above it. Not Windows/Mac buttons:

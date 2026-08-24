@@ -119,6 +119,23 @@ export function walkInputFromKeys(keys: Iterable<string>): WalkInput | null {
   return null;
 }
 
+/**
+ * After a SET strip: one queued tap (latest wins), else the key still
+ * down. Play must send this through boot `keydown` / `keyrepeat` — scene
+ * gates (G12 dog, doors) live on those hooks, not on `tryMove`.
+ */
+export function queuedWalk(
+  pending: WalkInput | null,
+  heldKeys: Iterable<string>,
+): { input: WalkInput; repeat: boolean } | null {
+  const held = walkInputFromKeys(heldKeys);
+  const input = pending ?? held;
+  if (!input) {
+    return null;
+  }
+  return { input, repeat: held === input };
+}
+
 /** Finger / stylus. Mouse keeps click-to-inspect; keys still walk. */
 export function isSwipePointer(pointerType: string): boolean {
   return pointerType === "touch" || pointerType === "pen";

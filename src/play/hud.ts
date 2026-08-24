@@ -117,6 +117,14 @@ export const AVATAR_SLOT = { x: 460, y: 325 };
  * PRP view frame. Timing tables are 1-based CST/PRP setInfo +0x2e slots
  * (niterite glance, nitehattip). Length-1 tables stay on `propdeg`.
  */
+/**
+ * Keep the last blit on screen while the next PNG decodes.
+ * Hiding the portrait / skipping an actor is the flicker.
+ */
+export function holdWhileLoading(nextReady: boolean, hasShown: boolean): boolean {
+  return nextReady || hasShown;
+}
+
 export function propViewFrame<T>(
   frames: T[],
   deg: number,

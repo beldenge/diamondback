@@ -139,11 +139,122 @@ export function puppetUiCursor(speaking: boolean): "watch" | "arrow" {
   return speaking ? "watch" : "arrow";
 }
 
+/** Idle 1–4: blink / glance vs the spoken fidget (`idlespeak`). */
+export type PuppetIdleKind = "blink" | "gesture" | "speak";
+
+/**
+ * CSV tags (`blink`, `gesture 1`, `idlespeak`) decide the kind.
+ * `*` is a production prefix, not speech. Mayor’s spoken idle is
+ * `idle 3`; idle 1 defaults to blink, idle 4 to speak.
+ */
+export function puppetIdleKind(ident: string, text = ""): PuppetIdleKind {
+  const tag = text.trim().replace(/^\*+/, "").trim().toLowerCase();
+  if (tag === "idlespeak" || tag === "idle speak" || /\bidle\s*speak\b/.test(tag)) {
+    return "speak";
+  }
+  if (/\bblink/.test(tag)) {
+    return "blink";
+  }
+  const slot = ident.trim().toLowerCase().match(/^idle\s*([1-4])$/);
+  if (slot?.[1] === "1") {
+    return "blink";
+  }
+  if (slot?.[1] === "4") {
+    return "speak";
+  }
+  return "gesture";
+}
+
+/** Blink timer is 1/3 of the clip so blinks beat glances. Not from DF.EXE. */
+export const PUPPET_IDLE_BLINK_SCALE = 1 / 3;
+/** Glances wait 3× the clip so they stay rarer than blinks. Not from DF.EXE. */
+export const PUPPET_IDLE_GESTURE_SCALE = 3;
+/** Spoken idle WAV when the mixer has not decoded it yet (Leroy idle 4). */
+export const PUPPET_IDLE_SPEAK_FALLBACK_MS = 2600;
+/** After an `idlespeak` line, wait at least 4 s. Stops back-to-back replay. */
+export const PUPPET_IDLE_SPEAK_MIN_TICKS = 240;
+
+/** Dust `delay` / `puppetevent` ticks. Same 60 Hz as visemes. */
+export const PUPPET_TICK_HZ = VISEME_HZ;
+
+/**
+ * Engine idle tracks on a live `puppetevent` wait. DF.EXE `0x431330`
+ * looks up these four names and gives each its own timer.
+ */
+export const PUPPET_IDLE_CLIPS = ["idle 1", "idle 2", "idle 3", "idle 4"] as const;
+
+/** DF.EXE `0x438210`: `timeGetTime * 3 / 50` (integer). */
+export function dustTick(ms: number): number {
+  return Math.floor((Math.max(0, ms) * 3) / 50);
+}
+
+export function puppetTicksToMs(ticks: number): number {
+  return (Math.max(0, ticks) / PUPPET_TICK_HZ) * 1000;
+}
+
+/**
+ * DF.EXE `0x40B060`: `(rand15 * duration / 0x7FFF) + 1`.
+ * `duration` is that clip’s WAV length in milliseconds (mixer
+ * end−start); the wait loop compares it to 60 Hz ticks.
+ */
+export function dustIdleInterval(duration: number, rand15: number): number {
+  let r = rand15 & 0x7fff;
+  if (r === 0x7fff) {
+    r = 0x7ffe;
+  }
+  return Math.trunc((r * Math.max(0, duration)) / 0x7fff) + 1;
+}
+
+/**
+ * WAV seconds → the integer `0x40B060` wants. Viseme length is playback,
+ * not the wait (Leroy idle 2 is 29 ticks / 0.5 s — that dumped glances).
+ */
+export function puppetIdleDurationUnits(
+  wavSec: number,
+  _visemeTicks = 0,
+  kind: PuppetIdleKind = "speak",
+): number {
+  let ms = 1000;
+  if (wavSec > 0) {
+    ms = Math.max(1, Math.round(wavSec * 1000));
+  } else if (kind === "speak") {
+    ms = PUPPET_IDLE_SPEAK_FALLBACK_MS;
+  }
+  if (kind === "blink") {
+    return Math.max(1, Math.round(ms * PUPPET_IDLE_BLINK_SCALE));
+  }
+  if (kind === "gesture") {
+    return Math.max(1, Math.round(ms * PUPPET_IDLE_GESTURE_SCALE));
+  }
+  return ms;
+}
+
+/**
+ * Engine idle 1–4 csv text is a tag (`blink`, `idlespeak`), not a
+ * subtitle. `idlefx` lines that go through `puppetspeak("mayor.10")`
+ * keep their real captions.
+ */
+export function puppetIdleCaption(ident: string, text = ""): string {
+  if (/^idle\s*[1-4]$/i.test(ident.trim())) {
+    return "";
+  }
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.startsWith("*")) {
+    return "";
+  }
+  const lower = trimmed.toLowerCase();
+  if (lower === "idlespeak" || lower === "idle speak") {
+    return "";
+  }
+  return text;
+}
+
 /** Watchdog only: never a 12s floor. Wait for the WAV, or a short viseme estimate. */
-export function speakHangSec(duration: number, visemeTicks?: number): number {
+export function speakHangSec(duration: number, visemeTicks?: number, ident?: string): number {
   const fromWav = duration > 0 ? duration : 0;
   const fromViseme = (visemeTicks ?? 0) / VISEME_HZ;
-  return Math.max(fromWav, fromViseme, 1.5) + 0.15;
+  const floor = ident && /^idle\s*[1-4]$/i.test(ident.trim()) ? 0 : 1.5;
+  return Math.max(fromWav, fromViseme, floor) + 0.15;
 }
 
 /** Solid studio plates (Leroy brown, Jenix black) are not scene art. */
@@ -174,9 +285,13 @@ export class PuppetUi {
   private readonly slots: HTMLButtonElement[] = [];
   private sheet: PuppetSheet | null = null;
   private speakWait: (() => void) | null = null;
-  private eventWait: ((id: number) => void) | null = null;
+  private eventWait: ((id: number | undefined) => void) | null = null;
+  private eventTimer: ReturnType<typeof setTimeout> | null = null;
   private speakTimer: ReturnType<typeof setTimeout> | null = null;
+  private fidgetTimer: ReturnType<typeof setTimeout> | null = null;
   private talking = false;
+  private fidgetOn = false;
+  private fidgetT0 = 0;
   private viseme: VisemeLine | null = null;
   private visemeTick = -1;
   private readonly bitmaps = new Map<string, HTMLImageElement>();
@@ -231,6 +346,11 @@ export class PuppetUi {
     return this.talking;
   }
 
+  /** Silent blink/gesture. Not speech — no hourglass, bevels stay live. */
+  get fidgeting(): boolean {
+    return this.fidgetOn;
+  }
+
   layout(scale: number): void {
     this.root.style.width = `${STAGE_WIDTH * scale}px`;
     this.root.style.height = `${STAGE_HEIGHT * scale}px`;
@@ -252,6 +372,7 @@ export class PuppetUi {
   }
 
   close(): void {
+    this.stopFidget();
     this.stopJaw();
     this.stopAudio();
     this.setLine("");
@@ -259,8 +380,7 @@ export class PuppetUi {
     this.clearBevels();
     this.sheet = null;
     this.finishSpeak();
-    this.eventWait?.(-1);
-    this.eventWait = null;
+    this.finishWait(-1);
   }
 
   clear(): void {
@@ -286,9 +406,7 @@ export class PuppetUi {
         return;
       }
       voices.unlock();
-      const wait = this.eventWait;
-      this.eventWait = null;
-      wait?.(choice.id);
+      this.finishWait(choice.id);
     };
     this.choices.hidden = false;
     this.root.classList.add("choosing");
@@ -302,11 +420,33 @@ export class PuppetUi {
     this.finishSpeak();
   }
 
-  waitEvent(): Promise<number> {
+  private clearEventTimer(): void {
+    if (this.eventTimer !== null) {
+      clearTimeout(this.eventTimer);
+      this.eventTimer = null;
+    }
+  }
+
+  private finishWait(id: number | undefined): void {
+    this.clearEventTimer();
+    const wait = this.eventWait;
+    this.eventWait = null;
+    wait?.(id);
+  }
+
+  /**
+   * Wait for a bevel (or dismiss). `timeoutMs` resolves `undefined` so
+   * the host can fire idle 1–4 / return -2 without eating a click.
+   */
+  waitEvent(timeoutMs?: number): Promise<number | undefined> {
     this.choices.hidden = false;
     this.root.classList.add("choosing");
+    this.clearEventTimer();
     return new Promise((resolve) => {
       this.eventWait = resolve;
+      if (timeoutMs !== undefined) {
+        this.eventTimer = setTimeout(() => this.finishWait(undefined), Math.max(0, timeoutMs));
+      }
     });
   }
 
@@ -318,7 +458,9 @@ export class PuppetUi {
     text: string,
     wavUrl: string | undefined,
     viseme: VisemeLine | undefined,
+    ident?: string,
   ): Promise<void> {
+    this.stopFidget();
     this.setLine(text);
     this.root.classList.add("speaking");
     this.clearSpeakTimer();
@@ -334,27 +476,49 @@ export class PuppetUi {
       duration = await voices.play(wavUrl);
     }
     this.applyViseme(voices.currentTime());
-    const hold = speakHangSec(duration, viseme?.ticks);
+    const hold = speakHangSec(duration, viseme?.ticks, ident);
     this.speakTimer = setTimeout(() => this.finishSpeak(), hold * 1000);
     await done;
     this.root.classList.remove("speaking");
     this.stopJaw();
   }
 
+  /**
+   * Blink / glance while a choice is live. Visemes only — idle 1–3 WAVs
+   * are silent and must not take the speech channel. No hourglass.
+   */
+  async fidget(
+    wavUrl: string | undefined,
+    viseme: VisemeLine | undefined,
+    ident?: string,
+  ): Promise<void> {
+    if (this.talking || this.fidgetOn) {
+      return;
+    }
+    this.fidgetOn = true;
+    this.viseme = viseme ?? null;
+    this.visemeTick = -1;
+    this.fidgetT0 = performance.now();
+    this.applyViseme(0);
+    const wavSec = wavUrl ? voices.bufferDuration(wavUrl) : 0;
+    const hold = Math.max(speakHangSec(wavSec, viseme?.ticks, ident), 1);
+    this.fidgetTimer = setTimeout(() => this.stopFidget(), hold * 1000);
+  }
+
   setViseme(viseme: VisemeLine): void {
-    if (!this.talking) {
+    if (!this.talking && !this.fidgetOn) {
       return;
     }
     this.viseme = viseme;
     this.visemeTick = -1;
-    this.applyViseme(voices.currentTime());
+    this.applyViseme(this.faceClock());
   }
 
   tick(_dt: number): void {
-    if (!this.talking || !this.viseme) {
+    if ((!this.talking && !this.fidgetOn) || !this.viseme) {
       return;
     }
-    this.applyViseme(voices.currentTime());
+    this.applyViseme(this.faceClock());
   }
 
   private applyViseme(seconds: number): void {
@@ -549,6 +713,32 @@ export class PuppetUi {
   private showEmptyBevels(): void {
     this.choices.hidden = false;
     this.root.classList.add("choosing");
+  }
+
+  private faceClock(): number {
+    if (this.talking) {
+      return voices.currentTime();
+    }
+    if (this.fidgetT0) {
+      return Math.max(0, (performance.now() - this.fidgetT0) / 1000);
+    }
+    return 0;
+  }
+
+  private stopFidget(): void {
+    if (this.fidgetTimer !== null) {
+      clearTimeout(this.fidgetTimer);
+      this.fidgetTimer = null;
+    }
+    const was = this.fidgetOn;
+    this.fidgetOn = false;
+    this.fidgetT0 = 0;
+    if (was && !this.talking) {
+      this.stopAudio();
+      this.viseme = null;
+      this.applyIdle();
+      this.schedulePaint();
+    }
   }
 
   private finishSpeak(): void {

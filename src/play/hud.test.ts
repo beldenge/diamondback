@@ -7,6 +7,7 @@ import {
   HAND_SLOT,
   hitMacRect,
   hitsHandSlot,
+  holdWhileLoading,
   inventorySpriteView,
   MAINPANEL_BUTTONS,
   mapCrossHotspot,
@@ -122,6 +123,15 @@ describe("map location cross", () => {
     expect(mapCrossLit(3)).toBe(false);
     expect(mapCrossLit(5)).toBe(false);
     expect(mapCrossLit(6)).toBe(true);
+  });
+});
+
+describe("sprite hold while the next PNG loads", () => {
+  it("keeps the last portrait/actor blit instead of hiding", () => {
+    expect(holdWhileLoading(true, false)).toBe(true);
+    expect(holdWhileLoading(true, true)).toBe(true);
+    expect(holdWhileLoading(false, true)).toBe(true);
+    expect(holdWhileLoading(false, false)).toBe(false);
   });
 });
 

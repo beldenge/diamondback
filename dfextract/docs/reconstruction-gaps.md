@@ -60,7 +60,7 @@ the default if you only have the name.
 | Verb (seen constantly) | What you still have to pin down |
 |---|---|
 | `puppetspeak` | Blocks until line finishes? Uses wav + mouth frames how? |
-| `puppetbevel` / `puppetevent` | Choice UI; how ids are collected and returned (`-1` = dismiss?) |
+| `puppetbevel` / `puppetevent` | **Play-pinned.** `puppetbevel` registers ids; `puppetevent(-1)` waits; `(240)` returns **-2**. EXE `0x431330` plays named `idle 1`–`4` with `0x40B060` waits. Duration field unit vs 60 Hz ticks still unproven. Dismiss vs click is the returned id (`-1` in scripts). |
 | `puppetclear` | Clears speech, bevels, or both? |
 | `sendtoactor` / `sendtopuppet` / `sendtocast` / `sendtoset` / `sendtostage` / `sendtoshop` | Target namespace (`"JENIX"` vs `"jenix.pup"` vs `"gang"`) |
 | `actorowner` / `actorstar` / `actorxyz` / `walktostar` | Units, facing, async walk. Named `walktostar` follows the SET polyline on the from/to star pair (`DF.EXE` `0x424000`, container id at waypoint +0x18). Reverse B→A. No pair, or explicit `"x,y,z"`, is a beeline. `actorspeed` is units per 20 Hz game frame (boot `framerate (3)`). CST walk poses use setInfo +0x2e / +0x70, not distance. |

@@ -25,7 +25,21 @@ import {
 } from "./facing";
 import type { ViewCamera } from "./facing";
 import { ScriptIndex, loadScriptJson } from "./scripts";
-import { asCenter, type PuppetSheet, type PuppetUi, type SpritePlace, type VisemeLine } from "./ui";
+import {
+  asCenter,
+  dustIdleInterval,
+  dustTick,
+  PUPPET_IDLE_CLIPS,
+  PUPPET_IDLE_SPEAK_MIN_TICKS,
+  puppetIdleCaption,
+  puppetIdleDurationUnits,
+  puppetIdleKind,
+  puppetTicksToMs,
+  type PuppetSheet,
+  type PuppetUi,
+  type SpritePlace,
+  type VisemeLine,
+} from "./ui";
 import { voices } from "./speech";
 import {
   HOUSE_GROUPS,
@@ -218,6 +232,7 @@ export class DustHost implements OpcodeHost {
   /** `random (n)` → `1..n`. Dust switches and `town.extra` @ numtostring use 1-based
    * (`scream1..3`, `extra1..3`, pig `findscene` 1..6). */
   rng = Math.random;
+  nowMs = (): number => performance.now();
   frameCounter = 0;
   /** Nested `forceupdate` count. Game tick must not also step actors. */
   scriptPump = 0;
@@ -828,7 +843,7 @@ export class DustHost implements OpcodeHost {
         if (this.bevels.length === 0) {
           return -1;
         }
-        return this.ui.waitEvent();
+        return this.waitPuppetEvent(ctx, num(args[0] ?? -1));
       case "actorscript": {
         const who = str(args[0] || ctx.me || ctx.target);
         const hook = ctx.frame()?.procName ?? "";
@@ -1391,7 +1406,124 @@ export class DustHost implements OpcodeHost {
     if (viseme && line) {
       line.viseme = viseme;
     }
-    await this.ui.speak(line?.text ?? ident, line?.wav, viseme ?? line?.viseme);
+    const caption = puppetIdleCaption(ident, line?.text ?? ident);
+    await this.ui.speak(caption, line?.wav, viseme ?? line?.viseme, ident);
+  }
+
+  /** Blink/gesture: visemes only. `waitEvent` stays live so bevels work. */
+  private fidgetSilent(ident: string): void {
+    const key = ident.toLowerCase();
+    const line = this.puppetLines.get(key);
+    if (line?.wav) {
+      void voices.preload([line.wav]);
+    }
+    const viseme = this.visemeLines.get(key) ?? line?.viseme;
+    void this.ui.fidget(line?.wav, viseme, ident);
+  }
+
+  /**
+   * DF.EXE `0x431330` (`puppetevent`). Four independent `idle 1`–`idle 4`
+   * timers (`0x40B060` random interval from each clip’s length). `idlefx`
+   * is a script, not this loop — the EXE plays the named clips.
+   * Spoken idle awaits `speak` (hourglass). Blinks/gestures fidget
+   * without locking the choice wait. One clip per wake — overdue
+   * neighbors re-roll so glances do not dump back to back.
+   */
+  private async waitPuppetEvent(_ctx: VM, limitTicks: number): Promise<number> {
+    const startTick = dustTick(this.nowMs());
+    const deadline =
+      limitTicks > 0 ? startTick + limitTicks : Number.POSITIVE_INFINITY;
+    const tracks = PUPPET_IDLE_CLIPS.flatMap((ident) => {
+      const line = this.puppetLines.get(ident);
+      if (!line && !this.visemeLines.has(ident)) {
+        return [];
+      }
+      const kind = puppetIdleKind(ident, line?.text ?? "");
+      const wavSec = line?.wav ? voices.bufferDuration(line.wav) : 0;
+      const visemeTicks = this.visemeLines.get(ident)?.ticks ?? 0;
+      const duration = puppetIdleDurationUnits(wavSec, visemeTicks, kind);
+      const rand15 = Math.floor(this.rng() * 0x8000);
+      return [
+        {
+          ident,
+          kind,
+          interval: dustIdleInterval(duration, rand15),
+          last: startTick,
+          duration,
+        },
+      ];
+    });
+    const roll = (
+      track: (typeof tracks)[number],
+      now: number,
+      floorSpeak: boolean,
+    ): void => {
+      track.last = now;
+      track.interval = dustIdleInterval(
+        track.duration,
+        Math.floor(this.rng() * 0x8000),
+      );
+      if (floorSpeak && track.kind === "speak") {
+        track.interval = Math.max(track.interval, PUPPET_IDLE_SPEAK_MIN_TICKS);
+      }
+    };
+    const rebaseOverdue = (
+      except: (typeof tracks)[number],
+      now: number,
+    ): void => {
+      for (const track of tracks) {
+        if (track === except) {
+          continue;
+        }
+        if (now - track.last >= track.interval) {
+          roll(track, now, true);
+        }
+      }
+    };
+    for (;;) {
+      const now = dustTick(this.nowMs());
+      if (now >= deadline) {
+        return -2;
+      }
+      if (!this.ui.speaking) {
+        const due = tracks.find((track) => {
+          if (now - track.last < track.interval) {
+            return false;
+          }
+          return track.kind === "speak" || !this.ui.fidgeting;
+        });
+        if (due) {
+          if (due.kind === "speak") {
+            await this.speak(due.ident);
+            const end = dustTick(this.nowMs());
+            roll(due, end, true);
+            rebaseOverdue(due, end);
+            this.skipSpeech = false;
+          } else {
+            this.fidgetSilent(due.ident);
+            roll(due, now, false);
+            rebaseOverdue(due, now);
+          }
+        }
+      }
+      const wake = dustTick(this.nowMs());
+      if (wake >= deadline) {
+        return -2;
+      }
+      const untilDeadline = deadline - wake;
+      const untilIdle = tracks.reduce((soonest, track) => {
+        const wait = track.interval - (wake - track.last);
+        return wait < soonest ? wait : soonest;
+      }, Number.POSITIVE_INFINITY);
+      const sliceTicks = Math.max(1, Math.min(untilDeadline, untilIdle));
+      const sliceMs = Number.isFinite(sliceTicks)
+        ? puppetTicksToMs(sliceTicks)
+        : undefined;
+      const picked = await this.ui.waitEvent(sliceMs);
+      if (picked !== undefined) {
+        return picked;
+      }
+    }
   }
 
   /** Prefetch a few WAVs. Do not parse visemes.json (multi-megabyte blob). */
@@ -2210,10 +2342,29 @@ export class DustHost implements OpcodeHost {
     await ctx.inObject("scene", this.currentScene, () => ctx.evalCall("closescene", []));
   }
 
-  async dispatchKey(ctx: VM, arg: string): Promise<void> {
-    await ctx.inObject("boot", "", () =>
-      ctx.evalCall("keydown", [{ type: "str", value: arg }]),
-    );
+  /**
+   * Boot `keydown`, or Dust `keyrepeat` (sets `isrepeat`, then `keydown`)
+   * while a move key is held. Scene gates run on that path.
+   */
+  async dispatchKey(ctx: VM, arg: string, repeat = false): Promise<void> {
+    const value: { type: "str"; value: string }[] = [{ type: "str", value: arg }];
+    await ctx.inObject("boot", "", async () => {
+      if (repeat && this.index.lookup(["boot"], "keyrepeat")) {
+        await ctx.evalCall("keyrepeat", value);
+        return;
+      }
+      if (repeat) {
+        ctx.globalNames.add("isrepeat");
+        ctx.globals.set("isrepeat", true);
+      }
+      try {
+        await ctx.evalCall("keydown", value);
+      } finally {
+        if (repeat) {
+          ctx.globals.set("isrepeat", false);
+        }
+      }
+    });
   }
 
   async dispatchMouse(ctx: VM, point: Point): Promise<boolean> {

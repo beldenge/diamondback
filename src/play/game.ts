@@ -7,8 +7,8 @@ import {
   stillClickPixel,
   swipeWalkInput,
   transitionForInput,
+  queuedWalk,
   walkInputFromCode,
-  walkInputFromKeys,
   walkInputKey,
   type WalkInput,
 } from "../world/set/walker";
@@ -81,6 +81,7 @@ import {
   FlatOverlay,
   HAND_SLOT,
   hitMacRect,
+  holdWhileLoading,
   inventorySpriteView,
   MAINPANEL_BUTTONS,
   mapCrossHotspot,
@@ -156,8 +157,17 @@ export class PlayGame implements WorldView {
   private readonly pickNames: string[] = [""];
   private readonly spriteBits = new Map<string, SpriteBits>();
   private readonly spriteLoading = new Map<string, Promise<SpriteBits | null>>();
+  private readonly lastActorDraw = new Map<
+    string,
+    {
+      bits: SpriteBits;
+      place: { x: number; y: number; w: number; h: number };
+      stillScale: number;
+    }
+  >();
   private zPlane: Uint8Array | null = null;
   private zKey = "";
+  private zWant = "";
   private readonly stageEl: HTMLDivElement;
   private readonly hudEl: HTMLDivElement;
   private readonly hudFace: HTMLCanvasElement;
@@ -1095,12 +1105,12 @@ export class PlayGame implements WorldView {
     if (this.inputBlocked() || !this.scriptsReady) {
       return;
     }
-    this.dispatchWalkKey(arg);
+    this.dispatchWalkKey(arg, event.repeat);
   }
 
-  private dispatchWalkKey(arg: string): void {
+  private dispatchWalkKey(arg: string, repeat = false): void {
     this.talking = true;
-    void this.host.dispatchKey(this.vm, arg).finally(() => {
+    void this.host.dispatchKey(this.vm, arg, repeat).finally(() => {
       this.talking = false;
     });
   }
@@ -1242,16 +1252,12 @@ export class PlayGame implements WorldView {
     if (this.inputBlocked()) {
       return;
     }
-    const pending = this.pendingWalk;
+    const next = queuedWalk(this.pendingWalk, this.heldKeys);
     this.pendingWalk = null;
-    if (pending) {
-      this.tryMove(pending);
+    if (!next) {
       return;
     }
-    const held = walkInputFromKeys(this.heldKeys);
-    if (held) {
-      this.dispatchWalkKey(walkInputKey(held));
-    }
+    this.dispatchWalkKey(walkInputKey(next.input), next.repeat);
   }
 
   private preloadNeighbors(): void {
@@ -1359,6 +1365,8 @@ export class PlayGame implements WorldView {
     this.pick.fill(0);
     this.pickNames.length = 1;
     const cam = this.viewCamera();
+    const zPlane = this.liveZPlane();
+    const seen = new Set<string>();
     const draws: {
       forward: number;
       name: string;
@@ -1377,20 +1385,38 @@ export class PlayGame implements WorldView {
         continue;
       }
       const url = this.host.spriteUrl(actor, place);
+      this.warmActorPlates(actor);
       const bits = this.spriteBits.get(url);
+      const last = this.lastActorDraw.get(actor.name);
       if (!bits) {
-        void this.loadSpriteBits(url);
+        void this.loadSpriteBits(url, "high");
+        if (!holdWhileLoading(false, Boolean(last)) || !last) {
+          continue;
+        }
+        const holdScale = last.stillScale;
+        draws.push({
+          forward: still.forward,
+          name: actor.name,
+          bits: last.bits,
+          topLeft: spriteStillTopLeft(still.x, still.y, last.place, holdScale),
+          stillScale: holdScale,
+          z: actorBlitZ(exeSpriteZ(still.lensForward, actor.zclip), zPlane, still.x, still.y),
+        });
+        seen.add(actor.name);
         continue;
       }
       const stillScale =
         actorStillHeight(place.h, actor.scale, still.lensForward, CST_SCALE_FIELD) / place.h;
+      const sized = sizedPlace(place, bits.w, bits.h);
+      this.lastActorDraw.set(actor.name, { bits, place: sized, stillScale });
+      seen.add(actor.name);
       draws.push({
         forward: still.forward,
         name: actor.name,
         bits,
-        topLeft: spriteStillTopLeft(still.x, still.y, place, stillScale),
+        topLeft: spriteStillTopLeft(still.x, still.y, sized, stillScale),
         stillScale,
-        z: actorBlitZ(exeSpriteZ(still.lensForward, actor.zclip), this.zPlane, still.x, still.y),
+        z: actorBlitZ(exeSpriteZ(still.lensForward, actor.zclip), zPlane, still.x, still.y),
       });
     }
     for (const prop of this.host.nearbyProps()) {
@@ -1410,22 +1436,43 @@ export class PlayGame implements WorldView {
       }
       const url = extractUrl(`${prop.spriteRoot}/${raw.path}`);
       const bits = this.spriteBits.get(url);
+      const key = `prop:${prop.name}`;
+      const last = this.lastActorDraw.get(key);
       if (!bits) {
-        void this.loadSpriteBits(url);
+        void this.loadSpriteBits(url, "high");
+        if (!holdWhileLoading(false, Boolean(last)) || !last) {
+          continue;
+        }
+        draws.push({
+          forward: still.forward,
+          name: key,
+          bits: last.bits,
+          topLeft: spriteStillTopLeft(still.x, still.y, last.place, last.stillScale),
+          stillScale: last.stillScale,
+          z: actorBlitZ(exeSpriteZ(still.lensForward, prop.zclip), zPlane, still.x, still.y),
+        });
+        seen.add(key);
         continue;
       }
       const place = sizedPlace(raw, bits.w, bits.h);
       const stillScale =
         actorStillHeight(place.h, prop.scale || 1450, still.lensForward, PRP_SCALE_FIELD) /
         place.h;
+      this.lastActorDraw.set(key, { bits, place, stillScale });
+      seen.add(key);
       draws.push({
         forward: still.forward,
-        name: `prop:${prop.name}`,
+        name: key,
         bits,
         topLeft: spriteStillTopLeft(still.x, still.y, place, stillScale),
         stillScale,
-        z: actorBlitZ(exeSpriteZ(still.lensForward, prop.zclip), this.zPlane, still.x, still.y),
+        z: actorBlitZ(exeSpriteZ(still.lensForward, prop.zclip), zPlane, still.x, still.y),
       });
+    }
+    for (const name of [...this.lastActorDraw.keys()]) {
+      if (!seen.has(name)) {
+        this.lastActorDraw.delete(name);
+      }
     }
     let pickId = 1;
     for (const draw of paintFarToNear(draws)) {
@@ -1434,7 +1481,7 @@ export class PlayGame implements WorldView {
         frame.data,
         this.pick,
         pickId,
-        this.zPlane,
+        zPlane,
         draw.z,
         draw.bits,
         draw.topLeft.x,
@@ -1457,16 +1504,21 @@ export class PlayGame implements WorldView {
     }
     const view = (prop.view || "nitefaces").toLowerCase();
     const frames = prop.sprites[view] ?? prop.sprites.nitefaces ?? [];
+    this.warmPropPlates(prop, frames);
     const raw = propViewFrame(frames, prop.deg, prop.poseTiming[view], prop.animTick);
     if (!raw) {
-      this.hudFace.hidden = true;
+      if (!holdWhileLoading(false, Boolean(this.hudFaceSrc))) {
+        this.hudFace.hidden = true;
+      }
       return;
     }
     const url = extractUrl(`${prop.spriteRoot}/${raw.path}`);
     const bits = this.spriteBits.get(url);
     if (!bits) {
-      void this.loadSpriteBits(url);
-      this.hudFace.hidden = true;
+      void this.loadSpriteBits(url, "high");
+      if (!holdWhileLoading(false, Boolean(this.hudFaceSrc))) {
+        this.hudFace.hidden = true;
+      }
       return;
     }
     const place = sizedPlace(raw, bits.w, bits.h);
@@ -1522,8 +1574,10 @@ export class PlayGame implements WorldView {
     const url = extractUrl(`${prop.spriteRoot}/${raw.path}`);
     const bits = this.spriteBits.get(url);
     if (!bits) {
-      void this.loadSpriteBits(url);
-      this.handEl.hidden = true;
+      void this.loadSpriteBits(url, "high");
+      if (!holdWhileLoading(false, Boolean(this.handSrc))) {
+        this.handEl.hidden = true;
+      }
       return;
     }
     const place = sizedPlace(raw, bits.w, bits.h);
@@ -1545,16 +1599,19 @@ export class PlayGame implements WorldView {
     this.handEl.style.height = `${place.h * scale}px`;
   }
 
-  private loadSpriteBits(url: string): Promise<SpriteBits | null> {
+  private loadSpriteBits(url: string, priority: MediaPriority = "low"): Promise<SpriteBits | null> {
     const hit = this.spriteBits.get(url);
     if (hit) {
       return Promise.resolve(hit);
     }
     const pending = this.spriteLoading.get(url);
     if (pending) {
+      if (priority === "high") {
+        mediaGate.prefer(`bits:${url}`);
+      }
       return pending;
     }
-    const job = decodeStillImage(url, "low")
+    const job = decodeStillImage(url, priority)
       .then((image) => {
         const inven = /\/PRP\/_INVEN\//i.test(url);
         const bits = spriteBitsFromImageData(
@@ -1573,22 +1630,49 @@ export class PlayGame implements WorldView {
     return job;
   }
 
+  private liveZPlane(): Uint8Array | null {
+    return this.zKey === this.zWant ? this.zPlane : null;
+  }
+
+  private warmActorPlates(actor: { standSprites: { path: string }[]; spriteRoot: string }): void {
+    for (const plate of actor.standSprites) {
+      const url = extractUrl(`${actor.spriteRoot}/${plate.path}`);
+      if (!this.spriteBits.has(url) && !this.spriteLoading.has(url)) {
+        void this.loadSpriteBits(url, "low");
+      }
+    }
+  }
+
+  private warmPropPlates(
+    prop: { spriteRoot: string },
+    frames: { path: string }[],
+  ): void {
+    for (const frame of frames) {
+      const url = extractUrl(`${prop.spriteRoot}/${frame.path}`);
+      if (!this.spriteBits.has(url) && !this.spriteLoading.has(url)) {
+        void this.loadSpriteBits(url, "low");
+      }
+    }
+  }
+
   private loadZPlane(url: string, priority: MediaPriority = "low"): Promise<void> {
+    this.zWant = url;
     if (this.zKey === url) {
       return Promise.resolve();
     }
-    this.zKey = url;
     return decodeStillImage(url, priority)
       .then((image) => {
-        if (this.zKey !== url) {
+        if (this.zWant !== url) {
           return;
         }
         this.zPlane = zPlaneFromImageData(image);
+        this.zKey = url;
         this.layoutActors();
       })
       .catch(() => {
-        if (this.zKey === url) {
+        if (this.zWant === url) {
           this.zPlane = null;
+          this.zKey = url;
           this.layoutActors();
         }
       });

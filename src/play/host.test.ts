@@ -459,6 +459,176 @@ describe("passcode inheritance", () => {
   });
 });
 
+describe("hold-to-repeat key dispatch", () => {
+  const bootKeydown = {
+    name: "keydown",
+    params: ["arg"],
+    body: [{
+      type: "call" as const,
+      call: {
+        type: "call" as const,
+        name: "sendtoscene",
+        args: [
+          { type: "call" as const, name: "currentscene", args: [] },
+          { type: "call" as const, name: "keydown", args: [{ type: "var" as const, name: "arg" }] },
+        ],
+      },
+    }],
+  };
+  const bootKeyrepeat = {
+    name: "keyrepeat",
+    params: ["arg"],
+    body: [
+      { type: "global" as const, names: ["isrepeat"] },
+      {
+        type: "assign" as const,
+        target: { type: "var" as const, name: "isrepeat" },
+        value: { type: "bool" as const, value: true },
+      },
+      {
+        type: "call" as const,
+        call: { type: "call" as const, name: "keydown", args: [{ type: "var" as const, name: "arg" }] },
+      },
+      {
+        type: "assign" as const,
+        target: { type: "var" as const, name: "isrepeat" },
+        value: { type: "bool" as const, value: false },
+      },
+    ],
+  };
+  const setWalk = {
+    name: "keydown",
+    params: ["arg"],
+    body: [{
+      type: "call" as const,
+      call: { type: "call" as const, name: "currentscene", args: [{ type: "str" as const, value: "strait" }] },
+    }],
+  };
+
+  function emptyView(walk: (kind: "strait" | "left" | "right") => void) {
+    return {
+      pose: { x: 6, y: 11, facing: "N" as const },
+      world: "town",
+      graph: { scenes: new Map(), cameraTiles: new Set(), transitions: [], byFrom: new Map() },
+      walk,
+      async setPose() {},
+      log() {},
+      refreshActors() {},
+    };
+  }
+
+  function vmFor(host: DustHost) {
+    return new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+  }
+
+  it("runs scene keydown on keyrepeat so a G12-style gate still holds", async () => {
+    const host = new DustHost({} as PuppetUi);
+    let walked = "";
+    host.currentScene = "scene g12";
+    host.currentDir = "N";
+    host.currentSet = "town";
+    host.view = emptyView((kind) => {
+      walked = kind;
+    });
+    host.index.add("boot", bootKeydown, "boot");
+    host.index.add("boot", bootKeyrepeat, "boot");
+    host.index.add("scene:scene g12", {
+      name: "keydown",
+      params: ["arg"],
+      body: [
+        { type: "global", names: ["isrepeat"] },
+        {
+          type: "if",
+          cond: {
+            type: "binary",
+            op: "&",
+            left: {
+              type: "binary",
+              op: "=",
+              left: { type: "var", name: "arg" },
+              right: { type: "str", value: "uparrow" },
+            },
+            right: {
+              type: "binary",
+              op: "=",
+              left: { type: "call", name: "currentview", args: [] },
+              right: { type: "str", value: "north" },
+            },
+          },
+          then: [
+            { type: "assign", target: { type: "var", name: "saw" }, value: { type: "var", name: "isrepeat" } },
+            { type: "exitcode" },
+          ],
+        },
+        { type: "passcode" },
+      ],
+    }, "scene");
+    host.index.add("set", setWalk, "set");
+    const vm = vmFor(host);
+    vm.globalNames.add("saw");
+    await host.dispatchKey(vm, "uparrow", true);
+    expect(walked).toBe("");
+    expect(vm.globals.get("saw")).toBe(true);
+    expect(vm.globals.get("isrepeat")).toBe(false);
+  });
+
+  it("falls through to the SET walk on keyrepeat when the scene passes", async () => {
+    const host = new DustHost({} as PuppetUi);
+    let walked = "";
+    host.currentScene = "scene g15";
+    host.currentSet = "town";
+    host.view = emptyView((kind) => {
+      walked = kind;
+    });
+    host.index.add("boot", bootKeydown, "boot");
+    host.index.add("scene:scene g15", {
+      name: "keydown",
+      params: ["arg"],
+      body: [{ type: "passcode" }],
+    }, "scene");
+    host.index.add("set", setWalk, "set");
+    const vm = vmFor(host);
+    await host.dispatchKey(vm, "uparrow", true);
+    expect(walked).toBe("strait");
+  });
+
+  it("extracted G12 dog keydown blocks a held uparrow", async () => {
+    const scene = resolve("dfextract/out/SET/_NITE/Scene G12.json");
+    const set = resolve("dfextract/out/SET/_NITE/Boot Script.json");
+    const boot = resolve("dfextract/out/BOOT/_BOOTFILE/Script 1.json");
+    if (![scene, set, boot].every((p) => existsSync(p))) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    let walked = "";
+    host.currentScene = "scene g12";
+    host.currentDir = "N";
+    host.currentSet = "town";
+    host.view = emptyView((kind) => {
+      walked = kind;
+    });
+    host.namedActor("dog").visible = true;
+    for (const proc of loadProcs("BOOT/_BOOTFILE/Script 1.json")) {
+      host.index.add("boot", proc, "boot");
+    }
+    for (const proc of loadProcs("SET/_NITE/Boot Script.json")) {
+      host.index.add("set", proc, "set");
+    }
+    for (const proc of loadProcs("SET/_NITE/Scene G12.json")) {
+      host.index.add("scene:scene g12", proc, "scene");
+    }
+    const vm = vmFor(host);
+    vm.globals.set("day", 1);
+    vm.globalNames.add("day");
+    await host.dispatchKey(vm, "uparrow", true);
+    expect(walked).toBe("");
+  });
+});
+
 describe("scene setcursor", () => {
   it("sets touch on the G14 warning-sign and firearms hotspots", async () => {
     const scene = resolve("dfextract/out/SET/_NITE/Scene G14.json");
