@@ -3,6 +3,7 @@ import {
   clipUrl,
   frameUrl,
   movieClipsStarting,
+  movieDurationSec,
   movieFolder,
   movieFrameWaitsForClick,
   movieIndexAt,
@@ -56,6 +57,7 @@ export class MoviePlayer {
     stem: string,
     opts: {
       onStatus?: (status: MovieStatus) => void;
+      onProgress?: (nowSec: number, totalSec: number) => void;
       waitClick?: () => Promise<void>;
     } = {},
   ): Promise<void> {
@@ -107,16 +109,25 @@ export class MoviePlayer {
       durationSec: voices.bufferDuration(clip.url),
     }));
     report(this.images.size, "Playing");
+    const holds = frames.map((frame) => frame.holdSec);
+    const stillSec = holds.reduce((sum, hold) => sum + hold, 0);
     if (frames.some((frame) => movieFrameWaitsForClick(frame.action))) {
-      await this.playAction(frames, clips, gen, opts.waitClick);
+      opts.onProgress?.(0, stillSec || movieDurationSec(timeline));
+      await this.playAction(frames, clips, gen, opts.waitClick, opts.onProgress);
+      if (gen === this.gen) {
+        opts.onProgress?.(stillSec, stillSec);
+      }
       return;
     }
-    const holds = frames.map((frame) => frame.holdSec);
     const passes = planMoviePasses(holds, timed);
+    const totalSec = passes.reduce((sum, pass) => sum + pass.passSec, 0) || movieDurationSec(timeline);
+    opts.onProgress?.(0, totalSec);
+    let elapsed = 0;
     for (const pass of passes) {
       if (gen !== this.gen) {
         return;
       }
+      const base = elapsed;
       await this.playPass(
         frames,
         pass.holdSec,
@@ -127,7 +138,12 @@ export class MoviePlayer {
         })),
         pass.passSec,
         gen,
+        (now) => opts.onProgress?.(Math.min(totalSec, base + now), totalSec),
       );
+      elapsed += pass.passSec;
+    }
+    if (gen === this.gen) {
+      opts.onProgress?.(totalSec, totalSec);
     }
   }
 
@@ -184,8 +200,10 @@ export class MoviePlayer {
     clips: { url: string; startSec: number; channel?: string }[],
     gen: number,
     waitClick?: () => Promise<void>,
+    onProgress?: (nowSec: number, totalSec: number) => void,
   ): Promise<void> {
     const starts = clips.map((clip) => clip.startSec);
+    const total = frames.reduce((sum, frame) => sum + Math.max(0, frame.holdSec), 0);
     let t = 0;
     for (const frame of frames) {
       if (gen !== this.gen) {
@@ -193,6 +211,7 @@ export class MoviePlayer {
       }
       await this.ensureFrame(frame.url);
       this.blit(frame.url);
+      onProgress?.(t, total);
       const hold = Math.max(0, frame.holdSec);
       for (const index of movieClipsStarting(starts, t - 1e-6, t + hold)) {
         const url = clips[index]?.url;
@@ -201,7 +220,9 @@ export class MoviePlayer {
         }
       }
       if (hold > 0) {
-        await sleep(hold * 1000, () => gen !== this.gen);
+        await sleep(hold * 1000, () => gen !== this.gen, (frac) => {
+          onProgress?.(t + hold * frac, total);
+        });
       }
       t += hold;
       if (movieFrameWaitsForClick(frame.action) && waitClick) {
@@ -216,6 +237,7 @@ export class MoviePlayer {
     clips: { url: string; startSec: number; channel?: string }[],
     passSec: number,
     gen: number,
+    onProgress?: (nowSec: number) => void,
   ): Promise<void> {
     return new Promise((resolve) => {
       let shown = -1;
@@ -268,10 +290,13 @@ export class MoviePlayer {
         const now = performance.now() - t0;
         if (now >= totalMs) {
           show(Math.max(0, passSec - 1e-4));
+          onProgress?.(passSec);
           finish();
           return;
         }
-        show(now / 1000);
+        const nowSec = now / 1000;
+        onProgress?.(nowSec);
+        show(nowSec);
         this.raf = requestAnimationFrame(step);
       };
       this.raf = requestAnimationFrame(step);
@@ -290,14 +315,20 @@ export class MoviePlayer {
   }
 }
 
-function sleep(ms: number, cancelled: () => boolean): Promise<void> {
+function sleep(
+  ms: number,
+  cancelled: () => boolean,
+  onFrac?: (frac: number) => void,
+): Promise<void> {
   return new Promise((resolve) => {
     const t0 = performance.now();
     const tick = (): void => {
-      if (cancelled() || performance.now() - t0 >= ms) {
+      const elapsed = performance.now() - t0;
+      if (cancelled() || elapsed >= ms) {
         resolve();
         return;
       }
+      onFrac?.(ms > 0 ? elapsed / ms : 1);
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);

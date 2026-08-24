@@ -2,7 +2,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  formatMovieClock,
   movieClipsStarting,
+  movieDurationSec,
   movieFrameWaitsForClick,
   movieIndexAt,
   movieWaitSetsSkipClick,
@@ -37,6 +39,19 @@ describe("inspect movie hold", () => {
     expect(warn.frames.some((frame) => movieFrameWaitsForClick(frame.action))).toBe(true);
     expect(item.frames.some((frame) => movieFrameWaitsForClick(frame.action))).toBe(true);
     expect(dog.frames.some((frame) => movieFrameWaitsForClick(frame.action))).toBe(false);
+  });
+});
+
+describe("movie duration", () => {
+  it("formats mm:ss from the timeline clock", () => {
+    expect(formatMovieClock(0)).toBe("0:00");
+    expect(formatMovieClock(42.15)).toBe("0:42");
+    expect(formatMovieClock(101.3)).toBe("1:41");
+  });
+
+  it("prefers duration_seconds, else ticks", () => {
+    expect(movieDurationSec({ duration_ticks: 2529, duration_seconds: 42.15, frames: [] })).toBe(42.15);
+    expect(movieDurationSec({ duration_ticks: 2529, tick_hz: 60, frames: [] })).toBeCloseTo(42.15);
   });
 });
 

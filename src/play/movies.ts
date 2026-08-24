@@ -17,8 +17,31 @@ export interface MovieClip {
 export interface MovieTimeline {
   tick_hz?: number;
   duration_ticks: number;
+  duration_seconds?: number;
   frames: MovieFrame[];
   clips?: MovieClip[];
+}
+
+/** Still-table length in seconds (timeline sidecar, else sum of holds). */
+export function movieDurationSec(timeline: MovieTimeline): number {
+  if (typeof timeline.duration_seconds === "number" && timeline.duration_seconds > 0) {
+    return timeline.duration_seconds;
+  }
+  const hz = timeline.tick_hz || 60;
+  if (timeline.duration_ticks > 0) {
+    return timeline.duration_ticks / hz;
+  }
+  let ticks = 0;
+  for (const frame of timeline.frames ?? []) {
+    ticks += frame.hold_ticks || 0;
+  }
+  return ticks / hz;
+}
+
+export function formatMovieClock(sec: number): string {
+  const s = Math.max(0, Math.floor(sec + 1e-6));
+  const m = Math.floor(s / 60);
+  return `${m}:${(s % 60).toString().padStart(2, "0")}`;
 }
 
 export function movieFolder(name: string): string {

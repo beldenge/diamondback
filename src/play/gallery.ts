@@ -1,5 +1,12 @@
+import { extractUrl } from "../world/set/extract";
 import { MoviePlayer } from "./moviePlayer";
-import { DEFAULT_REEL, galleryGroups, galleryReel, reelFromSearch } from "./reels";
+import {
+  formatMovieClock,
+  movieDurationSec,
+  movieFolder,
+  type MovieTimeline,
+} from "./movies";
+import { DEFAULT_REEL, GALLERY_REELS, galleryGroups, galleryReel, reelFromSearch } from "./reels";
 import { unlockVoices } from "./speech";
 
 export class MovieGallery {
@@ -10,9 +17,12 @@ export class MovieGallery {
   private readonly playBtn: HTMLButtonElement;
   private readonly stageEl: HTMLElement;
   private readonly fullBtn: HTMLButtonElement;
+  private readonly barEl: HTMLElement;
+  private readonly timeEl: HTMLElement;
   private current = DEFAULT_REEL;
   private playing = false;
   private playGen = 0;
+  private readonly durations = new Map<string, number>();
 
   constructor() {
     const app = document.getElementById("app");
@@ -31,6 +41,10 @@ export class MovieGallery {
         <canvas id="gallery-movie"></canvas>
         <button type="button" id="gallery-play">Play</button>
         <button type="button" id="gallery-full">Full screen</button>
+        <div id="gallery-meter">
+          <div id="gallery-bar"><span></span></div>
+          <p id="gallery-time"></p>
+        </div>
         <p id="gallery-status"></p>
       </section>
     `;
@@ -40,8 +54,11 @@ export class MovieGallery {
     this.playBtn = this.root.querySelector("#gallery-play") as HTMLButtonElement;
     this.stageEl = this.root.querySelector("#gallery-stage") as HTMLElement;
     this.fullBtn = this.root.querySelector("#gallery-full") as HTMLButtonElement;
+    this.barEl = this.root.querySelector("#gallery-bar span") as HTMLElement;
+    this.timeEl = this.root.querySelector("#gallery-time") as HTMLElement;
     this.player = new MoviePlayer(this.canvas);
     this.fillList();
+    void this.loadDurations();
     this.current = reelFromSearch(window.location.search);
     this.highlight();
     this.playBtn.addEventListener("click", () => void this.playCurrent());
@@ -57,6 +74,7 @@ export class MovieGallery {
         this.playing = false;
         this.playBtn.hidden = false;
         this.statusEl.textContent = "Stopped.";
+        this.setProgress(0, this.durations.get(this.current) ?? 0);
       } else {
         void this.playCurrent();
       }
@@ -71,6 +89,7 @@ export class MovieGallery {
         this.playing = false;
         this.playBtn.hidden = false;
         this.statusEl.textContent = "";
+        this.setProgress(0, this.durations.get(this.current) ?? 0);
       }
       if (event.key === " " && event.target === document.body) {
         event.preventDefault();
@@ -78,6 +97,7 @@ export class MovieGallery {
           this.player.stop();
           this.playing = false;
           this.playBtn.hidden = false;
+          this.setProgress(0, this.durations.get(this.current) ?? 0);
         } else {
           void this.playCurrent();
         }
@@ -95,6 +115,7 @@ export class MovieGallery {
     document.getElementById("landing")?.setAttribute("hidden", "");
     this.current = reelFromSearch(window.location.search);
     this.highlight();
+    this.setProgress(0, this.durations.get(this.current) ?? 0);
   }
 
   hide(): void {
@@ -157,10 +178,12 @@ export class MovieGallery {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.dataset.reel = reel.id;
-        btn.textContent = reel.title;
-        if (reel.id === DEFAULT_REEL) {
-          btn.classList.add("is-default");
-        }
+        const title = document.createElement("span");
+        title.className = "gallery-title";
+        title.textContent = reel.title;
+        const len = document.createElement("span");
+        len.className = "gallery-len";
+        btn.append(title, len);
         btn.addEventListener("click", () => {
           this.select(reel.id);
           void this.playCurrent();
@@ -177,6 +200,44 @@ export class MovieGallery {
     url.searchParams.set("reel", this.current);
     history.replaceState(null, "", `${url.pathname}${url.search}`);
     this.highlight();
+    this.setProgress(0, this.durations.get(this.current) ?? 0);
+  }
+
+  private async loadDurations(): Promise<void> {
+    await Promise.all(
+      GALLERY_REELS.map(async (reel) => {
+        try {
+          const res = await fetch(extractUrl(`${movieFolder(`${reel.id}.mov`)}/timeline.json`));
+          if (!res.ok) {
+            return;
+          }
+          const timeline = (await res.json()) as MovieTimeline;
+          const sec = movieDurationSec(timeline);
+          if (!(sec > 0)) {
+            return;
+          }
+          this.durations.set(reel.id, sec);
+          const len = this.root.querySelector(`[data-reel="${reel.id}"] .gallery-len`);
+          if (len) {
+            len.textContent = formatMovieClock(sec);
+          }
+        } catch {
+          /* extract missing */
+        }
+      }),
+    );
+    this.setProgress(0, this.durations.get(this.current) ?? 0);
+  }
+
+  private setProgress(nowSec: number, totalSec: number): void {
+    const total = Math.max(0, totalSec);
+    const frac = total > 0 ? Math.min(1, Math.max(0, nowSec / total)) : 0;
+    this.barEl.style.width = `${frac * 100}%`;
+    if (total > 0) {
+      this.timeEl.textContent = `${formatMovieClock(nowSec)} / ${formatMovieClock(total)}`;
+    } else {
+      this.timeEl.textContent = "";
+    }
   }
 
   private highlight(): void {
@@ -202,7 +263,12 @@ export class MovieGallery {
           if (status.label === "Loading") {
             this.statusEl.textContent = `Loading ${title}… ${status.loaded}/${status.total}`;
           } else {
-            this.statusEl.textContent = `${title} — click the picture to stop.`;
+            this.statusEl.textContent = "";
+          }
+        },
+        onProgress: (now, total) => {
+          if (gen === this.playGen) {
+            this.setProgress(now, total);
           }
         },
         waitClick: () =>
