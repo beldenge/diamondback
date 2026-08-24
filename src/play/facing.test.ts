@@ -530,6 +530,14 @@ describe("play stage", () => {
     expect(rect.worldH).toBe(264 * 2);
     expect(rect.hudH).toBe(120 * 2);
   });
+
+  it("keeps a positive still on a phone-sized portrait window", () => {
+    const rect = playStageRect(390, 700);
+    expect(rect.w).toBeGreaterThan(200);
+    expect(rect.worldH).toBeGreaterThan(100);
+    expect(rect.h).toBeLessThanOrEqual(700);
+    expect(rect.w).toBeLessThanOrEqual(390);
+  });
 });
 
 describe("Dust 60 Hz ticks", () => {

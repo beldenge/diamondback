@@ -22,6 +22,7 @@ export class MovieGallery {
   private current = DEFAULT_REEL;
   private playing = false;
   private playGen = 0;
+  private theater = false;
   private readonly durations = new Map<string, number>();
 
   constructor() {
@@ -82,7 +83,11 @@ export class MovieGallery {
     window.addEventListener("pointerdown", () => unlockVoices(), { capture: true });
     window.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
-        if (this.fullscreenEl()) {
+        if (this.fullscreenEl() || this.theater) {
+          if (this.theater) {
+            this.theater = false;
+            this.syncFullscreenLabel();
+          }
           return;
         }
         this.player.stop();
@@ -125,6 +130,8 @@ export class MovieGallery {
     if (this.fullscreenEl()) {
       void document.exitFullscreen?.();
     }
+    this.theater = false;
+    this.syncFullscreenLabel();
     this.root.hidden = true;
     document.body.classList.remove("gallery");
   }
@@ -134,8 +141,9 @@ export class MovieGallery {
   }
 
   private syncFullscreenLabel(): void {
-    const on = Boolean(this.fullscreenEl());
+    const on = Boolean(this.fullscreenEl()) || this.theater;
     this.fullBtn.textContent = on ? "Exit full screen" : "Full screen";
+    this.root.classList.toggle("is-theater", this.theater && !this.fullscreenEl());
     this.stageEl.classList.toggle("is-fullscreen", on);
     this.canvas.classList.toggle("is-fullscreen", on);
     this.canvas.style.width = on ? "100%" : "";
@@ -145,21 +153,48 @@ export class MovieGallery {
     this.canvas.style.objectFit = "contain";
   }
 
+  private nativeFullscreen(): boolean {
+    const doc = document as Document & { webkitFullscreenEnabled?: boolean };
+    if (doc.fullscreenEnabled === false || doc.webkitFullscreenEnabled === false) {
+      return false;
+    }
+    const stage = this.stageEl as HTMLElement & {
+      requestFullscreen?: () => Promise<void>;
+      webkitRequestFullscreen?: () => Promise<void> | void;
+    };
+    return typeof (stage.requestFullscreen ?? stage.webkitRequestFullscreen) === "function";
+  }
+
   private async toggleFullscreen(): Promise<void> {
     const stage = this.stageEl as HTMLElement & {
+      requestFullscreen?: () => Promise<void>;
       webkitRequestFullscreen?: () => Promise<void> | void;
     };
     const doc = document as Document & {
+      exitFullscreen?: () => Promise<void>;
       webkitExitFullscreen?: () => Promise<void> | void;
     };
-    try {
+    if (this.fullscreenEl() || this.theater) {
       if (this.fullscreenEl()) {
-        await (doc.exitFullscreen?.() ?? doc.webkitExitFullscreen?.());
-      } else {
-        await (stage.requestFullscreen?.() ?? stage.webkitRequestFullscreen?.());
+        try {
+          await (doc.exitFullscreen?.() ?? doc.webkitExitFullscreen?.());
+        } catch {
+          /* already out */
+        }
       }
-    } catch (err) {
-      console.warn(err);
+      this.theater = false;
+      this.syncFullscreenLabel();
+      return;
+    }
+    if (this.nativeFullscreen()) {
+      try {
+        await (stage.requestFullscreen?.() ?? stage.webkitRequestFullscreen?.());
+      } catch {
+        /* iPhone: element fullscreen is not implemented */
+      }
+    }
+    if (!this.fullscreenEl()) {
+      this.theater = true;
     }
     this.syncFullscreenLabel();
   }

@@ -210,6 +210,36 @@ export class StillsView {
   }
 }
 
+function stillTexture(image: ImageBitmap | HTMLImageElement, flipY: boolean): Texture {
+  const texture = new Texture(image);
+  texture.colorSpace = SRGBColorSpace;
+  texture.flipY = flipY;
+  texture.magFilter = NearestFilter;
+  texture.minFilter = NearestFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+async function htmlImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.src = url;
+    if (typeof img.decode === "function") {
+      await img.decode();
+    } else {
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("still image"));
+      });
+    }
+    return img;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 async function decodeStillTexture(url: string, priority: MediaPriority): Promise<Texture> {
   const res = await fetch(url, {
     cache: "no-cache",
@@ -219,22 +249,27 @@ async function decodeStillTexture(url: string, priority: MediaPriority): Promise
     throw new Error(`${url} ${res.status}`);
   }
   const blob = await res.blob();
-  let bitmap: ImageBitmap;
   try {
-    bitmap = await createImageBitmap(blob, {
+    const bitmap = await createImageBitmap(blob, {
       imageOrientation: "flipY",
       premultiplyAlpha: "none",
       colorSpaceConversion: "none",
     });
+    if (bitmap.width > 0 && bitmap.height > 0) {
+      return stillTexture(bitmap, false);
+    }
+    bitmap.close();
   } catch {
-    bitmap = await createImageBitmap(blob, { imageOrientation: "flipY" });
+    /* iOS Safari often rejects the ImageBitmap options bag. */
   }
-  const texture = new Texture(bitmap);
-  texture.colorSpace = SRGBColorSpace;
-  texture.flipY = false;
-  texture.magFilter = NearestFilter;
-  texture.minFilter = NearestFilter;
-  texture.generateMipmaps = false;
-  texture.needsUpdate = true;
-  return texture;
+  try {
+    const bitmap = await createImageBitmap(blob, { imageOrientation: "flipY" });
+    if (bitmap.width > 0 && bitmap.height > 0) {
+      return stillTexture(bitmap, false);
+    }
+    bitmap.close();
+  } catch {
+    /* fall through to HTMLImageElement */
+  }
+  return stillTexture(await htmlImageFromBlob(blob), true);
 }

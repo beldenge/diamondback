@@ -175,8 +175,10 @@ export class PlayGame implements WorldView {
   private readonly heldKeys = new Set<string>();
   private pendingWalk: WalkInput | null = null;
   private booting = true;
+  private visible = true;
   private scriptsReady = false;
   private logLine = "";
+  private readonly loadEl: HTMLDivElement;
   private readonly actorLayer: HTMLDivElement;
   private readonly fadeEl: HTMLDivElement;
   private fadeOpacity = 0;
@@ -223,8 +225,9 @@ export class PlayGame implements WorldView {
   private cursorOn = "";
   private stageScale = 1;
 
-  constructor(canvas: HTMLCanvasElement) {
-    this.canvas = canvas;
+  constructor(canvas?: HTMLCanvasElement) {
+    this.canvas = canvas ?? document.createElement("canvas");
+    this.canvas.id = "play-world";
     document.body.classList.add("play");
     this.stageEl = document.createElement("div");
     this.stageEl.id = "play-stage";
@@ -249,6 +252,7 @@ export class PlayGame implements WorldView {
       throw new Error("actor canvas");
     }
     this.actorCtx = actorCtx;
+    this.actorCanvas.style.backgroundColor = "transparent";
     this.actorLayer.append(this.actorCanvas);
     this.captionEl = document.createElement("div");
     this.captionEl.id = "play-caption";
@@ -262,6 +266,9 @@ export class PlayGame implements WorldView {
     this.movieCtx = movieCtx;
     this.movieCtx.imageSmoothingEnabled = false;
     this.handEl = document.createElement("canvas");
+    this.loadEl = document.createElement("div");
+    this.loadEl.id = "play-loading";
+    this.loadEl.textContent = "Loading…";
     this.fadeEl = document.createElement("div");
     this.fadeEl.id = "play-fade";
     this.handEl.id = "play-hand";
@@ -272,18 +279,18 @@ export class PlayGame implements WorldView {
     }
     this.handCtx = handCtx;
     const app = document.getElementById("app");
-    canvas.replaceWith(this.stageEl);
     this.stageEl.append(
-      canvas,
+      this.canvas,
       this.actorLayer,
       this.hudEl,
       this.hudFace,
       this.movieEl,
       this.handEl,
       this.fadeEl,
+      this.loadEl,
     );
     app?.append(this.stageEl, this.captionEl);
-    this.renderer = new WebGLRenderer({ canvas, antialias: false });
+    this.renderer = new WebGLRenderer({ canvas: this.canvas, antialias: false });
     this.renderer.setPixelRatio(1);
     this.renderer.setClearColor(new Color(0x000000));
     const timeEl = document.getElementById("hud-time");
@@ -327,9 +334,10 @@ export class PlayGame implements WorldView {
       log: (message) => this.log(message),
     });
     this.layoutStage();
+    this.visible = true;
 
-    canvas.addEventListener("click", (event) => void this.onClick(event));
-    canvas.addEventListener("mousemove", (event) => this.onMove(event));
+    this.canvas.addEventListener("click", (event) => void this.onClick(event));
+    this.canvas.addEventListener("mousemove", (event) => this.onMove(event));
     this.stageEl.addEventListener("pointerdown", (event) => this.onPointerDown(event));
     window.addEventListener("pointermove", (event) => this.onPointerMove(event));
     window.addEventListener("pointerup", (event) => void this.onPointerUp(event));
@@ -344,6 +352,8 @@ export class PlayGame implements WorldView {
     window.addEventListener("keyup", (event) => this.heldKeys.delete(event.code));
     window.addEventListener("blur", () => this.heldKeys.clear());
     window.addEventListener("resize", () => this.layoutStage());
+    window.visualViewport?.addEventListener("resize", () => this.layoutStage());
+    window.visualViewport?.addEventListener("scroll", () => this.layoutStage());
   }
 
   refreshActors(): void {
@@ -408,9 +418,14 @@ export class PlayGame implements WorldView {
   }
 
   private layoutStage(): void {
-    const rect = playStageRect(window.innerWidth, window.innerHeight);
-    this.stageEl.style.left = `${rect.x}px`;
-    this.stageEl.style.top = `${rect.y}px`;
+    const view = window.visualViewport;
+    const winW = view?.width ?? window.innerWidth;
+    const winH = view?.height ?? window.innerHeight;
+    const ox = view?.offsetLeft ?? 0;
+    const oy = view?.offsetTop ?? 0;
+    const rect = playStageRect(winW, winH);
+    this.stageEl.style.left = `${rect.x + ox}px`;
+    this.stageEl.style.top = `${rect.y + oy}px`;
     this.stageEl.style.width = `${rect.w}px`;
     this.stageEl.style.height = `${rect.h}px`;
     this.canvas.style.position = "absolute";
@@ -431,9 +446,31 @@ export class PlayGame implements WorldView {
   }
 
   start(): void {
+    this.visible = true;
+    this.stageEl.hidden = false;
+    this.captionEl.hidden = false;
+    document.body.classList.add("play");
     this.syncHud();
+    this.layoutStage();
     this.renderer.setAnimationLoop(() => this.tick());
     void this.boot();
+  }
+
+  show(): void {
+    this.visible = true;
+    this.stageEl.hidden = false;
+    this.captionEl.hidden = false;
+    document.body.classList.add("play");
+    this.layoutStage();
+    this.renderer.setAnimationLoop(() => this.tick());
+  }
+
+  hide(): void {
+    this.visible = false;
+    this.renderer.setAnimationLoop(null);
+    this.stageEl.hidden = true;
+    this.captionEl.hidden = true;
+    document.body.classList.remove("play");
   }
 
   log(message: string): void {
@@ -705,6 +742,9 @@ export class PlayGame implements WorldView {
       this.host.currentSetFile = "nite.set";
       this.host.currentScene = "scene g15";
       this.host.currentDir = "N";
+      void this.showHold();
+      this.syncHud();
+      this.host.skipBootBlack = this.host.skipMovies;
       await this.host.installLibrary(this.vm);
       const boot = this.host.index.lookup(["boot"], "boot");
       if (boot) {
@@ -714,6 +754,7 @@ export class PlayGame implements WorldView {
       this.layoutActors();
       await this.host.ensureHudPortrait(this.vm);
       this.booting = false;
+      this.loadEl.hidden = true;
       this.preloadNeighbors();
       await this.host.onArrive(this.vm);
       this.syncHud();
@@ -721,7 +762,10 @@ export class PlayGame implements WorldView {
       const message = err instanceof Error ? err.message : String(err);
       this.logLine = message;
       this.booting = false;
+      this.loadEl.hidden = true;
       this.syncHud();
+    } finally {
+      this.host.skipBootBlack = false;
     }
   }
 
@@ -741,6 +785,9 @@ export class PlayGame implements WorldView {
   }
 
   private tick(): void {
+    if (!this.visible) {
+      return;
+    }
     const dt = Math.min(this.clock.getDelta(), 0.05);
     // Boot owns the VM (`boot` / `advanceday`). Do not drain `makeface`
     // or runQueued on the same VM until that returns.
@@ -1100,7 +1147,7 @@ export class PlayGame implements WorldView {
    * whenever idle `runQueued` held `scriptBusy`.
    */
   private onPointerDown(event: PointerEvent): void {
-    if (event.button !== 0) {
+    if (!this.visible || event.button !== 0) {
       return;
     }
     const point = this.stageFromPointer(event);
@@ -1144,6 +1191,9 @@ export class PlayGame implements WorldView {
   }
 
   private onPointerMove(event: PointerEvent): void {
+    if (!this.visible) {
+      return;
+    }
     const point = this.stageFromPointer(event);
     if (point) {
       this.host.pointer = point;
@@ -1179,6 +1229,9 @@ export class PlayGame implements WorldView {
   }
 
   private async onClick(event: MouseEvent): Promise<void> {
+    if (!this.visible) {
+      return;
+    }
     unlockVoices();
     this.host.resumeBed();
     if (this.skipNextClick) {
@@ -1274,6 +1327,9 @@ export class PlayGame implements WorldView {
   }
 
   private onKey(event: KeyboardEvent): void {
+    if (!this.visible) {
+      return;
+    }
     this.host.resumeBed();
     if (event.altKey || event.ctrlKey || event.metaKey || this.booting) {
       return;
@@ -2043,27 +2099,62 @@ async function fetchStillImageData(url: string, priority: MediaPriority): Promis
     throw new Error(`${url} ${res.status}`);
   }
   const blob = await res.blob();
-  let bitmap: ImageBitmap;
+  let drawable: CanvasImageSource;
   try {
-    bitmap = await createImageBitmap(blob, {
+    const bitmap = await createImageBitmap(blob, {
       premultiplyAlpha: "none",
       colorSpaceConversion: "none",
     });
+    drawable = bitmap.width > 0 ? bitmap : await blobImage(blob);
+    if (bitmap.width <= 0) {
+      bitmap.close();
+    }
   } catch {
-    bitmap = await createImageBitmap(blob);
+    try {
+      drawable = await createImageBitmap(blob);
+    } catch {
+      drawable = await blobImage(blob);
+    }
   }
   const canvas = document.createElement("canvas");
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
+  const dw = "width" in drawable ? Number(drawable.width) : 0;
+  const dh = "height" in drawable ? Number(drawable.height) : 0;
+  canvas.width = dw;
+  canvas.height = dh;
   const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    bitmap.close();
+  if (!ctx || dw <= 0 || dh <= 0) {
+    closeBitmap(drawable);
     throw new Error("image canvas");
   }
-  ctx.drawImage(bitmap, 0, 0);
-  const data = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
-  bitmap.close();
+  ctx.drawImage(drawable, 0, 0);
+  const data = ctx.getImageData(0, 0, dw, dh);
+  closeBitmap(drawable);
   return data;
+}
+
+async function blobImage(blob: Blob): Promise<HTMLImageElement> {
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.src = url;
+    if (typeof img.decode === "function") {
+      await img.decode();
+    } else {
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("still image"));
+      });
+    }
+    return img;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function closeBitmap(image: CanvasImageSource): void {
+  if (typeof ImageBitmap !== "undefined" && image instanceof ImageBitmap) {
+    image.close();
+  }
 }
 
 function keyToScriptArg(code: string): string | null {

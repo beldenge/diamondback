@@ -295,6 +295,11 @@ export class DustHost implements OpcodeHost {
   private loopAcc = 0;
   view: WorldView | null = null;
   skipMovies = true;
+  /**
+   * Boot starts with `blackscreen()` for the intro movies. When those
+   * movies are skipped, keep the spawn still up instead of wiping it.
+   */
+  skipBootBlack = false;
   /** Escape during `puppetspeak` skips remaining lines until choices. */
   skipSpeech = false;
   currentVoice = "none";
@@ -408,9 +413,14 @@ export class DustHost implements OpcodeHost {
       case "puppetbase":
         return 0;
       case "blackscreen":
-        this.view?.cutToBlack?.();
+        if (!this.skipBootBlack) {
+          this.view?.cutToBlack?.();
+        }
         return 0;
       case "screentoblack": {
+        if (this.skipBootBlack) {
+          return 0;
+        }
         const ticks = fadeTicks(args);
         if (this.view?.fadeToBlack) {
           await this.view.fadeToBlack(ticks);

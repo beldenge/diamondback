@@ -75,6 +75,7 @@ export class Game {
   private readonly heldKeys = new Set<string>();
   private pendingInput: WalkInput | null = null;
   private skipNextClick = false;
+  private paused = false;
   private swipe: { id: number; x: number; y: number } | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -114,7 +115,13 @@ export class Game {
   }
 
   start(): void {
+    this.paused = false;
     this.renderer.setAnimationLoop(() => this.tick());
+  }
+
+  stop(): void {
+    this.paused = true;
+    this.renderer.setAnimationLoop(null);
   }
 
   private setupStills(): void {
@@ -157,6 +164,9 @@ export class Game {
   }
 
   private tick(): void {
+    if (this.paused) {
+      return;
+    }
     const dt = Math.min(this.clock.getDelta(), 0.05);
     this.tickStills(dt);
   }
@@ -261,7 +271,7 @@ export class Game {
   }
 
   private onKeyDown(event: KeyboardEvent): void {
-    if (event.altKey || event.ctrlKey || event.metaKey) {
+    if (this.paused || event.altKey || event.ctrlKey || event.metaKey) {
       return;
     }
     this.heldKeys.add(event.code);

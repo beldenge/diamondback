@@ -84,6 +84,7 @@ body,
   display: block;
   width: 100%;
   height: 100%;
+  background: transparent;
   image-rendering: pixelated;
   pointer-events: none;
 }
@@ -109,13 +110,37 @@ body.play #app {
   touch-action: none;
 }
 
-body.play #viewport {
+body.play #viewport,
+#play-world {
   position: absolute;
   left: 0;
   top: 0;
   width: 100%;
   height: calc(264 / 384 * 100%);
   z-index: 0;
+}
+
+#play-loading {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: calc(264 / 384 * 100%);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 18px;
+  color: #f3e6c8;
+  font-family: "IM Fell English", Palatino, "Palatino Linotype", serif;
+  font-size: 16px;
+  letter-spacing: 0.06em;
+  text-shadow: 0 1px 4px #000;
+  pointer-events: none;
+  z-index: 30;
+}
+
+#play-loading[hidden] {
+  display: none;
 }
 
 #play-fade {
@@ -708,11 +733,25 @@ body.gallery #landing {
   min-height: 0;
 }
 
+#gallery.is-theater {
+  grid-template-columns: 1fr;
+}
+
+#gallery.is-theater #gallery-rail {
+  display: none;
+}
+
 #gallery-stage:fullscreen,
 #gallery-stage:-webkit-full-screen,
-#gallery-stage.is-fullscreen {
-  width: 100vw;
-  height: 100vh;
+#gallery-stage.is-fullscreen,
+#gallery.is-theater #gallery-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  min-height: 100dvh;
   background: #000;
 }
 
@@ -749,6 +788,7 @@ body.gallery #landing {
   font-size: 14px;
   letter-spacing: 0.06em;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 #gallery-full:hover,

@@ -4,19 +4,29 @@ import { clientMode, type ClientMode } from "./core/mode";
 import { MovieGallery } from "./play/gallery";
 import { PlayGame } from "./play/game";
 
-const canvas = document.getElementById("viewport");
-if (!(canvas instanceof HTMLCanvasElement)) {
+const viewportEl = document.getElementById("viewport");
+if (!(viewportEl instanceof HTMLCanvasElement)) {
   throw new Error("#viewport canvas missing");
 }
+const canvas: HTMLCanvasElement = viewportEl;
 
 const landing = document.getElementById("landing");
 let gallery: MovieGallery | null = null;
+let playGame: PlayGame | null = null;
+let townGame: Game | null = null;
 
 function currentMode(): ClientMode {
   return clientMode(window.location.search, window.location.pathname);
 }
 
+function hideLanding(): void {
+  document.body.classList.remove("landing");
+  landing?.setAttribute("hidden", "");
+}
+
 function showLanding(): void {
+  playGame?.hide();
+  townGame?.stop();
   gallery?.hide();
   document.body.classList.add("landing");
   document.body.classList.remove("gallery", "play");
@@ -25,8 +35,9 @@ function showLanding(): void {
 }
 
 function showMovies(): void {
-  document.body.classList.remove("landing");
-  landing?.setAttribute("hidden", "");
+  playGame?.hide();
+  townGame?.stop();
+  hideLanding();
   document.title = "The Picture Show — Diamondback";
   if (!gallery) {
     gallery = new MovieGallery();
@@ -35,11 +46,47 @@ function showMovies(): void {
   }
 }
 
-function applySpa(): void {
-  if (currentMode() === "movies") {
-    showMovies();
+function showPlay(): void {
+  townGame?.stop();
+  gallery?.hide();
+  hideLanding();
+  document.title = "Dust: Resurrected — Diamondback";
+  if (!playGame) {
+    playGame = new PlayGame();
+    playGame.start();
   } else {
-    showLanding();
+    playGame.show();
+  }
+}
+
+function showUnlocked(): void {
+  playGame?.hide();
+  gallery?.hide();
+  hideLanding();
+  document.body.classList.remove("gallery", "play");
+  document.title = "Dust: Unlocked — Diamondback";
+  if (!townGame) {
+    townGame = new Game(canvas);
+    townGame.start();
+  } else {
+    townGame.start();
+  }
+}
+
+function applyRoute(): void {
+  switch (currentMode()) {
+    case "movies":
+      showMovies();
+      break;
+    case "play":
+      showPlay();
+      break;
+    case "unlocked":
+      showUnlocked();
+      break;
+    default:
+      showLanding();
+      break;
   }
   document.documentElement.classList.remove("boot-hidden");
 }
@@ -57,10 +104,6 @@ function sameOriginLink(anchor: HTMLAnchorElement, event: MouseEvent): boolean {
   return anchor.origin === window.location.origin;
 }
 
-function spaPair(mode: ClientMode): boolean {
-  return mode === "landing" || mode === "movies";
-}
-
 document.addEventListener("click", (event) => {
   const target = event.target;
   if (!(target instanceof Element)) {
@@ -72,7 +115,9 @@ document.addEventListener("click", (event) => {
   }
   const url = new URL(anchor.href);
   const next = clientMode(url.search, url.pathname);
-  if (!spaPair(currentMode()) || !spaPair(next)) {
+  const hereMode = currentMode();
+  if (next === hereMode && url.search === window.location.search) {
+    event.preventDefault();
     return;
   }
   event.preventDefault();
@@ -81,28 +126,11 @@ document.addEventListener("click", (event) => {
   if (nextHref !== here) {
     history.pushState(null, "", nextHref);
   }
-  applySpa();
+  applyRoute();
 });
 
 window.addEventListener("popstate", () => {
-  if (spaPair(currentMode())) {
-    applySpa();
-  }
+  applyRoute();
 });
 
-const mode = currentMode();
-if (mode === "play") {
-  document.body.classList.remove("landing");
-  landing?.setAttribute("hidden", "");
-  document.title = "Dust: Resurrected — Diamondback";
-  new PlayGame(canvas).start();
-  document.documentElement.classList.remove("boot-hidden");
-} else if (mode === "unlocked") {
-  document.body.classList.remove("landing");
-  landing?.setAttribute("hidden", "");
-  document.title = "Dust: Unlocked — Diamondback";
-  new Game(canvas).start();
-  document.documentElement.classList.remove("boot-hidden");
-} else {
-  applySpa();
-}
+applyRoute();
