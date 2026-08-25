@@ -76,6 +76,8 @@ function actor(x: number, y: number, deg = 0): ActorState {
     walkSprites: [],
     drinkSprites: [],
     spriteRoot: "",
+    screen: false,
+    is3d: false,
   };
 }
 

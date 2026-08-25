@@ -20,6 +20,24 @@ export interface PuzzleLabel {
   size: number;
 }
 
+/**
+ * `drawstring` replaces the previous string in that slot. TARGET scores
+ * share y=348 (target / bottle / can / %) so match x as well as y.
+ */
+export function upsertPuzzleLabel(
+  labels: readonly PuzzleLabel[],
+  next: PuzzleLabel,
+  xSlop = 24,
+  ySlop = 8,
+): PuzzleLabel[] {
+  return [
+    ...labels.filter(
+      (label) => Math.abs(label.y - next.y) > ySlop || Math.abs(label.x - next.x) > xSlop,
+    ),
+    next,
+  ];
+}
+
 export interface PuzzleBoard {
   stillUrl: string;
   items: FlatItem[];
@@ -73,8 +91,8 @@ export function shopFileOf(shop: string): string {
 }
 
 export function isPuzzleStage(stage: string): boolean {
-  const name = stage.toLowerCase();
-  return name !== "" && name !== "none" && name !== "new";
+  const name = stage.toLowerCase().replace(/\.flt$/i, "");
+  return name !== "" && name !== "none" && name !== "new" && name !== "target";
 }
 
 /** Screen-space PRP blit: `propxy` is the 512×384 hotspot (same as INVEN). */

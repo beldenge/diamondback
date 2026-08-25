@@ -73,6 +73,35 @@ export function inventorySpriteView(name: string, handitem: string): "hilite" | 
   return who !== "" && who === hand ? "hilite" : "panel";
 }
 
+/**
+ * INVEN HUD cels (`large` / `panel` / `hilite` / `empty`). TARGET sets
+ * the held gun to `empty` so it is not the skull-slot revolver; do not
+ * blit those as world sprites.
+ */
+export function isInventoryHudView(view: string): boolean {
+  const name = view.toLowerCase();
+  return name === "large" || name === "panel" || name === "hilite" || name === "empty";
+}
+
+/**
+ * Boot `idle`: `cursor ("sight")` when gunhand is up, the pointer is on
+ * the still, and it is not on the hand itself (reload / holster).
+ */
+export function gunhandWantsSight(
+  gunhandVisible: boolean,
+  point: { x: number; y: number },
+  hitsGunhand: boolean,
+): boolean {
+  return (
+    gunhandVisible &&
+    point.x >= 0 &&
+    point.x <= 512 &&
+    point.y >= 0 &&
+    point.y < 264 &&
+    !hitsGunhand
+  );
+}
+
 export const FLAT_STILL: Record<string, string> = {
   map: extractUrl("FLT/_NEW/frame_6.png"),
   avatar: extractUrl("FLT/_NEW/frame_9.png"),
@@ -104,6 +133,22 @@ export function mapCrossLit(animTick: number, timing = MAP_CROSS_TIMING): boolea
 
 export function hitMacRect(rects: MacRect[], x: number, y: number): MacRect | undefined {
   return rects.find((r) => x >= r.left && x < r.right && y >= r.top && y < r.bottom);
+}
+
+/** HUD-band cursor. Range EXIT is a FLT button; town uses MAINPANEL_BUTTONS. */
+export function hudBarCursor(
+  range: boolean,
+  flatButton: string | undefined,
+  held: boolean,
+  panel: string | undefined,
+): "touch" | "arrow" {
+  if (range) {
+    return flatButton ? "touch" : "arrow";
+  }
+  if (held || panel) {
+    return "touch";
+  }
+  return "arrow";
 }
 
 /** INVEN `addinven` / `stdmouse` slot on the mainpanel HUD. */
@@ -140,6 +185,35 @@ export function propViewFrame<T>(
   }
   const index = Math.max(0, Math.min(frames.length - 1, Math.trunc(deg) || 0));
   return frames[index];
+}
+
+/**
+ * Screen-space PRP (`propxy` gunhand) uses `propdeg` as a cel index.
+ * TARGET `pointx * 13 / 512 + 1` is 1-based on the 13 aim plates.
+ * Reload is 0-based `bulletcount` on 7 cels. World strips stay 8-dir.
+ */
+export function propBlitFrame<T>(
+  frames: T[],
+  deg: number,
+  timing: number[] | undefined,
+  animTick: number,
+  screen: boolean,
+): T | undefined {
+  if (!frames.length) {
+    return undefined;
+  }
+  if (screen) {
+    const d = Math.trunc(deg);
+    if ((!timing || timing.length <= 1) && frames.length > 8 && d >= 1 && d <= frames.length) {
+      return frames[d - 1];
+    }
+    return propViewFrame(frames, deg, timing, animTick);
+  }
+  if (frames.length === 1) {
+    return frames[0];
+  }
+  const oct = Math.floor((((deg % 256) + 256) % 256) / 32) % frames.length;
+  return frames[oct] ?? frames[0];
 }
 
 /** Dust `stdmouse`: click the large held prop, not the skull under it. */

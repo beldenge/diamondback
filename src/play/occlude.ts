@@ -69,6 +69,40 @@ export function actorBlitZ(
 }
 
 /**
+ * TARGET `actoris3d` livestock (pig, chicken, gila). Flying crows keep
+ * a world `z` and stay on computed sprite Z.
+ */
+export function isRangeGroundWalker(actor: {
+  is3d?: boolean;
+  screen?: boolean;
+  z?: number;
+}): boolean {
+  return Boolean(actor.is3d) && !actor.screen && (actor.z ?? 0) === 0;
+}
+
+/**
+ * TARGET gallery / cactus still Z is 3–4, same 24-level bucket as the
+ * livestock walk (`lensForward` 224–272 → sprite Z 4). `actorBlitZ`
+ * then pulls one plane onto a cactus, so the sprite draws *on* it.
+ * Ground walkers blit one plane farther so those painted occluders win.
+ */
+export function rangeGroundBlitZ(
+  computed: number,
+  zPlane: Uint8Array | null,
+  hx: number,
+  hy: number,
+  actor: { is3d?: boolean; screen?: boolean; z?: number },
+  width = STILL_WIDTH,
+  height = STILL_HEIGHT,
+): number {
+  const z = actorBlitZ(computed, zPlane, hx, hy, width, height);
+  if (!isRangeGroundWalker(actor)) {
+    return z;
+  }
+  return Math.min(Z_SKY, z + 1);
+}
+
+/**
  * HOUSE door overlays sit at SET camZ (salout z=174, sallower +26=180).
  * They replace the still's door. Pinning to the hotspot wall Z (often 4)
  * still loses the lower leaf: floor/wainscot or a stale street Z is 2–3,
@@ -306,6 +340,27 @@ export function zPlaneFromImageData(image: ImageData): Uint8Array {
     z[i] = src[i * 4];
   }
   return z;
+}
+
+/**
+ * Filmstrip plates swap the color still immediately. Matching `FRAMES/z`
+ * is async. `null` for that gap draws every sprite through walls. Use the
+ * cached plane for this still when it is ready; otherwise keep `last`.
+ * A cached `null` means that still has no Z (do not hold a stale town
+ * plane onto an interior).
+ */
+export function liveZPlaneForStill(
+  want: string,
+  cache: Map<string, Uint8Array | null>,
+  last: Uint8Array | null,
+): Uint8Array | null {
+  if (!want) {
+    return last;
+  }
+  if (cache.has(want)) {
+    return cache.get(want) ?? null;
+  }
+  return last;
 }
 
 export function spriteBitsFromImageData(

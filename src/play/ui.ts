@@ -884,6 +884,7 @@ export class PuppetUi {
 }
 
 export const PLAY_HUD_CHROME = extractUrl("FLT/_NEW/frame_3.png");
+export const RANGE_HUD_CHROME = extractUrl("FLT/_TARGET/frame_3.png");
 /** HOUSE.PRP 72×23 3D rim. Interior is transparent, not an OS button. */
 export const BEVEL_CHROME = extractUrl("PRP/_HOUSE/FRAMES/butbevel/base/00_c66.png");
 /** Only opaque pixels on `butbevel`: dark top/left, tan bottom/right. */

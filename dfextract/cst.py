@@ -10,7 +10,7 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
-from container import DFError, DFFile
+from container import DFError, DFFile, read_df_file
 from script import (
     binary_script_to_text,
     decode_and_write_script,
@@ -169,8 +169,57 @@ def cst_frame_facing(info: bytes, frame_i: int) -> tuple[int, int, int] | None:
     return frame_id, pose, deg
 
 
+def companion_set_path(cst_path: Path) -> Path | None:
+    """TARGET.CST sits next to TARGET.SET. Sprites index-blit with that still pal."""
+    for ext in (".SET", ".set"):
+        candidate = cst_path.with_suffix(ext)
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def cst_palette_misses_sprites(df: DFFile, palette) -> bool:
+    """True when opaque sprite indices are unused slots in the CST ColorPalette."""
+    from image import ImageError, decode_trans_indices
+
+    unused = 0
+    total = 0
+    for container in df.containers[1:40]:
+        try:
+            _h, _w, _y, _x, indices = decode_trans_indices(container.data)
+        except (ImageError, ValueError, struct.error):
+            continue
+        for index in indices:
+            if index == 255:
+                continue
+            total += 1
+            if index >= len(palette.colors) or palette.colors[index] == (0, 0, 0):
+                unused += 1
+        if total >= 2000:
+            break
+    return total > 50 and unused / total > 0.7
+
+
+def cst_frame_palette(df: DFFile, cst_path: Path | None = None):
+    from image import cst_palette, find_palette
+
+    palette = cst_palette(df.containers[0].data)
+    path = cst_path or df.path
+    set_path = companion_set_path(path) if path else None
+    if not set_path or not cst_palette_misses_sprites(df, palette):
+        return palette
+    sibling = read_df_file(set_path)
+    if not sibling.containers:
+        return palette
+    # Index-blit onto the SET still: VGA index 0 is black (crow bodies,
+    # Help's legs). Default find_palette unused-white washed those to
+    # blank. Used SET slots stay the still colors (bottles, plates).
+    set_pal = find_palette(sibling.containers[0].data, unused_rgb=(0, 0, 0))
+    return set_pal if set_pal else palette
+
+
 def write_cst_frames(df: DFFile, out_dir: Path) -> int:
-    from image import ImageError, cst_palette, decode_trans_sprite, sprite_record, write_png
+    from image import ImageError, decode_trans_sprite, sprite_record, write_png
 
     if not df.containers:
         raise DFError(f"{df.path}: CST has no containers")
@@ -179,7 +228,7 @@ def write_cst_frames(df: DFFile, out_dir: Path) -> int:
         raise DFError(f"{df.path}: CST container 0 is too small for an actor table")
 
     count = struct.unpack_from("<i", header, 0x938)[0]
-    palette = cst_palette(header)
+    palette = cst_frame_palette(df)
     written = 0
     actors: dict[str, dict[str, list]] = {}
     cursor = 0x93C

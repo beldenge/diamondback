@@ -15,7 +15,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 from container import read_df_file
-from cst import detect_contact_shadows, write_cst_frames
+from cst import cst_frame_palette, detect_contact_shadows, write_cst_frames
 from image import (
     CONTACT_SHADOW_ALPHA,
     cst_palette,
@@ -31,6 +31,7 @@ DUST = REPO / "sources" / "dust.dbgl" / "dosroot" / "0" / "dust"
 BOLIVAR = DUST / "DUSTCD" / "PUPPETS" / "BOLIVAR.PUP"
 EXTRA = DUST / "DUSTCD" / "DATA" / "EXTRA.CST"
 GANG = DUST / "DUSTCD" / "DATA" / "GANG.CST"
+TARGET_CST = DUST / "DUSTCD" / "TARGET" / "TARGET.CST"
 INVEN = DUST / "DUSTCD" / "DATA" / "INVEN.PRP"
 HOUSE = DUST / "DUSTCD" / "DATA" / "HOUSE.PRP"
 SALGAMES = DUST / "DUSTCD" / "SALGAMES" / "SALGAMES.PRP"
@@ -179,6 +180,45 @@ class TestFrames(unittest.TestCase):
             self.assertEqual(dog0["pose"], 0)
             self.assertEqual(dog2["deg"], 32)
         self.assertGreater(written, 100)
+
+    def test_target_cst_uses_set_palette(self) -> None:
+        """TARGET plates index-blit with TARGET.SET, not CST pal 36 unused-black."""
+        if not TARGET_CST.exists():
+            self.skipTest("TARGET.CST not present")
+        df = read_df_file(TARGET_CST)
+        palette = cst_frame_palette(df)
+        sprite = decode_trans_sprite(df.containers[7].data, palette)
+        colors = {}
+        for i in range(0, len(sprite.rgba), 4):
+            red, green, blue, alpha = sprite.rgba[i : i + 4]
+            if alpha < 255:
+                continue
+            colors[(red, green, blue)] = colors.get((red, green, blue), 0) + 1
+        self.assertGreater(len(colors), 5)
+        black = colors.get((0, 0, 0), 0)
+        self.assertLess(black / max(1, sum(colors.values())), 0.5)
+
+    def test_target_crows_are_black_not_set_unused_white(self) -> None:
+        """birdtarg bodies are pal 0. SET unused-white made them blank."""
+        if not TARGET_CST.exists():
+            self.skipTest("TARGET.CST not present")
+        df = read_df_file(TARGET_CST)
+        sprite = decode_trans_sprite(df.containers[261].data, cst_frame_palette(df))
+        black = 0
+        white = 0
+        opaque = 0
+        for i in range(0, len(sprite.rgba), 4):
+            red, green, blue, alpha = sprite.rgba[i : i + 4]
+            if alpha < 255:
+                continue
+            opaque += 1
+            if (red, green, blue) == (0, 0, 0):
+                black += 1
+            if (red, green, blue) == (255, 255, 255):
+                white += 1
+        self.assertGreater(opaque, 400)
+        self.assertGreater(black / opaque, 0.7)
+        self.assertLess(white / opaque, 0.05)
 
     def test_inven_index_0_is_white_not_a_hole(self) -> None:
         """DF.EXE 0x423e59 sar-8 of unused 0xFFFF is white, not a knockout.

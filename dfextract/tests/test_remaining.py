@@ -218,6 +218,21 @@ class TestRemaining(unittest.TestCase):
             self.assertGreater(len(depths), 1)
             self.assertGreater(min(depths), 0)
 
+    def test_target_stills_have_a_z_plane(self) -> None:
+        """Range HQ (10,11 S walk `972+5`) has gallery/cactus depth, not sky."""
+        if not TARGET.exists():
+            self.skipTest("TARGET.SET not present")
+        df = read_df_file(TARGET)
+        image = decode_indexed_image(df.containers[977].data, decode_z=True)
+        self.assertIsNotNone(image.z_pixels)
+        assert image.z_pixels is not None
+        self.assertEqual(len(image.z_pixels), 512 * 264)
+        depths = set(image.z_pixels)
+        self.assertGreater(len(depths), 1)
+        self.assertEqual(image.z_pixels[20 * 512 + 256], 24)
+        self.assertEqual(image.z_pixels[200 * 512 + 256], 4)
+        self.assertEqual(image.z_pixels[180 * 512 + 50], 3)
+
     def test_l7_turn_wall_is_not_sky(self) -> None:
         """L7 west→north motion used to paint sky-blue speckles on the
         sheriff wall. Negative ``look`` must copy *ahead* into the prior

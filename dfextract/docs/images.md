@@ -32,7 +32,11 @@ black**, index **255 is always white**. Dust stores 255 as `(0,0,0)` in
 the ColorPalette; using that value made the O7 ox skull a black hole
 while `_NITE` (which paints the skull with real tan/gray indices) looked
 fine. CST world actors keep unused→black: they index-blit onto that
-8-bit still (Help’s legs are pal 0). INVEN HUD items are RGB-expanded
+8-bit still (Help’s legs are pal 0). TARGET.CST sprite indices
+miss that CST pal 36 table (almost all unused-black); dump those
+plates with the sibling TARGET.SET ColorPalette, unused→**black**
+(VGA still index 0). Unused-white turns `birdtarg` pal-0 bodies into
+blank crows; bottles/plates use real SET slots and stay colored. INVEN HUD items are RGB-expanded
 and sample pal 0 as white. Codec skip (unwritten index 255) stays
 transparent — Dust leaves the framebuffer there (gun outline, butbevel
 hole). Do not key pal 0 through the HUD.
@@ -204,7 +208,9 @@ Pass `--frames --z` to do both. Dust Z is 1–24 (24 = sky; 0 unused).
 South-gate road is 3 at your feet … 7 up the street. Play compares
 that plane to the actor’s `3/persp` depth so a closer fence hides the
 body. TOWN/NITE stills have a real plane (dozens of depth values,
-never zero on sampled HQ frames).
+never zero on sampled HQ frames). TARGET too (gallery 4, near cactus 3,
+sky 24 on the 10,11 S HQ). Play needs `python cli.py --type set --z`
+on that SET or the pig/chicken paint through the machine.
 
 **Previous frame.** DFET keeps one decode buffer and never clears it.
 Skip spans (mode 2 and row param 10) therefore leave the last still’s

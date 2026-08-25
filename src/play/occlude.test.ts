@@ -7,12 +7,15 @@ import {
   exeSpriteZ,
   blitSpriteZ,
   isDoorOverlay,
+  isRangeGroundWalker,
   isWallOverlay,
   paintFarToNear,
   propStillScale,
+  rangeGroundBlitZ,
   restoreSpriteAlpha,
   spriteBitsFromImageData,
   spriteOverZ,
+  liveZPlaneForStill,
   wallOverlayBlitZ,
 } from "./occlude";
 import { engineStillScale, PRP_SCALE_FIELD } from "./facing";
@@ -24,6 +27,16 @@ describe("SET Z vs actor", () => {
     expect(exeSpriteZ(130, 32)).toBe(2);
     // (240 − 32 − 64 + 128) >> 6 = 4
     expect(exeSpriteZ(240, 32)).toBe(4);
+  });
+
+  it("holds the last SET Z while the next filmstrip plane decodes", () => {
+    const last = new Uint8Array([3]);
+    const cache = new Map<string, Uint8Array | null>();
+    expect(liveZPlaneForStill("z/a.png", cache, last)).toBe(last);
+    cache.set("z/a.png", new Uint8Array([4]));
+    expect(liveZPlaneForStill("z/a.png", cache, last)![0]).toBe(4);
+    cache.set("z/missing.png", null);
+    expect(liveZPlaneForStill("z/missing.png", cache, last)).toBeNull();
   });
 
   it("draws on the ground and sky, not through a closer fence", () => {
@@ -81,6 +94,26 @@ describe("SET Z vs actor", () => {
     z[200 * 512 + 300] = 3;
     expect(actorBlitZ(10, z, 300, 200)).toBe(10);
     expect(actorBlitZ(5, z, 300, 200)).toBe(5);
+  });
+
+  it("puts TARGET 3d livestock behind the gallery and cactuses", () => {
+    const z = new Uint8Array(512 * 264);
+    z.fill(7);
+    z[200 * 512 + 256] = 4;
+    z[180 * 512 + 50] = 3;
+    const pig = { is3d: true, z: 0 };
+    expect(isRangeGroundWalker(pig)).toBe(true);
+    expect(isRangeGroundWalker({ is3d: true, z: 180 })).toBe(false);
+    expect(isRangeGroundWalker({ is3d: false, z: 0 })).toBe(false);
+    expect(exeSpriteZ(232, 32)).toBe(4);
+    expect(rangeGroundBlitZ(4, z, 256, 200, pig)).toBe(5);
+    expect(spriteOverZ(5, 4)).toBe(false);
+    expect(spriteOverZ(5, 3)).toBe(false);
+    expect(spriteOverZ(5, 7)).toBe(true);
+    expect(actorBlitZ(4, z, 50, 180)).toBe(3);
+    expect(rangeGroundBlitZ(4, z, 50, 180, pig)).toBe(4);
+    expect(spriteOverZ(4, 3)).toBe(false);
+    expect(rangeGroundBlitZ(4, z, 256, 200, { is3d: true, z: 180 })).toBe(4);
   });
 
   it("draws a camZ door overlay over closer floor Z, not only the lintel", () => {

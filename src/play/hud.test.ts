@@ -7,11 +7,15 @@ import {
   HAND_SLOT,
   hitMacRect,
   hitsHandSlot,
+  gunhandWantsSight,
   holdWhileLoading,
+  hudBarCursor,
   inventorySpriteView,
+  isInventoryHudView,
   MAINPANEL_BUTTONS,
   mapCrossHotspot,
   mapCrossLit,
+  propBlitFrame,
   propViewFrame,
   stageFromClient,
   stageFromHudClick,
@@ -155,5 +159,62 @@ describe("HUD portrait frames", () => {
     expect(propViewFrame(frames, 0, timing, 2)).toBe("b");
     expect(propViewFrame(frames, 0, timing, 4)).toBe("c");
     expect(propViewFrame(frames, 0, timing, 8)).toBe("a");
+  });
+});
+
+describe("range gunhand", () => {
+  it("treats INVEN empty/large as HUD, not world", () => {
+    expect(isInventoryHudView("empty")).toBe(true);
+    expect(isInventoryHudView("large")).toBe(true);
+    expect(isInventoryHudView("idle")).toBe(false);
+    expect(isInventoryHudView("hifire")).toBe(false);
+  });
+
+  it("aims with propdeg 1..13, not an 8-dir octant", () => {
+    const frames = [..."abcdefghijklm"];
+    expect(propBlitFrame(frames, 7, undefined, 0, true)).toBe("g");
+    expect(propBlitFrame(frames, 1, undefined, 0, true)).toBe("a");
+    expect(propBlitFrame(frames, 13, undefined, 0, true)).toBe("m");
+    expect(propBlitFrame(frames, 7, undefined, 0, false)).toBe("a");
+  });
+
+  it("keeps reload on 0-based bulletcount", () => {
+    const frames = ["c0", "c1", "c2", "c3", "c4", "c5", "c6"];
+    expect(propBlitFrame(frames, 0, undefined, 0, true)).toBe("c0");
+    expect(propBlitFrame(frames, 6, undefined, 0, true)).toBe("c6");
+  });
+
+  it("uses the boot idle sight rule on the still, not on the hand", () => {
+    expect(gunhandWantsSight(true, { x: 256, y: 80 }, false)).toBe(true);
+    expect(gunhandWantsSight(true, { x: 256, y: 80 }, true)).toBe(false);
+    expect(gunhandWantsSight(true, { x: 256, y: 300 }, false)).toBe(false);
+    expect(gunhandWantsSight(false, { x: 256, y: 80 }, false)).toBe(false);
+  });
+});
+
+describe("range EXIT plaque", () => {
+  const exit = { name: "exit", top: 292, left: 256, bottom: 315, right: 340 };
+
+  it("is the FLT Mac rect, not the town holster slot", () => {
+    expect(hitMacRect([exit], 297, 304)?.name).toBe("exit");
+    expect(hitMacRect([exit], HAND_SLOT.x, HAND_SLOT.y)).toBeUndefined();
+    expect(hitsHandSlot(297, 304)).toBe(true);
+  });
+
+  it("uses the pointer cursor on the plaque", () => {
+    expect(hudBarCursor(true, "exit", false, undefined)).toBe("touch");
+    expect(hudBarCursor(true, undefined, false, "horn")).toBe("arrow");
+    expect(hudBarCursor(false, undefined, false, "map")).toBe("touch");
+  });
+
+  it("maps the plaque the same way from the stage box and the HUD strip", () => {
+    const fromStage = stageFromClient(297, 304, { left: 0, top: 0, width: 512, height: 384 });
+    const fromHud = stageFromHudClick(297, 304 - 264, 512, 120);
+    expect(fromStage).not.toBeNull();
+    expect(fromHud).not.toBeNull();
+    expect(fromHud!.x).toBeCloseTo(fromStage!.x);
+    expect(fromHud!.y).toBeCloseTo(fromStage!.y);
+    expect(hitMacRect([exit], fromStage!.x, fromStage!.y)?.name).toBe("exit");
+    expect(hitMacRect([exit], fromHud!.x, fromHud!.y)?.name).toBe("exit");
   });
 });

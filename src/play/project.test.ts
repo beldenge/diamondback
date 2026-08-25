@@ -36,6 +36,8 @@ function actor(x: number, y: number): ActorState {
     walkSprites: [],
     drinkSprites: [],
     spriteRoot: "",
+    screen: false,
+    is3d: false,
   };
 }
 

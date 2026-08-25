@@ -53,6 +53,11 @@ export function pascalSceneName(x: number, y: number): string {
  * not tiles on an interior graph — `gotointerior` stands at the SET
  * spawn (header +48), not the street cell you left.
  */
+export function isStreetSet(setName: string): boolean {
+  const key = setName.replace(/\.set$/i, "").toLowerCase().replace(/^_/, "");
+  return key === "town" || key === "nite";
+}
+
 export function poseForOpenedSet(
   graph: SetGraph,
   sceneName: string,
@@ -82,8 +87,18 @@ export function poseForOpenedSet(
  * Standing at O7 first is the saloon-exit hitch: `scene d1` parses as
  * town D1, misses the camera grid, falls through to spawn, then the
  * real street cell loads.
+ *
+ * TARGET dumps a 225-cell table like town. Leftover `scene k11` is the
+ * street range tile, not a filmed TARGET pose — always stand interiors.
  */
-export function openSetShouldStand(graph: SetGraph, sceneName: string): boolean {
+export function openSetShouldStand(
+  graph: SetGraph,
+  sceneName: string,
+  setName = "",
+): boolean {
+  if (setName && !isStreetSet(setName)) {
+    return true;
+  }
   if (!isTownGridSize(graph.scenes.size)) {
     return true;
   }

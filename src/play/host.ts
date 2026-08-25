@@ -53,7 +53,7 @@ import {
   type VisemeLine,
 } from "./ui";
 import { voices } from "./speech";
-import { propViewFrame } from "./hud";
+import { gunhandWantsSight, isInventoryHudView, propViewFrame } from "./hud";
 import {
   HOUSE_GROUPS,
   INVEN_GROUPS,
@@ -70,6 +70,7 @@ import {
   putWord,
   shopFileOf,
   substringIndex,
+  upsertPuzzleLabel,
   type FlatHit,
   type PuzzleBoard,
   type PuzzleLabel,
@@ -89,6 +90,19 @@ import {
   poseForOpenedSet,
   scriptSceneName,
 } from "./sceneName";
+import {
+  applySandboxStoryFlags,
+  hideRangeCastOffSet,
+  hideSandboxGroundPickups,
+  hideSandboxStoryActors,
+  sandboxLeroyRangeRunyoself,
+  sandboxLeroyRangeTalk,
+  sandboxRangeAnimalsToSeed,
+  sandboxSkipRangeWalkWait,
+  sandboxTownAnimalsToSeed,
+  sandboxTownSetFile,
+} from "./sandbox";
+import { isClockSlot, type ClockSlot } from "../core/time";
 
 type PuppetLine = { text: string; wav: string; viseme?: VisemeLine };
 
@@ -135,6 +149,10 @@ export interface ActorState {
   sprites: Record<string, SpritePlace[]>;
   spriteRoot: string;
   standUrl?: string;
+  /** `actorxy` still placement (TARGET bottles/cans/plates). */
+  screen: boolean;
+  /** Dust `actoris3d` — world `actorxyz` even on the range SET. */
+  is3d: boolean;
 }
 
 export interface PropState {
@@ -155,6 +173,8 @@ export interface PropState {
   zclip: number;
   sprites: Record<string, SpritePlace[]>;
   spriteRoot: string;
+  /** `propxy` still/HUD placement (gunhand on TARGET). */
+  screen: boolean;
   /** PRP setInfo +0x2e tables keyed by `propview` (avatar nitehattip, …). */
   poseTiming: Record<string, number[]>;
   /** Game frames since the current view; used with `poseTiming`. */
@@ -186,7 +206,7 @@ export interface WorldView {
   /** Camera during a SET filmstrip; defaults to the standing pose. */
   viewCamera?(): ViewCamera;
   /** Sprite still-position; filmstrips reproject with the SET camera. */
-  projectWorld?(obj: { x: number; y: number; z?: number }): StillHit | null;
+  projectWorld?(obj: { x: number; y: number; z?: number; screen?: boolean }): StillHit | null;
   playMovie?(
     frames: { url: string; holdSec: number; action?: number }[],
     clips: { url: string; startSec: number; channel?: string }[],
@@ -197,6 +217,8 @@ export interface WorldView {
   cutToBlack?(): void;
   /** SALGAMES / other FLT boards covering the 512×384 stage. */
   showPuzzle?(board: PuzzleBoard | null): void;
+  /** TARGET.FLT `drawstring` scores on the range HUD (not a puzzle flat). */
+  showHudLabels?(labels: PuzzleLabel[]): void;
   setWorldVisible?(on: boolean): void;
 }
 
@@ -296,6 +318,14 @@ export class DustHost implements OpcodeHost {
   view: WorldView | null = null;
   skipMovies = true;
   /**
+   * Dust: Unlocked. Same PlayGame / VM as Resurrected; skip story
+   * `advanceday`, force `debugging` so lock* procs open, keep
+   * minigame NPCs (Leroy, Bolivar, TARGET) and farm animals (not the dog).
+   */
+  sandbox = false;
+  /** Unlocked `?clock=` (default afternoon). Story ignores this. */
+  sandboxClock: ClockSlot | undefined;
+  /**
    * Boot starts with `blackscreen()` for the intro movies. When those
    * movies are skipped, keep the spawn still up instead of wiping it.
    */
@@ -319,7 +349,6 @@ export class DustHost implements OpcodeHost {
   private loopSounds = new Map<string, () => void>();
   private soundVolumes = new Map<string, number>();
   private shopSprites = new Map<string, Record<string, Record<string, SpritePlace[]>>>();
-  private loadedScriptFiles = new Set<string>();
   private readonly missingScripts = new Set<string>();
   private readonly scriptProcs = new Map<string, Proc[]>();
   private readonly setGraphs = new Map<string, SetGraph>();
@@ -340,11 +369,41 @@ export class DustHost implements OpcodeHost {
   constructor(readonly ui: PuppetUi) {}
 
   lookup(name: string, ctx: VM): Proc | undefined {
+    if (this.sandboxSuppress(name)) {
+      return undefined;
+    }
+    const range = this.sandboxLeroyRange(name, ctx);
+    if (range) {
+      return range;
+    }
     return this.index.lookup(this.lookupKeys(ctx), name);
   }
 
   lookupChain(name: string, ctx: VM): Proc[] {
+    if (this.sandboxSuppress(name)) {
+      return [];
+    }
+    const range = this.sandboxLeroyRange(name, ctx);
+    if (range) {
+      return [range];
+    }
     return this.index.lookupAll(this.lookupKeys(ctx), name);
+  }
+
+  /** Unlocked replaces extracted `advanceday` (Day 1 night + story casts). */
+  private sandboxSuppress(name: string): boolean {
+    return this.sandbox && name.toLowerCase() === "advanceday";
+  }
+
+  private sandboxLeroyRange(name: string, ctx: VM): Proc | undefined {
+    if (
+      !this.sandbox ||
+      name.toLowerCase() !== "runyoself" ||
+      !sandboxLeroyRangeTalk(this.currentPuppet, ctx.object, ctx.me)
+    ) {
+      return undefined;
+    }
+    return sandboxLeroyRangeRunyoself();
   }
 
   lookupKeys(ctx: VM): string[] {
@@ -355,9 +414,9 @@ export class DustHost implements OpcodeHost {
       const actor = this.actors.get(me);
       keys.push(`cast:${actor?.cast || "gang"}`);
     } else if (ctx.object === "cast" && me) {
-      keys.push(`cast:${me}`);
+      keys.push(`cast:${libraryStem(me)}`);
     } else if (ctx.object === "shop" && me) {
-      keys.push(`shop:${me}`);
+      keys.push(`shop:${libraryStem(me)}`);
     } else if (ctx.object === "prop" && me) {
       keys.push(`prop:${me}`);
       const prop = this.props.get(me);
@@ -486,8 +545,12 @@ export class DustHost implements OpcodeHost {
       case "drawstring": {
         const at = asPoint(args[1]);
         const size = Math.max(8, num(args[3] ?? args[2] ?? 12));
-        this.puzzleLabels = this.puzzleLabels.filter((label) => Math.abs(label.y - at.y) > 8);
-        this.puzzleLabels.push({ text: str(args[0]), x: at.x, y: at.y, size });
+        this.puzzleLabels = upsertPuzzleLabel(this.puzzleLabels, {
+          text: str(args[0]),
+          x: at.x,
+          y: at.y,
+          size,
+        });
         this.syncPuzzleView();
         return 0;
       }
@@ -617,6 +680,18 @@ export class DustHost implements OpcodeHost {
       case "actorinstance":
         this.instanceActor(str(args[0]), str(args[1]));
         return 0;
+      case "actoris3d": {
+        const actor = this.namedActor(str(args[0] ?? ctx.me));
+        if (args.length >= 2) {
+          actor.is3d = truthyArg(args[1]);
+          if (actor.is3d) {
+            actor.screen = false;
+          }
+        }
+        return actor.is3d;
+      }
+      case "actorxy":
+        return this.actorXy(ctx, args);
       case "propinstance":
         this.instanceProp(str(args[0]), str(args[1]));
         return 0;
@@ -746,8 +821,19 @@ export class DustHost implements OpcodeHost {
         // Same 60 Hz tick as `screentoblack (…, 30)`. Not rAF, not script Hz.
         await sleep(dustTicksToMs(num(args[0])));
         return 0;
-      case "opencastfile":
-        await this.openCast(str(args[0]));
+      case "opencastfile": {
+        const file = str(args[0]);
+        await this.openCast(file);
+        await this.flushOpenActors(ctx);
+        const stem = file.replace(/\.cst$/i, "").toLowerCase();
+        const hook = this.index.lookup([`cast:${stem}`], "opencast");
+        if (hook) {
+          await ctx.inObject("cast", stem, () => ctx.runProc(hook));
+        }
+        return 0;
+      }
+      case "closecastfile":
+        this.closeCast(str(args[0]));
         return 0;
       case "openshopfile": {
         const shop = str(args[0]).replace(/\.prp$/i, "").toLowerCase();
@@ -781,6 +867,19 @@ export class DustHost implements OpcodeHost {
         // `initall` does `stoploop ("flat", "all")` then `opensetfile`.
         // Re-run mainpanel `openflat` so `makeface` is not left dead.
         await this.rearmHudFlat(ctx);
+        if (this.sandbox) {
+          this.settleSandboxWorld(ctx);
+          // Town livestock is seeded after `initall`'s `initactors` (that
+          // loop putdowns everyone). TARGET `opencast` already ran here.
+          if (this.currentSet === "target") {
+            await this.seedSandboxAnimals(ctx);
+          }
+        }
+        return 0;
+      case "advanceday":
+        if (this.sandbox) {
+          await this.sandboxAdvanceDay(ctx);
+        }
         return 0;
       case "closesetfile":
         await ctx.inObject("scene", this.currentScene, () => ctx.evalCall("closescene", []));
@@ -984,6 +1083,20 @@ export class DustHost implements OpcodeHost {
       }
       case "iswalk": {
         const actor = this.namedActor(str(args[0] ?? ctx.me));
+        if (
+          sandboxSkipRangeWalkWait(
+            this.sandbox,
+            this.currentSet,
+            actor.name,
+            ctx.globals.get("leroyphase"),
+          )
+        ) {
+          actor.walking = false;
+          actor.turning = false;
+          actor.route = [];
+          actor.pose = "stand";
+          return false;
+        }
         return actor.walking || actor.turning;
       }
       case "currentdeg":
@@ -1076,12 +1189,37 @@ export class DustHost implements OpcodeHost {
     return star;
   }
 
+  private actorXy(ctx: VM, args: Value[]): Value {
+    const actor = this.namedActor(str(args[0] ?? ctx.me));
+    if (args.length >= 3) {
+      actor.x = num(args[1]);
+      actor.y = num(args[2]);
+      if (!actor.is3d) {
+        actor.screen = true;
+        if (!actor.set) {
+          actor.set = this.currentSet;
+        }
+      }
+      this.view?.refreshActors();
+      return 0;
+    }
+    const axis = num(args[1]);
+    if (axis === 1) {
+      return actor.x;
+    }
+    if (axis === 2) {
+      return actor.y;
+    }
+    return { kind: "point", x: actor.x, y: actor.y, z: 0 };
+  }
+
   private actorXyz(ctx: VM, args: Value[]): Value {
     const actor = this.namedActor(str(args[0] ?? ctx.me));
     if (args.length >= 4) {
       actor.x = num(args[1]);
       actor.y = num(args[2]);
       actor.z = num(args[3]);
+      actor.screen = false;
       return 0;
     }
     const axis = num(args[1]);
@@ -1136,10 +1274,14 @@ export class DustHost implements OpcodeHost {
   startWalk(actor: ActorState, x: number, y: number, z: number, continueCycle = false): void {
     actor.destX = x;
     actor.destY = y;
-    actor.destZ = z;
+    actor.destZ = z || actor.z;
     actor.walking = true;
-    actor.pose = "walk";
-    const walkTable = timingForPose(actor.poseTiming, "walk");
+    const hasWalk =
+      (actor.sprites?.walk?.length ?? 0) > 0 || actor.walkSprites.length > 0;
+    if (hasWalk) {
+      actor.pose = "walk";
+    }
+    const walkTable = timingForPose(actor.poseTiming, actor.pose || "walk");
     if (walkTable.length) {
       actor.walkTiming = walkTable;
     }
@@ -1193,14 +1335,27 @@ export class DustHost implements OpcodeHost {
     this.advancePropViews();
     let moved = false;
     for (const actor of this.actors.values()) {
-      if (this.walksPaused) {
-        break;
+      // Leroy `pausewalk ("all")` freezes the town during TARGET.
+      // Range pig / chicken / crows still have to walk on this SET.
+      if (
+        this.walksPaused &&
+        actor.set &&
+        !setNamesEqual(actor.set, this.currentSet)
+      ) {
+        continue;
       }
       if (actor.walking) {
         const dx = actor.destX - actor.x;
         const dy = actor.destY - actor.y;
         const dist = Math.hypot(dx, dy);
         const step = actor.speed;
+        if (!Number.isFinite(dist) || !Number.isFinite(step) || step <= 0) {
+          actor.walking = false;
+          actor.route = [];
+          actor.pose = "stand";
+          this.walkEnds.push(actor.name);
+          continue;
+        }
         if (dist <= step) {
           actor.x = actor.destX;
           actor.y = actor.destY;
@@ -1210,7 +1365,9 @@ export class DustHost implements OpcodeHost {
             this.startWalk(actor, next.x, next.y, next.z, true);
           } else {
             actor.walking = false;
-            actor.pose = "stand";
+            if (actor.pose === "walk") {
+              actor.pose = "stand";
+            }
             this.walkEnds.push(actor.name);
           }
         } else {
@@ -1223,6 +1380,11 @@ export class DustHost implements OpcodeHost {
       if (actor.turning) {
         const delta = degDelta(actor.deg, actor.degTarget);
         const step = Math.max(1, actor.turnSpeed);
+        if (!Number.isFinite(delta) || !Number.isFinite(actor.degTarget)) {
+          actor.turning = false;
+          this.turnEnds.push(actor.name);
+          continue;
+        }
         if (Math.abs(delta) <= step) {
           actor.deg = actor.degTarget;
           actor.turning = false;
@@ -1491,11 +1653,15 @@ export class DustHost implements OpcodeHost {
     const graph = this.view?.graph;
     if (graph && this.view) {
       const pose = this.poseFromSceneName(graph, this.currentScene);
-      if (pose) {
-        await this.view.setPose(this.view.world, {
-          ...pose,
-          facing: parseDir(String(this.currentDir)) ?? this.view.pose.facing,
-        });
+      if (pose && graph.cameraTiles.has(tileKey(pose.x, pose.y))) {
+        try {
+          await this.view.setPose(this.view.world, {
+            ...pose,
+            facing: parseDir(String(this.currentDir)) ?? this.view.pose.facing,
+          });
+        } catch {
+          this.view.log(`still missing for ${this.currentScene}`);
+        }
       }
     }
     return this.currentScene;
@@ -1574,6 +1740,8 @@ export class DustHost implements OpcodeHost {
         drinkSprites: [],
         sprites: {},
         spriteRoot: "",
+        screen: false,
+        is3d: false,
       };
       this.actors.set(key, actor);
     }
@@ -1609,6 +1777,7 @@ export class DustHost implements OpcodeHost {
         poseTiming: {},
         animTick: 0,
         dist: 0,
+        screen: false,
       };
       this.props.set(key, prop);
     }
@@ -1643,8 +1812,21 @@ export class DustHost implements OpcodeHost {
       ) {
         return false;
       }
+      if (actor.screen && !actor.is3d) {
+        // TARGET bottles/cans/plates are `actorxy` with no `actorset`.
+        // They must not follow the camera into town.
+        if (!actor.set && actor.cast && !setNamesEqual(actor.cast, this.currentSet)) {
+          return false;
+        }
+        return true;
+      }
       return viewStill(this.view, actor) !== null;
     });
+  }
+
+  /** FLT button under a HUD-band point (`mainpanel` EXIT, avatar, …). */
+  hitHudButton(x: number, y: number): string | undefined {
+    return hitFlatButton(this.stageHits.get(this.currentFlatName) ?? [], x, y)?.name;
   }
 
   skipRemainingSpeech(): void {
@@ -1912,6 +2094,10 @@ export class DustHost implements OpcodeHost {
     this.currentStageName = stem;
     await this.addScriptFile("stage", `${folder}/setcursor _arg__1.json`);
     await this.addScriptFile("stage", `${folder}/setcursor _arg_.json`);
+    // TARGET (and similar FLTs) keep gototown in its own file, not
+    // setcursor. EXIT `sendtostage (gototown ("south"))` needs it.
+    await this.addScriptFile("stage", `${folder}/gototown _dirname_.json`);
+    await this.addScriptFile("stage", `${folder}/gototown _dirname__1.json`);
     const flats = await fetchJson<{
       stage?: string;
       flats?: {
@@ -1967,6 +2153,7 @@ export class DustHost implements OpcodeHost {
     this.currentFlatName = "none";
     this.stageFlatNames = [];
     this.view?.showPuzzle?.(null);
+    this.view?.showHudLabels?.([]);
   }
 
   private async openShop(name: string): Promise<void> {
@@ -2104,6 +2291,13 @@ export class DustHost implements OpcodeHost {
   }
 
   private syncPuzzleView(): void {
+    const stage = this.currentStageName.toLowerCase().replace(/\.flt$/i, "");
+    if (stage === "target") {
+      this.view?.showPuzzle?.(null);
+      this.view?.showHudLabels?.(this.puzzleLabels);
+      return;
+    }
+    this.view?.showHudLabels?.([]);
     if (!isPuzzleStage(this.currentStageName)) {
       this.view?.showPuzzle?.(null);
       return;
@@ -2190,6 +2384,24 @@ export class DustHost implements OpcodeHost {
     }
   }
 
+  private closeCast(name: string): void {
+    const stem = name.replace(/\.cst$/i, "").toLowerCase();
+    this.index.removePrefix(`cast:${stem}`);
+    for (const actor of this.actors.values()) {
+      if (actor.cast !== stem) {
+        continue;
+      }
+      actor.visible = false;
+      actor.walking = false;
+      actor.turning = false;
+      actor.screen = false;
+      actor.route = [];
+      this.stopLoop("actor", actor.name);
+      this.index.removePrefix(`actor:${actor.name}`);
+    }
+    this.view?.refreshActors();
+  }
+
   private async listActorFolders(dir: string): Promise<string[]> {
     const known: Record<string, string[]> = {
       "CST/_GANG": [
@@ -2245,7 +2457,7 @@ export class DustHost implements OpcodeHost {
     if (this.view) {
       const world = this.currentSet === "town" ? WORLD_TOWN : folder;
       const facing = parseDir(String(this.currentDir)) ?? this.view.pose.facing;
-      if (openSetShouldStand(graph, this.currentScene)) {
+      if (openSetShouldStand(graph, this.currentScene, this.currentSet)) {
         const pose = poseForOpenedSet(graph, this.currentScene, facing);
         await this.view.setPose(world, pose);
         this.currentScene = this.sceneNameForPose(graph, pose.x, pose.y);
@@ -2258,13 +2470,10 @@ export class DustHost implements OpcodeHost {
   }
 
   private async addScriptFile(key: string, rel: string): Promise<void> {
-    const mark = `${key}::${rel}`;
-    // `removePrefix` drops the index but keeps this mark. Re-install
-    // after an interior SET swap or town keydown/openscene never return.
+    // Several files share a key (`stage` = setcursor + gototown). Skipping
+    // once `index.has(key)` after the first file left TARGET `gototown`
+    // off the bag on the second range visit, so EXIT did nothing.
     if (this.missingScripts.has(rel)) {
-      return;
-    }
-    if (this.loadedScriptFiles.has(mark) && this.index.has(key)) {
       return;
     }
     try {
@@ -2276,7 +2485,6 @@ export class DustHost implements OpcodeHost {
       for (const proc of procs) {
         this.index.add(key, proc, rel);
       }
-      this.loadedScriptFiles.add(mark);
     } catch {
       this.missingScripts.add(rel);
     }
@@ -2293,13 +2501,7 @@ export class DustHost implements OpcodeHost {
     await this.openCast("extra.cst");
     await this.openShop("house.prp");
     await this.openShop("inven.prp");
-    for (const name of this.pendingOpenActors) {
-      const proc = this.index.lookup([`actor:${name}`], "openactor");
-      if (proc) {
-        await vm.inObject("actor", name, () => vm.runProc(proc));
-      }
-    }
-    this.pendingOpenActors = [];
+    await this.flushOpenActors(vm);
     for (const name of this.pendingOpenProps) {
       const proc = this.index.lookup([`prop:${name}`], "openprop");
       if (proc) {
@@ -2307,6 +2509,131 @@ export class DustHost implements OpcodeHost {
       }
     }
     this.pendingOpenProps = [];
+  }
+
+  private async flushOpenActors(ctx: VM): Promise<void> {
+    const pending = this.pendingOpenActors.splice(0);
+    for (const name of pending) {
+      const proc = this.index.lookup([`actor:${name}`], "openactor");
+      if (proc) {
+        await ctx.inObject("actor", name, () => ctx.runProc(proc));
+      }
+    }
+  }
+
+  /**
+   * Unlocked world init: afternoon town (or `?clock=`), cash for tables,
+   * `debugging` so extracted `lock*` return false, no story casts.
+   */
+  async sandboxAdvanceDay(ctx: VM): Promise<void> {
+    const fromGlobal = num(ctx.globals.get("clock") ?? 0);
+    const requested = this.sandboxClock;
+    const clock: ClockSlot =
+      requested !== undefined && isClockSlot(requested)
+        ? requested
+        : isClockSlot(fromGlobal)
+          ? fromGlobal
+          : 2;
+    this.sandboxClock = clock;
+    const setBool = (name: string, value: boolean | number | string) => {
+      ctx.globals.set(name, value);
+      ctx.globalNames.add(name);
+    };
+    setBool("debugging", true);
+    setBool("playercash", 999);
+    setBool("playeraccount", 999);
+    setBool("bulletcount", 99);
+    setBool("clock", clock);
+    setBool("phase", 0);
+    setBool("playerdeath", "");
+    setBool("townscene", "scene g15");
+    setBool("dayrobber", 1);
+    setBool("fighton", 0);
+    const lit = (value: string) => ({ type: "str" as const, value });
+    await ctx.inObject("stage", "", () =>
+      ctx.evalCall("initall", [lit("town"), lit(sandboxTownSetFile(clock))]),
+    );
+    await ctx.evalCall("currentscene", [lit("scene g15")]);
+    await ctx.evalCall("currentview", [lit("north")]);
+    this.settleSandboxWorld(ctx);
+    await this.seedSandboxAnimals(ctx);
+    await ctx.inObject("actor", "leroy", () => ctx.evalCall("setupactor", [lit("range")]));
+    this.view?.refreshActors();
+  }
+
+  /** N in Unlocked: swap town/nite stills without advancing `day`. */
+  async applySandboxClock(ctx: VM, clock: ClockSlot): Promise<void> {
+    if (!this.sandbox) {
+      return;
+    }
+    this.sandboxClock = clock;
+    ctx.globals.set("clock", clock);
+    ctx.globalNames.add("clock");
+    if (this.currentSet !== "town") {
+      this.view?.refreshActors();
+      return;
+    }
+    const lit = (value: string) => ({ type: "str" as const, value });
+    await ctx.inObject("stage", "", () =>
+      ctx.evalCall("initall", [lit("town"), lit(sandboxTownSetFile(clock))]),
+    );
+    this.settleSandboxWorld(ctx);
+    await this.seedSandboxAnimals(ctx);
+    await ctx.inObject("actor", "leroy", () => ctx.evalCall("setupactor", [lit("range")]));
+    this.view?.refreshActors();
+  }
+
+  private settleSandboxWorld(ctx: VM): void {
+    if (!this.sandbox) {
+      return;
+    }
+    applySandboxStoryFlags(ctx.globals, ctx.globalNames);
+    const hidden = [
+      ...hideSandboxStoryActors(this.actors.values()),
+      ...hideRangeCastOffSet(this.currentSet, this.actors.values()),
+    ];
+    for (const name of hidden) {
+      this.stopLoop("actor", name);
+    }
+    const hand = String(ctx.globals.get("handitem") ?? "");
+    const pickups = hideSandboxGroundPickups(this.props.values(), hand);
+    for (const name of pickups) {
+      this.stopLoop("prop", name);
+    }
+    this.view?.refreshActors();
+  }
+
+  /**
+   * EXTRA / TARGET `initactors` skip livestock Unlocked still wants
+   * (`day = 1`, afternoon pig, range chicken/pig). Only call after
+   * those procs have run, and not from `onArrive` (would reset walks).
+   */
+  private async seedSandboxAnimals(ctx: VM): Promise<void> {
+    if (!this.sandbox) {
+      return;
+    }
+    const lit = (value: string) => ({ type: "str" as const, value });
+    const n = (value: number) => ({ type: "num" as const, value });
+    for (const row of sandboxTownAnimalsToSeed(this.currentSet, this.actors.values())) {
+      if (!this.index.lookup([`actor:${row.name}`], "setupactor")) {
+        continue;
+      }
+      await ctx.inObject("actor", row.name, () => ctx.evalCall("setupactor", [lit(row.where)]));
+    }
+    for (const row of sandboxRangeAnimalsToSeed(this.currentSet, this.actors.values())) {
+      await ctx.evalCall("actorset", [lit(row.name), lit("target")]);
+      await ctx.evalCall("actorvisible", [lit(row.name), n(1)]);
+      await ctx.evalCall("actorpose", [lit(row.name), lit(row.pose)]);
+      await ctx.evalCall("actoris3d", [lit(row.name), n(1)]);
+      await ctx.evalCall("actorstar", [lit(row.name), lit(row.star)]);
+      await ctx.evalCall("actorspeed", [lit(row.name), n(row.speed)]);
+      if (row.z !== undefined) {
+        const bird = this.namedActor(row.name);
+        bird.z = row.z;
+      }
+      await ctx.inObject("actor", row.name, () => ctx.evalCall("endwalk", []));
+    }
+    this.view?.refreshActors();
   }
 
   async preloadPuppet(name: string): Promise<void> {
@@ -2543,6 +2870,7 @@ export class DustHost implements OpcodeHost {
     if (isPuzzleStage(this.currentStageName)) {
       return this.hitTestPuzzle(point);
     }
+    const range = this.currentSet === "target";
     const hits: { kind: "actor" | "prop"; name: string; forward: number }[] = [];
     for (const actor of this.nearbyActors()) {
       if (!this.pointHitsSprite(actor, point)) {
@@ -2552,6 +2880,9 @@ export class DustHost implements OpcodeHost {
       hits.push({ kind: "actor", name: actor.name, forward: still?.forward ?? 0 });
     }
     for (const prop of this.nearbyProps()) {
+      if (isInventoryHudView(prop.view)) {
+        continue;
+      }
       if (!this.pointHitsProp(prop, point)) {
         continue;
       }
@@ -2563,11 +2894,20 @@ export class DustHost implements OpcodeHost {
       hits.push({
         kind: "prop",
         name: prop.name,
-        forward: hud ? -1 : (still?.forward ?? 0),
+        // Screen overlays (gunhand) sit on the still; they must beat
+        // world actors or every click shoots instead of opening reload.
+        forward: hud || prop.screen ? -1 : (still?.forward ?? 0),
       });
     }
     const held = handitem.toLowerCase();
-    if (held && this.hitsHeldItem(point, held) && !hits.some((h) => h.name === held)) {
+    // Town holster box (316, 320) overlaps TARGET EXIT. Range has no
+    // holster (`propview ("gun", "empty")`).
+    if (
+      held &&
+      !range &&
+      this.hitsHeldItem(point, held) &&
+      !hits.some((h) => h.name === held)
+    ) {
       hits.push({ kind: "prop", name: held, forward: -1 });
     }
     hits.sort((a, b) => a.forward - b.forward);
@@ -2577,9 +2917,18 @@ export class DustHost implements OpcodeHost {
       this.clickAbsorbed = true;
       return top.name;
     }
+    const hud = this.hitHudButton(point.x, point.y);
+    if (hud) {
+      this.hitKind = "button";
+      this.clickAbsorbed = true;
+      return hud;
+    }
     if (point.y >= 0 && point.y < 264 && point.x >= 0 && point.x <= 512) {
       this.hitKind = "scene";
-      return this.currentScene;
+      // TARGET `clickfire` only lets `scene k12` fall through to a miss
+      // (`updatescore ("%")` / cricket). Any other scene name is treated
+      // as a hit and never refreshes % HIT.
+      return this.currentSet === "target" ? "scene k12" : this.currentScene;
     }
     this.hitKind = "none";
     return "none";
@@ -2679,6 +3028,7 @@ export class DustHost implements OpcodeHost {
       prop.sprites.base ??
       Object.values(prop.sprites)[0];
     const frame = frames?.[0];
+    const stillScale = prop.screen ? 1 : propStillScale(prop, still.lensForward);
     if (!frame || frame.w <= 0 || frame.h <= 0) {
       return worldSpriteHitsPoint(
         point.x,
@@ -2691,7 +3041,6 @@ export class DustHost implements OpcodeHost {
         PRP_SCALE_FIELD,
       );
     }
-    const stillScale = propStillScale(prop, still.lensForward);
     return pointInSpriteDest(
       point.x,
       point.y,
@@ -2743,6 +3092,7 @@ export class DustHost implements OpcodeHost {
     if (args.length >= 3) {
       prop.x = num(args[1]);
       prop.y = num(args[2]);
+      prop.screen = true;
       this.view?.refreshActors();
       return 0;
     }
@@ -2762,6 +3112,7 @@ export class DustHost implements OpcodeHost {
       prop.x = num(args[1]);
       prop.y = num(args[2]);
       prop.z = num(args[3]);
+      prop.screen = false;
       this.view?.refreshActors();
       return 0;
     }
@@ -2809,6 +3160,8 @@ export class DustHost implements OpcodeHost {
     dest.speed = src.speed;
     dest.turnSpeed = src.turnSpeed;
     dest.zclip = src.zclip;
+    dest.screen = src.screen;
+    dest.is3d = src.is3d;
     this.index.copyKey(`actor:${from.toLowerCase()}`, `actor:${to.toLowerCase()}`);
   }
 
@@ -2821,6 +3174,7 @@ export class DustHost implements OpcodeHost {
     dest.scale = src.scale;
     dest.speed = src.speed;
     dest.zclip = src.zclip;
+    dest.screen = src.screen;
     this.index.copyKey(`prop:${from.toLowerCase()}`, `prop:${to.toLowerCase()}`);
   }
 
@@ -2870,6 +3224,9 @@ export class DustHost implements OpcodeHost {
     await ctx.inObject("scene", this.currentScene, () => ctx.evalCall("openscene", []));
     if (ctx.lastFlow === "passcode") {
       await ctx.inObject("set", "", () => ctx.evalCall("openscene", []));
+    }
+    if (this.sandbox) {
+      this.settleSandboxWorld(ctx);
     }
   }
 
@@ -2970,6 +3327,24 @@ export class DustHost implements OpcodeHost {
     );
   }
 
+  /**
+   * TARGET reload is gunhand `mousedown` (left-click the revolver).
+   * Browser right-click is not in Dust scripts; we map it here so the
+   * context menu does not eat the press.
+   */
+  async dispatchGunhandClick(ctx: VM, point?: Point): Promise<void> {
+    const gun = this.props.get("gunhand");
+    if (!gun?.visible) {
+      return;
+    }
+    if (point) {
+      this.pointer = point;
+    }
+    await ctx.inObject("prop", "gunhand", () =>
+      ctx.evalCall("mousedown", [{ type: "call", name: "mouse", args: [] }]),
+    );
+  }
+
   async dispatchMouse(ctx: VM, point: Point): Promise<boolean> {
     this.pointer = point;
     this.clickAbsorbed = false;
@@ -2995,6 +3370,17 @@ export class DustHost implements OpcodeHost {
    */
   async dispatchCursor(ctx: VM, point: Point): Promise<void> {
     this.pointer = point;
+    const gunhand = this.props.get("gunhand");
+    if (
+      gunhandWantsSight(
+        Boolean(gunhand?.visible),
+        point,
+        gunhand ? this.pointHitsProp(gunhand, point) : false,
+      )
+    ) {
+      this.cursorName = "sight";
+      return;
+    }
     this.cursorName = "arrow";
     const name = this.hitTest(point, str(ctx.globals.get("handitem") ?? ""));
     const object =
@@ -3006,7 +3392,9 @@ export class DustHost implements OpcodeHost {
             ? "scene"
             : this.hitKind === "flat"
               ? "flat"
-              : "";
+              : this.hitKind === "button"
+                ? "button"
+                : "";
     if (!object) {
       return;
     }
@@ -3045,10 +3433,13 @@ export class DustHost implements OpcodeHost {
 
 function viewStill(
   view: WorldView | null,
-  obj: { x: number; y: number; z?: number },
+  obj: { x: number; y: number; z?: number; screen?: boolean },
 ): StillHit | null {
   if (!view) {
     return null;
+  }
+  if (obj.screen) {
+    return { x: obj.x, y: obj.y, forward: 0, lensForward: 64 };
   }
   if (view.projectWorld) {
     return view.projectWorld(obj);
@@ -3175,6 +3566,11 @@ export function resolveFlatName(
   }
   const name = str(arg).toLowerCase();
   return name || fallback;
+}
+
+/** Dust `sendtocast ("target.cst")` / `sendtoshop ("credits.prp")`. */
+export function libraryStem(name: string): string {
+  return name.replace(/\.(cst|set|prp|flt|pup|snd)$/i, "").toLowerCase();
 }
 
 export function dirWord(dir: Dir | string): string {

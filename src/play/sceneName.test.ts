@@ -101,4 +101,17 @@ describe("opensetfile spawn", () => {
     expect(openSetShouldStand(graph, "scene g8")).toBe(true);
     expect(openSetShouldStand(graph, "scene d1")).toBe(true);
   });
+
+  it("stands at TARGET spawn, not leftover street k11", () => {
+    const graph = loadGraph("_TARGET");
+    if (!graph) {
+      return;
+    }
+    expect(openSetShouldStand(graph, "scene k11", "target")).toBe(true);
+    expect(openSetShouldStand(graph, "scene k11")).toBe(false);
+    expect(poseForOpenedSet(graph, "scene k11", "N")).toEqual(SET_SPAWN._TARGET);
+    expect(SET_SPAWN._TARGET).toEqual({ x: 10, y: 11, facing: "S" });
+    expect(graph.cameraTiles.has("10,11")).toBe(true);
+    expect(graph.cameraTiles.has("10,10")).toBe(false);
+  });
 });

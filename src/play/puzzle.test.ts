@@ -8,6 +8,7 @@ import {
   putWord,
   shopFileOf,
   substringIndex,
+  upsertPuzzleLabel,
 } from "./puzzle";
 
 describe("saloon game helpers", () => {
@@ -46,9 +47,25 @@ describe("saloon game helpers", () => {
   it("treats SALGAMES as a puzzle stage and names the shop file", () => {
     expect(isPuzzleStage("salgames")).toBe(true);
     expect(isPuzzleStage("new")).toBe(false);
+    expect(isPuzzleStage("target")).toBe(false);
+    expect(isPuzzleStage("target.flt")).toBe(false);
     expect(shopFileOf("salgames")).toBe("salgames.prp");
     expect(
       pointHitsFlatItem({ url: "x", x: 100, y: 100, w: 40, h: 50 }, 110, 120),
     ).toBe(true);
+  });
+
+  it("keeps TARGET scores that share a row", () => {
+    let labels = upsertPuzzleLabel([], { text: "3", x: 64, y: 348, size: 12 });
+    labels = upsertPuzzleLabel(labels, { text: "1", x: 121, y: 348, size: 12 });
+    labels = upsertPuzzleLabel(labels, { text: "2", x: 178, y: 348, size: 12 });
+    labels = upsertPuzzleLabel(labels, { text: "50", x: 267, y: 348, size: 12 });
+    labels = upsertPuzzleLabel(labels, { text: "4", x: 64, y: 348, size: 12 });
+    expect(labels).toEqual([
+      { text: "1", x: 121, y: 348, size: 12 },
+      { text: "2", x: 178, y: 348, size: 12 },
+      { text: "50", x: 267, y: 348, size: 12 },
+      { text: "4", x: 64, y: 348, size: 12 },
+    ]);
   });
 });

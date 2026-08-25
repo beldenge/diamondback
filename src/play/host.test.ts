@@ -9,6 +9,7 @@ import { cameraFromPose, worldToStill } from "./facing";
 import {
   dirWord,
   DustHost,
+  libraryStem,
   puppetClipKey,
   puppetFolder,
   resolveFlatLoopWho,
@@ -104,6 +105,37 @@ function mockExtractDisk(): () => void {
 }
 
 describe("SET script reload", () => {
+  it("reinstalls gototown when stage already has setcursor after a FLT swap", async () => {
+    const setcursor = "FLT/_TARGET/setcursor _arg_.json";
+    const gototown = "FLT/_TARGET/gototown _dirname_.json";
+    if (!existsSync(resolve("dfextract/out", setcursor)) || !existsSync(resolve("dfextract/out", gototown))) {
+      return;
+    }
+    const restore = mockExtractDisk();
+    try {
+      const host = new DustHost({} as PuppetUi);
+      const intern = host as unknown as {
+        addScriptFile(key: string, rel: string): Promise<void>;
+      };
+      const vm = new VM({
+        call: (name, args, ctx) => host.call(name, args, ctx),
+        lookup: (name, ctx) => host.lookup(name, ctx),
+        lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+      });
+      vm.object = "stage";
+      await intern.addScriptFile("stage", setcursor);
+      await intern.addScriptFile("stage", gototown);
+      expect(host.lookup("gototown", vm)?.name).toBe("gototown");
+      host.index.removePrefix("stage");
+      expect(host.lookup("gototown", vm)).toBeUndefined();
+      await intern.addScriptFile("stage", setcursor);
+      await intern.addScriptFile("stage", gototown);
+      expect(host.lookup("gototown", vm)?.name).toBe("gototown");
+    } finally {
+      restore();
+    }
+  });
+
   it("reinstalls nite SET scripts after removePrefix from an interior hop", async () => {
     const rel = "SET/_NITE/Boot Script.json";
     const disk = resolve("dfextract/out", rel);
@@ -555,6 +587,37 @@ describe("actor walk wait", () => {
     expect(actor.destX).toBeCloseTo(1664, 0);
     expect(actor.destY).toBeCloseTo(3476, 0);
     expect(actor.route.at(-1)).toEqual({ x: 2656, y: 2720, z: 0 });
+  });
+
+  it("still walks TARGET actors while the town is pausewalked", () => {
+    const host = new DustHost({} as PuppetUi);
+    host.currentSet = "target";
+    const intern = host as unknown as { walksPaused: boolean };
+    intern.walksPaused = true;
+    const crow = host.namedActor("birdtarg");
+    crow.set = "target";
+    crow.x = 0;
+    crow.y = 0;
+    crow.speed = 6;
+    crow.pose = "flight";
+    crow.sprites = { flight: [{ path: "f", x: 0, y: 0, w: 8, h: 8 }] };
+    host.startWalk(crow, 60, 0, 180);
+    expect(crow.pose).toBe("flight");
+    expect(crow.destZ).toBe(180);
+    host.advanceActorsOnce();
+    expect(crow.x).toBeCloseTo(6, 5);
+    expect(crow.walking).toBe(true);
+  });
+
+  it("drops a walk whose dest is not a number so iswalk can finish", () => {
+    const host = new DustHost({} as PuppetUi);
+    const actor = host.namedActor("leroy");
+    actor.walking = true;
+    actor.speed = 3;
+    actor.destX = Number.NaN;
+    actor.destY = 0;
+    host.advanceActorsOnce();
+    expect(actor.walking).toBe(false);
   });
 });
 
@@ -1644,5 +1707,262 @@ describe("saloon SALGAMES scripts", () => {
     expect(await value("10h")).toBe(10);
     expect(await value("qh")).toBe(10);
     expect(await value("ah")).toBe(1);
+  });
+});
+
+describe("range gunhand reload hit", () => {
+  function rangeView(): NonNullable<DustHost["view"]> {
+    return {
+      pose: { x: 10, y: 11, facing: "S" },
+      world: "_TARGET",
+      graph: { scenes: new Map(), cameraTiles: new Set(["10,11"]), transitions: [], byFrom: new Map() },
+      walk() {},
+      async setPose() {},
+      log() {},
+      refreshActors() {},
+    };
+  }
+
+  it("hits the idle revolver at 1:1 screen scale, not world PRP scale", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.currentSet = "target";
+    host.view = rangeView();
+    const gun = host.ensureProp("gunhand");
+    gun.visible = true;
+    gun.screen = true;
+    gun.view = "idle";
+    gun.x = 260;
+    gun.y = 165;
+    gun.sprites = {
+      idle: [{ path: "FRAMES/gunhand/idle/00_c487.png", x: 236, y: 234, w: 44, h: 57 }],
+    };
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    const at = { kind: "point" as const, x: 260, y: 230, z: 0 };
+    expect(await host.call("pointinprop", ["gunhand", at], vm)).toBe(true);
+    expect(await host.call("pointinprop", ["gunhand", { kind: "point", x: 260, y: 80, z: 0 }], vm)).toBe(
+      false,
+    );
+  });
+
+  it("opens the cylinder on gunhand mousedown", async () => {
+    const script = resolve("dfextract/out/PRP/_HOUSE/setcursor _arg__270.json");
+    if (!existsSync(script)) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    host.currentSet = "target";
+    for (const proc of loadProcs("PRP/_HOUSE/setcursor _arg__270.json")) {
+      host.index.add("prop:gunhand", proc, "gunhand");
+    }
+    const gun = host.ensureProp("gunhand");
+    gun.visible = true;
+    gun.view = "idle";
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    vm.globals.set("bulletcount", 0);
+    vm.globalNames.add("bulletcount");
+    await host.dispatchGunhandClick(vm);
+    expect(gun.view).toBe("reload");
+  });
+});
+
+describe("range % HIT", () => {
+  it("misses on the still report scene k12 so clickfire can update %", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.currentSet = "target";
+    host.currentScene = "scene g15";
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    expect(await host.call("hittest", [{ kind: "point", x: 256, y: 80, z: 0 }], vm)).toBe(
+      "scene k12",
+    );
+    expect(host.hitKind).toBe("scene");
+  });
+
+  it("sendtocast target.cst reaches updatescore on the TARGET cast", () => {
+    const rel = "CST/_TARGET/Cast.json";
+    if (!existsSync(resolve("dfextract/out", rel))) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    for (const proc of loadProcs(rel)) {
+      host.index.add("cast:target", proc, rel);
+    }
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    vm.object = "cast";
+    vm.me = "target.cst";
+    expect(libraryStem("target.cst")).toBe("target");
+    expect(libraryStem("credits.prp")).toBe("credits");
+    expect(host.lookup("updatescore", vm)?.name).toBe("updatescore");
+  });
+});
+
+describe("range EXIT", () => {
+  it("loads TARGET gototown onto the stage index", () => {
+    const rel = "FLT/_TARGET/gototown _dirname_.json";
+    if (!existsSync(resolve("dfextract/out", rel))) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    for (const proc of loadProcs(rel)) {
+      host.index.add("stage", proc, rel);
+    }
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    vm.object = "stage";
+    expect(host.lookup("gototown", vm)?.name).toBe("gototown");
+  });
+
+  it("hittest hits the EXIT Mac rect on TARGET mainpanel", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.currentFlatName = "mainpanel";
+    const intern = host as unknown as {
+      stageHits: Map<string, { name: string; top: number; left: number; bottom: number; right: number }[]>;
+    };
+    intern.stageHits.set("mainpanel", [
+      { name: "exit", top: 292, left: 256, bottom: 315, right: 340 },
+    ]);
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    expect(
+      await host.call("hittest", [{ kind: "point", x: 297, y: 304, z: 0 }], vm),
+    ).toBe("exit");
+    expect(host.hitKind).toBe("button");
+    expect(
+      await host.call(
+        "pointinbutton",
+        ["mainpanel", "exit", { kind: "point", x: 297, y: 304, z: 0 }],
+        vm,
+      ),
+    ).toBe(true);
+  });
+
+  it("EXIT plaque wins over the INVEN holster slot while the gun is held", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.currentSet = "target";
+    host.currentFlatName = "mainpanel";
+    const intern = host as unknown as {
+      stageHits: Map<string, { name: string; top: number; left: number; bottom: number; right: number }[]>;
+    };
+    intern.stageHits.set("mainpanel", [
+      { name: "exit", top: 292, left: 256, bottom: 315, right: 340 },
+    ]);
+    const gun = host.ensureProp("gun");
+    gun.visible = true;
+    gun.view = "empty";
+    gun.x = 316;
+    gun.y = 320;
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    vm.globals.set("handitem", "gun");
+    const plaque = { kind: "point" as const, x: 297, y: 304, z: 0 };
+    expect(await host.call("hittest", [plaque], vm)).toBe("exit");
+    expect(host.hitKind).toBe("button");
+    expect(host.hitsHeldItem(plaque, "gun")).toBe(true);
+  });
+
+  it("uses the EXIT plaque as a HUD button hit", () => {
+    const host = new DustHost({} as PuppetUi);
+    host.currentFlatName = "mainpanel";
+    const intern = host as unknown as {
+      stageHits: Map<string, { name: string; top: number; left: number; bottom: number; right: number }[]>;
+    };
+    intern.stageHits.set("mainpanel", [
+      { name: "exit", top: 292, left: 256, bottom: 315, right: 340 },
+    ]);
+    expect(host.hitHudButton(297, 304)).toBe("exit");
+    expect(host.hitHudButton(20, 300)).toBeUndefined();
+  });
+
+  it("does not paint TARGET screen plates on the town still", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.currentSet = "target";
+    host.view = {
+      pose: { x: 10, y: 11, facing: "S" },
+      world: "_TARGET",
+      graph: { scenes: new Map(), cameraTiles: new Set(["10,11"]), transitions: [], byFrom: new Map() },
+      walk() {},
+      async setPose() {},
+      log() {},
+      refreshActors() {},
+    };
+    const bottle = host.namedActor("bottle1targ");
+    bottle.cast = "target";
+    bottle.visible = true;
+    bottle.screen = true;
+    bottle.x = 157;
+    bottle.y = 133;
+    const can = host.namedActor("can1targ");
+    can.cast = "target";
+    can.visible = true;
+    can.screen = true;
+    const vane = host.namedActor("vanetarg");
+    vane.cast = "target";
+    vane.visible = true;
+    vane.screen = true;
+    const plate = host.namedActor("target3");
+    plate.cast = "target";
+    plate.visible = true;
+    plate.screen = true;
+    const pig = host.namedActor("pig");
+    pig.cast = "extra";
+    pig.visible = true;
+    expect(host.nearbyActors().map((a) => a.name).sort()).toEqual(
+      ["bottle1targ", "can1targ", "target3", "vanetarg"].sort(),
+    );
+    host.currentSet = "town";
+    host.view.world = "_TOWN";
+    expect(host.nearbyActors()).toEqual([]);
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    await host.call("closecastfile", ["target.cst"], vm);
+    expect(bottle.visible).toBe(false);
+    expect(can.visible).toBe(false);
+    expect(vane.visible).toBe(false);
+    expect(plate.visible).toBe(false);
+    expect(pig.visible).toBe(true);
+  });
+
+  it("stamps actorxy overlays with the current SET", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.currentSet = "target";
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    await host.call("actorxy", ["bottle1targ", 157, 133], vm);
+    const bottle = host.namedActor("bottle1targ");
+    expect(bottle.screen).toBe(true);
+    expect(bottle.set).toBe("target");
+  });
+
+  it("EXIT does not dumpinven; Leroy aftertarget takes a loaned gun back", () => {
+    const exit = resolve("dfextract/out/FLT/_TARGET/mousedown _arg__5.txt");
+    const after = resolve("dfextract/out/PUP/_LEROY/day1.txt");
+    if (!existsSync(exit) || !existsSync(after)) {
+      return;
+    }
+    const exitTxt = readFileSync(exit, "utf8");
+    const afterTxt = readFileSync(after, "utf8");
+    expect(exitTxt).toMatch(/gototown \("south"\)/);
+    expect(exitTxt).not.toMatch(/dumpinven/);
+    expect(afterTxt).toMatch(/dumpinven \("gun"\)/);
   });
 });

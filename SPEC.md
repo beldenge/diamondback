@@ -8,7 +8,7 @@
 - We won't upscale visuals or audio at this time.
 - This will not be released commercially.
 - Interpret extracted DreamFactory **tokens** at runtime (TypeScript VM). Do not hand-port 541 scripts into JSON graphs. Do not port `DF.EXE` C.
-- `https://diamondback.town` is a title chooser. **Dust: Resurrected** (`/?mode=resurrected` or `/?mode=play`) is the VM game. **Dust: Unlocked** (`/?mode=unlocked`) is the town-sandbox walker. **The Picture Show** (`/?mode=movies`) is extracted full-screen reels. Chooser cards switch in-page (no document reload).
+- `https://diamondback.town` is a title chooser. **Dust: Resurrected** (`/?mode=resurrected` or `/?mode=play`) is the VM story. **Dust: Unlocked** (`/?mode=unlocked`) is the same PlayGame / VM with a sandbox policy (empty of story casts, all doors, minigame NPCs, farm animals except the dog). **The Picture Show** (`/?mode=movies`) is extracted full-screen reels. Chooser cards switch in-page (no document reload).
 - Do not build save/load in the first VM slice (format is `*.rtd`, still unknown).
 
 ## 3. Tech Stack & Principles
@@ -98,30 +98,32 @@ Default run (`/`) is the title chooser. Modes:
 | Name | URL | What |
 |---|---|---|
 | **Dust: Resurrected** | `/?mode=resurrected` or `/?mode=play` | VM game (Day 1 night so far). `&intro=1` plays openings in-game |
-| **Dust: Unlocked** | `/?mode=unlocked` | Outdoor stills sandbox (all doors open) |
+| **Dust: Unlocked** | `/?mode=unlocked` | Same engine as Resurrected; no story casts, all doors, minigame NPCs, farm animals (not the dog) |
 | **The Picture Show** | `/?mode=movies` | Browser reel player (`timeline.json` + PNG/WAV). Opening is selected first. Not inspect MOVs |
 
 - `npm test` — unit tests (time, SET graph / HQ lookup, doors)
 - `npm run dev` — http://localhost:5173 (needs `dfextract/out/SET/_TOWN` + `_NITE`)
 - Hosted: https://diamondback.town (Pages). Stills from CloudFront via `VITE_EXTRACT_BASE`. Local `/extract` is unchanged.
 - Command cheat sheet: [`README.md`](README.md).
-- Spawn: Scene O7 facing north. **N** swaps day/night stills (Unlocked only); does not change `day`.
+- Spawn: Scene O7 facing north. **N** swaps day/night stills (Unlocked only); does not change `day`. Unlocked defaults to afternoon so shops and saloon tables are up.
 - Sleep has no stills UI yet (hotel bed later). Clock is discrete; `sleep()` still wakes next morning.
 - Debug query: `/?mode=unlocked&clock=1|2|3`.
 - How strips, HQ, G11, flipbook (~24 fps, no skip, no input queue), loader, and doors work: [`src/world/set/README.md`](src/world/set/README.md).
 - CST/PRP world→still (X, Y, scale, Z, pans) is **locked**: [`src/play/README.md`](src/play/README.md) § World → still. Do not revive 1/z Y/scale/Z or frozen/screen-lerped pans.
 - Still codec / palette / sizes: [`dfextract/docs/images.md`](dfextract/docs/images.md) (`255` white, cream index 2 skull, negative look, `_TOWN` vs `_NITE`).
-- Sandbox: every door is unlocked. Facades live on the north–south road (I7 apoth, H7 saloon/stage, E7 hotel/doctor, …) plus H4 paper, G1 caretaker, F10 livery, I10 mayor. Click opens (click again closes); walk forward enters. Nested: mission classroom, Rodham inner office, saloon/hotel/mansion rooms.
+- Sandbox: same engine as Resurrected. Every door is unlocked (`debugging`). Facades live on the north–south road (I7 apoth, H7 saloon/stage, E7 hotel/doctor, …) plus H4 paper, G1 caretaker, F10 livery, I10 mayor. Click opens (click again closes); walk forward enters. Nested: mission classroom, Rodham inner office, saloon/hotel/mansion rooms. Needs the full play extract, not the old SET-only sandbox dump.
 - Extractor setup: [`dfextract/README.md`](dfextract/README.md). The remake does not run that tool.
 - npm package / repo name: `diamondback`.
 
-**Next:** Dust: Resurrected runs extracted `boot()` / `advanceday()` for Day 1 night (Leroy, dog, Help, Jones, hotel/saloon casts, jug/bone, night FX, shooting stars, locked shops, spot-movies). Saloon card tables and the slot machine run extracted `SALGAMES.FLT` / `.PRP` (Jan blackjack, Mez poker, reels). Script-pump contracts for the next FLT (checkers, sleep, fights) are in [`src/play/README.md`](src/play/README.md) § Script pump. Widen remaining interiors (rooms, Dell fight, sleep). Do not inpaint remaining still holes.
+**Next:** Dust: Resurrected runs extracted `boot()` / `advanceday()` for Day 1 night (Leroy, dog, Help, Jones, hotel/saloon casts, jug/bone, night FX, shooting stars, locked shops, spot-movies). Saloon card tables and the slot machine run extracted `SALGAMES.FLT` / `.PRP` (Jan blackjack, Mez poker, reels). The shooting range is extracted `TARGET` SET/FLT/CST/PRP (not a second engine); traps: [`src/play/README.md`](src/play/README.md) § TARGET shooting range. Script-pump contracts for the next FLT (checkers, sleep, fights) are in the same file § Script pump. Widen remaining interiors (rooms, Dell fight, sleep). Do not inpaint remaining still holes.
 
 ## 10. Decision Log
 
 | Date | Decision |
 |---|---|
+| 2026-08-25 | TARGET range is extracted SET/FLT/CST/PRP on the same VM. EXIT does not `dumpinven` (Leroy `aftertarget` does). Multi-file index keys must merge every file (`stage` = setcursor + `gototown`). `sendtocast ("target.cst")` is `cast:target`. Screen `actorxy` dies with `closecastfile`. Companion SET palettes keep pal 0 black. Filmstrip Z is cached per still; do not null the plane while the next PNG decodes. Traps: [`src/play/README.md`](src/play/README.md) § TARGET shooting range. |
 | 2026-08-24 | Title chooser at `/` with three cards. **Dust: Resurrected** = play VM (`/?mode=resurrected` or `/?mode=play`). **Dust: Unlocked** = sandbox walker (`/?mode=unlocked`). **The Picture Show** (`/?mode=movies`) is the TypeScript reel player (same dump as `movplay.py`, not that process). Opening is selected first; intros are not a Resurrected landing option. Card switches are in-page; browser back returns to the chooser. |
+| 2026-08-24 | Unlocked is not a second walker. Both modes run `PlayGame` + `DustHost` + the VM. Unlocked is a sandbox policy: skip story `advanceday`, set `debugging` so extracted `lock*` open, hide story casts, keep Leroy (range), Bolivar (store/checkers), saloon card-table props, and farm animals (pigs, cows, chickens, birds — not the dog). Retired `src/core/game.ts`. |
 | 2026-08-17 | Not a DreamFactory port. No visual/audio upscale. Non-commercial. |
 | 2026-08-17 | Stack: TypeScript + Vite + Vitest. HTML/CSS menus later. Three.js for gameplay. |
 | 2026-08-17 | Slice 1 look: graybox Diamondback, somewhat recognizable. SET extract / decompile if layout is insufficient. |

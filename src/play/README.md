@@ -7,12 +7,30 @@ extracted DreamFactory scripts (boot → `advanceday` → SET/CST/PRP). Extract 
 book so we do not re-debug speech, visemes (per-PUP idle tracks), the
 Firefox audio delay, world→still (X, Y, scale, Z, pans), interior
 spawn/Z, HOUSE door overlays, EXAMINE pointer, dest-rect hits, the
-map `cross`, or the script pump that runs FLT minigames (`mousedown`
+map `cross`, the script pump that runs FLT minigames (`mousedown`
 press, `makeloop` / `pauseloop`, `forceupdate` vs idle `runQueued`,
-60 Hz `delay` / fades, `findword` / `putword` holes).
+60 Hz `delay` / fades, `findword` / `putword` holes), or the TARGET
+shooting range.
 
-Dust: Unlocked (`/?mode=unlocked`) is the sandbox stills walker:
-[`src/world/set/README.md`](../world/set/README.md). The title chooser is `/`.
+Dust: Unlocked (`/?mode=unlocked`) is the **same** PlayGame / VM with
+`host.sandbox`. It is not `src/core/game.ts` (retired). Stills playback
+is still [`src/world/set/README.md`](../world/set/README.md). Policy:
+[`sandbox.ts`](sandbox.ts). The title chooser is `/`.
+
+Unlocked still runs extracted `boot()` (keydown, HUD, shops) but
+replaces stage `advanceday` so Day 1 night story casts never spawn.
+`debugging = true` makes SET `lock*` return false. After every
+`opensetfile` / `openscene`, story extras are hidden and stair
+talk flags are seeded (`oonaphase` 3, `mwifephase` 1) so saloon and
+mansion stairs `passcode` instead of `runpuppet`. Leroy stays at the
+range, Bolivar at the store. Farm animals stay (pigs, cows, chickens,
+birds); the dog does not. Afternoon pig is seeded because EXTRA only
+places it at night. Do not `addinven ("gun")` at spawn. Range play
+(HUD, gunhand, scores, EXIT, casts, Z, palettes): [TARGET shooting
+range](#target-shooting-range). INVEN world `small` pickups (jug, bone,
+…) are hidden; HOUSE doors, tables, and tumbleweeds stay. Saloon
+`openset` still places `blackjack` / `gamblers` when `clock > 1`
+(default afternoon). `N` swaps town/nite without advancing `day`.
 
 ---
 
@@ -60,6 +78,8 @@ the still; sprite pixels draw only when `spriteZ ≤ stillZ`. Interior
 SETs need `FRAMES/z/` (`python cli.py --type set --z` that SET). No Z
 plane → Help paints on top of the counter. `stdactor` sets chin
 `actorscale` 5800 and `actorzclip` 32 — do not invent a shop Y.
+TARGET is the same class of still-occlusion (gallery / cactuses):
+[TARGET shooting range](#target-shooting-range).
 
 `opensetfile` `removePrefix("set"|"scene:")` drops the script index.
 The load mark must not block re-install or town `keydown` never returns
@@ -209,6 +229,111 @@ loops [`host.ts`](host.ts) `runQueued` / `pauseLoop` / `makeLoop`;
 ticks [`facing.ts`](facing.ts) `dustTicksToMs`; words [`puzzle.ts`](puzzle.ts)
 `findWord` / `putWord`; press [`game.ts`](game.ts) `runScriptMouse`.
 
+## TARGET shooting range
+
+Extracted `target.set` + `target.flt` + `target.cst` + `target.prp`, same
+VM as town / SALGAMES. Unlocked seeds the day-2|3 livestock because
+`initactors` skips them on `day = 1`. Do not write a second range engine.
+
+**Extract.** `python cli.py --type set --z` on TARGET (gallery / cactus
+depth). CST plates use the sibling SET ColorPalette for used slots, pal
+0 **black** (VGA still index 0). Unused-white made `birdtarg` blank;
+bottles and plates already had real SET colors. Town EXTRA birds stay on
+CST unused-black. Re-dump `--type cst --frames` after a pal change.
+
+**Stand.** TARGET dumps a 225-cell table like town. Leftover street
+`scene k11` is not a filmed range pose — `openSetShouldStand` always
+stands interiors at SET spawn (10,11 S = script `scene k12`).
+
+**HUD.** Chrome is `FLT/_TARGET/frame_3.png` on `#play-hud` (bottom 120
+of a 512×384 still). Town `NEW.FLT` / skull holster stay off
+(`[data-range]`). `drawstring` scores paint on `#play-hud-labels`, not
+the SALGAMES overlay (`isPuzzleStage` excludes `target`). FLT Mac rects
+are stage pixels: EXIT `(256,292)–(340,315)`.
+
+**Gunhand.** `propxy` is screen-space (`prop.screen`, scale 1). `propdeg`
+1–13 picks the 13 aim plates (`pointx * 13 / 512 + 1`); reload is
+0-based `bulletcount` on 7 cels. World strips stay 8-dir. Boot `idle`
+`cursor ("sight")` when the pointer is on the still and not on the
+hand. Reload is **left-click the revolver** (`pointinprop ("gunhand")`
+skips `bullet`; gunhand `mousedown` opens the cylinder). Mac was
+one-button; browser right-click maps to that same click so the context
+menu does not steal it.
+
+**Scores.** `targetshotcount` increments on every shot. Hits call
+`updatescore` on the actor. Misses go
+`sendtocast ("target.cst", updatescore ("%"))` — look up `cast:target`,
+not `cast:target.cst` (`libraryStem`). `clickfire` only treats
+`scene k12` as a miss; range still-empties report that name or a real
+hit steals the `%` refresh. Integer Dust math: `(hits * 100) / shots`.
+EXIT accuracy uses the same counters, not the painted string.
+
+**EXIT.** Button `mousedown` + `while stilldown` then
+`sendtostage (gototown ("south"))`. `gototown` lives in
+`gototown _dirname_.json` on that stage, not `setcursor`. Town holster
+box `(316,320)±40` overlaps the plaque — INVEN `handitem` must not win
+on the range HUD (`propview ("gun", "empty")` is not a holster). Hover
+uses `touch` even though FLT `setcursor` is `arrow`; HUD hover uses the
+same stage mapping as the press (HUD-local vs stage-local fought and
+blinked). `opensetfile` / `openstagefile` merge **every** file onto a
+shared index key (`stage` = setcursor + gototown). Skipping later files
+once `index.has("stage")` left TARGET `gototown` off the bag on the
+second visit.
+
+**Casts.** TARGET `closeset` `closecastfile ("target.cst")` must hide
+that cast. Bottles / cans / plates / vane are `actorxy` screen overlays
+with no `actorset` — without the close they follow the camera into town.
+`pausewalk ("all")` must not freeze TARGET walks (town pause during the
+loan). Crows: `initbird` waits on three cans; Unlocked seeds
+`birdstar2/4/5` at z 180, pose `flight` (no walk plates). `startWalk`
+keeps flight if there is no walk strip; `birdstar1` is off-camera.
+
+**Z.** Gallery / cactus pixels live in the still. No `FRAMES/z/` →
+livestock paints through them. Ground `actoris3d` walkers (pig, chicken,
+gila) blit one SET plane farther than computed — walk is plane 4, same
+bucket as the painted machine. Crows keep computed Z. Filmstrip plates
+each have their own Z PNG; dropping the plane while the next file
+decoded (`zKey !== zWant` → null) painted every sprite through walls
+on motion frames. Cache per still URL and hold the last plane.
+
+**Gun loan.** EXIT only hides `gunhand` and `gototown`. It does **not**
+`dumpinven`. Leroy `beforetarget` `addinven ("gun")` and sets
+`borrowgun` if you did not already own it; `aftertarget` (click him
+after you come back, `leroyphase = 3`) says “Give me that gun back.”
+Unlocked day-1 `runyoself` is the south-gate intro; sandbox substitutes
+`beforetarget` / `aftertarget`. After Yes, extracted `mousedown` waits
+`while iswalk` then `gotointerior`; Unlocked skips that return-to-star
+wait (hourglass forever).
+
+Code: sandbox seeds [`sandbox.ts`](sandbox.ts); hits / casts / scripts
+[`host.ts`](host.ts); HUD / gunhand / press [`game.ts`](game.ts)
+[`hud.ts`](hud.ts); Z [`occlude.ts`](occlude.ts). Extract palettes
+[`dfextract/docs/images.md`](../../dfextract/docs/images.md).
+Tests: `host.test.ts` (EXIT / `% HIT` / casts / script reload),
+`hud.test.ts` (gunhand / plaque mapping), `sandbox.test.ts` (seeds /
+Leroy), `occlude.test.ts` (range Z + filmstrip hold),
+`dfextract/tests/test_frames.py` (SET pal + crow pal 0).
+
+### Dead ends (do not retry)
+
+| Approach | What we saw |
+|---|---|
+| Skip `addScriptFile` when `index.has(key)` after the first file | `stage` is setcursor **and** `gototown`. First EXIT worked; the second visit kept NEW.FLT’s bag and TARGET `gototown` never installed. Always merge cached procs; `!index.has` is not enough for a multi-file key. Same class as town `keydown` after an interior hop. |
+| `sendtocast ("target.cst")` as `cast:target.cst` | Hits updated `%`; misses did not. Strip `.cst` / `.prp` (`libraryStem`). `sendtoshop ("credits.prp")` is the same trap. |
+| Leave `closecastfile` unimplemented / keep TARGET `actorxy` sprites globally | Bottles, cans, plates, vane stay on the town still after EXIT, including turns. Screen overlays without `actorset` belong to that CST. |
+| Town holster `hitsHeldItem` on the range HUD | EXIT plaque is a no-op; the 80px box around `(316, 320)` is offset from the button. Range has no holster. |
+| Right-click to reload | Not in the scripts. Mac one-button `mousedown` on gunhand. Browser menu ate the press until we mapped button 2. |
+| World PRP scale on `propxy` gunhand | Dest sat under the HUD; every still click shot. Screen props use scale 1. |
+| 8-dir octant for gunhand `propdeg` | Aim always faced left. 13-cel strips are 1-based cel index. |
+| `drawstring` scores on the puzzle overlay / NEW.FLT holster | Counts gone; INVEN empty/large gun on the range still. TARGET is not a puzzle stage; hide INVEN HUD views. |
+| CST pal 36 unused-black on TARGET plates | Bottles/plates silhouette. Companion SET pal for used slots. |
+| SET pal unused-white on TARGET pal 0 | Crows blank. Pal 0 is VGA still black. |
+| `pausewalk ("all")` freezing TARGET walks / `initbird` at `birdstar1` | Invisible crows. Pause other-set actors only; seed on-camera stars; keep `flight`. |
+| Take the gun on EXIT | Original walks out still holding it. `dumpinven` is Leroy `aftertarget`. |
+| Drop filmstrip Z while the next PNG decodes | People and items through walls on every turn/walk plate. Color still waits; Z must too (cache + hold last). |
+| Leftover `scene k11` on TARGET 225-grid | Hourglass / stand at the street cell. Always stand interiors. |
+| Wait `while iswalk` after Unlocked Leroy Yes | Hourglass, never `gotointerior`. Sandbox skips that return-walk. |
+
 ## HOUSE door overlays
 
 Every interior uses the same HOUSE prop named **`door`**. Click on a
@@ -279,7 +404,7 @@ still has forward > 0.
 | Skip interior `FRAMES/z/` | Help paints in front of the counter. Draw when `spriteZ ≤ stillZ`. `python cli.py --type set --z`. |
 | Scene `closescene` on in-place pans | `doorclose1` on every A2 turn. Those hooks are **tile** steps (`isTileStep`). Overlay close on a turn is `closeDoorIfLeftOpening`, not `closescene`. |
 | `closesetfile` without the old scene’s `closescene` | Street door still visible; the close plays later on pans. |
-| `loadedScriptFiles` blocking reinstall after `removePrefix("set"\|"scene:")` | Town `keydown` gone; walk freeze on shop exit. Reinstall when `!index.has(key)`. Cache parsed scripts; do not refetch every `gototown`. |
+| `loadedScriptFiles` skipping a file because `index.has(key)` | Town `keydown` gone after an interior hop; TARGET EXIT dead on the second visit (`stage` already had setcursor). Always merge that file’s procs. Cache the parse; do not refetch. Multi-file keys: [TARGET shooting range](#target-shooting-range). |
 | `screentoblack` / `blacktoscreen` as no-ops | Saloon exit hitch: no fade, then O7 flashes before the street cell. Dust fades 30 ticks (0.5 s) to black, swaps the SET, fades up. Do not stand at town spawn when `currentscene` is still interior `d1`. |
 | Skip SALGAMES.FLT comment-first flats / treat `openshopfile("salgames.prp")` as HOUSE | Clicking the card table fades to black and never returns. Poker/blackjack scripts start with `//`; stage `playcards*` + shop handle/cards live in `_SALGAMES`. |
 | Switch `case 0` empty then `case 1` as C without fall-through | Poker: Mez pops in and fades out (`mezphase` 0 never reaches the day body). Blackjack stay: `cardtovalue` returns 0, dealer hits until the while cap. Empty labels share the next body; a non-empty case still breaks. |
@@ -509,6 +634,11 @@ plate. Walk: lerp feet `index*64` (`t = index/4`). Turn: keep XY, yaw
 look-deg `index*16`, **reproject** with the table above every plate.
 Draw sprites **after** the still advances. If the next PNG is not
 ready, hold the previous plate’s camera. Facing codes **1=N 2=S 3=E 4=W**.
+Each plate has its own `FRAMES/z/`. Dropping that plane while the next
+Z PNG decoded (`zKey !== zWant` → null) painted actors through walls
+on every motion frame — town turns as well as the range. Cache Z per
+still URL and hold the last plane until the matching one is ready. See
+[TARGET shooting range](#target-shooting-range).
 
 **Oracle A — O7 N Leroy** (`town.leroy1` = 1740, 3536, `actorscale` 1100):
 
@@ -810,4 +940,5 @@ can stall the same device. Cue the bed and start it on a later user click
 - Speech ADPCM → WAV: [`dfextract/docs/audio.md`](../../dfextract/docs/audio.md)
 - Sprite hotspots: [`dfextract/docs/images.md`](../../dfextract/docs/images.md)
 - HOUSE door overlays (all buildings): this file, [HOUSE door overlays](#house-door-overlays)
+- TARGET shooting range (FLT HUD, gunhand, EXIT, casts, Z, palettes): this file, [TARGET shooting range](#target-shooting-range)
 - PUP viseme tracks (per-character `idle 1`–`4`): this file, [PUP viseme tracks](#pup-viseme-tracks)

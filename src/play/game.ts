@@ -1,5 +1,10 @@
 import { Color, Timer, WebGLRenderer } from "three";
+import { isClockSlot, toggleDayNight, type ClockSlot } from "../core/time";
 import { VM, type Point } from "../vm/runtime";
+import {
+  sandboxClockFromSearch,
+  sandboxGraphFolder,
+} from "./sandbox";
 import {
   applyTransition,
   isSwipePointer,
@@ -72,12 +77,14 @@ import {
   blitSpriteZ,
   isDoorOverlay,
   isWallOverlay,
+  rangeGroundBlitZ,
   shouldBlitDoorOverlay,
   paintFarToNear,
   spriteBitsFromImageData,
   wallOverlayBlitZ,
   propStillScale,
   zPlaneFromImageData,
+  liveZPlaneForStill,
   type SpriteBits,
 } from "./occlude";
 import { DustHost, type PropState, type WorldView } from "./host";
@@ -89,19 +96,21 @@ import {
   HAND_SLOT,
   hitMacRect,
   holdWhileLoading,
+  hudBarCursor,
   inventorySpriteView,
+  isInventoryHudView,
   MAINPANEL_BUTTONS,
   mapCrossHotspot,
+  propBlitFrame,
   propViewFrame,
   stageFromClient,
-  stageFromHudClick,
   type FlatItem,
 } from "./hud";
-import { playStageRect } from "./stage";
+import { playStageRect, STAGE_HEIGHT, STAGE_WIDTH } from "./stage";
 import { parseScriptScene } from "./sceneName";
-import { PLAY_HUD_CHROME, PuppetUi } from "./ui";
+import { PLAY_HUD_CHROME, RANGE_HUD_CHROME, PuppetUi } from "./ui";
 import { boardMouseGate, idlePumpAllowed, worldInputBlocked, worldMouseGate } from "./lock";
-import type { PuzzleBoard } from "./puzzle";
+import type { PuzzleBoard, PuzzleLabel } from "./puzzle";
 import {
   movieClipsStarting,
   movieFrameWaitsForClick,
@@ -120,6 +129,7 @@ const CURSORS: Record<string, string> = {
   watch: "/rsrc/cursors/watch.cur",
   hand: "/rsrc/cursors/hand.cur",
   fist: "/rsrc/cursors/fist.cur",
+  sight: "/rsrc/cursors/sight.cur",
 };
 
 const CURSOR_FALLBACK: Record<string, string> = {
@@ -131,6 +141,12 @@ const CURSOR_FALLBACK: Record<string, string> = {
   watch: "wait",
   hand: "grab",
   fist: "grabbing",
+  sight: "crosshair",
+};
+
+/** CURS.SIGHT hotspot is 16,15 in `cursors.json`. */
+const CURSOR_HOTSPOT: Record<string, string> = {
+  sight: "16 15",
 };
 
 /** GitHub Pages has no `dustdecompile/out/rsrc`; skip the 404 `.cur` fetch. */
@@ -140,7 +156,8 @@ function cursorCss(name: string): string {
     return fallback;
   }
   const url = CURSORS[name] ?? CURSORS.arrow;
-  return `url("${url}"), ${fallback}`;
+  const hot = CURSOR_HOTSPOT[name];
+  return hot ? `url("${url}") ${hot}, ${fallback}` : `url("${url}"), ${fallback}`;
 }
 
 export { worldToStill } from "./facing";
@@ -163,6 +180,8 @@ export function skipRedundantStillShow(
     cur.facing === next.facing
   );
 }
+
+export type PlayKind = "story" | "sandbox";
 
 export class PlayGame implements WorldView {
   pose: WalkerPose = { x: 6, y: 14, facing: "N" };
@@ -219,8 +238,9 @@ export class PlayGame implements WorldView {
     }
   >();
   private zPlane: Uint8Array | null = null;
-  private zKey = "";
   private zWant = "";
+  private readonly zCache = new Map<string, Uint8Array | null>();
+  private readonly zLoading = new Map<string, Promise<void>>();
   private readonly stageEl: HTMLDivElement;
   private readonly hudEl: HTMLDivElement;
   private readonly hudFace: HTMLCanvasElement;
@@ -233,8 +253,11 @@ export class PlayGame implements WorldView {
   private readonly handEl: HTMLCanvasElement;
   private readonly handCtx: CanvasRenderingContext2D;
   private handSrc = "";
+  private readonly hudLabelsEl: HTMLDivElement;
   /** `stdmouse` drag started on pointerdown; ignore the leftover click. */
   private skipNextClick = false;
+  private readonly kind: PlayKind;
+  private lastDayClock: ClockSlot = 2;
   private hoverPoint: Point | null = null;
   private cursorPointKey = "";
   private cursorGen = 0;
@@ -246,8 +269,9 @@ export class PlayGame implements WorldView {
   private cursorOn = "";
   private stageScale = 1;
 
-  constructor(canvas?: HTMLCanvasElement) {
-    this.canvas = canvas ?? document.createElement("canvas");
+  constructor(kind: PlayKind = "story") {
+    this.kind = kind;
+    this.canvas = document.createElement("canvas");
     this.canvas.id = "play-world";
     document.body.classList.add("play");
     this.stageEl = document.createElement("div");
@@ -294,6 +318,8 @@ export class PlayGame implements WorldView {
     this.fadeEl.id = "play-fade";
     this.handEl.id = "play-hand";
     this.handEl.hidden = true;
+    this.hudLabelsEl = document.createElement("div");
+    this.hudLabelsEl.id = "play-hud-labels";
     const handCtx = this.handEl.getContext("2d", { alpha: true });
     if (!handCtx) {
       throw new Error("hand canvas");
@@ -304,6 +330,7 @@ export class PlayGame implements WorldView {
       this.canvas,
       this.actorLayer,
       this.hudEl,
+      this.hudLabelsEl,
       this.hudFace,
       this.movieEl,
       this.handEl,
@@ -347,7 +374,14 @@ export class PlayGame implements WorldView {
     this.hudEl.addEventListener("click", (event) => this.onHudClick(event));
     this.hudEl.addEventListener("mousemove", (event) => this.onHudMove(event));
     this.host = new DustHost(this.ui);
-    this.host.skipMovies = !new URLSearchParams(location.search).has("intro");
+    this.host.sandbox = kind === "sandbox";
+    const params = new URLSearchParams(location.search);
+    this.host.skipMovies = kind === "sandbox" || !params.has("intro");
+    if (kind === "sandbox") {
+      const clock = sandboxClockFromSearch(location.search) ?? 2;
+      this.host.sandboxClock = clock;
+      this.lastDayClock = clock === 3 ? 2 : clock;
+    }
     this.host.view = this;
     this.vm = new VM({
       call: (name, args, ctx) => this.host.call(name, args, ctx),
@@ -361,6 +395,11 @@ export class PlayGame implements WorldView {
     this.canvas.addEventListener("click", (event) => void this.onClick(event));
     this.canvas.addEventListener("mousemove", (event) => this.onMove(event));
     this.stageEl.addEventListener("pointerdown", (event) => this.onPointerDown(event));
+    this.stageEl.addEventListener("contextmenu", (event) => {
+      if (this.onRange()) {
+        event.preventDefault();
+      }
+    });
     window.addEventListener("pointermove", (event) => this.onPointerMove(event));
     window.addEventListener("pointerup", (event) => void this.onPointerUp(event));
     window.addEventListener("pointercancel", (event) => void this.onPointerUp(event));
@@ -393,6 +432,18 @@ export class PlayGame implements WorldView {
     this.flats.showBoard(board.stillUrl, board.items, board.labels);
   }
 
+  showHudLabels(labels: PuzzleLabel[]): void {
+    this.hudLabelsEl.replaceChildren();
+    for (const label of labels) {
+      const el = document.createElement("div");
+      el.textContent = label.text;
+      el.style.left = `${(label.x / STAGE_WIDTH) * 100}%`;
+      el.style.top = `${(label.y / STAGE_HEIGHT) * 100}%`;
+      el.style.fontSize = `${label.size ?? 12}px`;
+      this.hudLabelsEl.append(el);
+    }
+  }
+
   setWorldVisible(on: boolean): void {
     this.canvas.style.visibility = on ? "visible" : "hidden";
     this.actorLayer.style.visibility = on ? "visible" : "hidden";
@@ -407,7 +458,10 @@ export class PlayGame implements WorldView {
     return cameraFromPose(this.pose, camZ);
   }
 
-  projectWorld(obj: { x: number; y: number; z?: number }): StillHit | null {
+  projectWorld(obj: { x: number; y: number; z?: number; screen?: boolean }): StillHit | null {
+    if (obj.screen) {
+      return { x: obj.x, y: obj.y, forward: 0, lensForward: 64 };
+    }
     const camZ = cameraZOf(this.world, this.graph);
     const strip = this.filmstrip();
     if (strip) {
@@ -484,6 +538,7 @@ export class PlayGame implements WorldView {
     this.stageEl.hidden = false;
     this.captionEl.hidden = false;
     document.body.classList.add("play");
+    this.syncHud();
     this.layoutStage();
     requestAnimationFrame(() => this.layoutStage());
     this.renderer.setAnimationLoop(() => this.tick());
@@ -757,13 +812,15 @@ export class PlayGame implements WorldView {
   private async boot(): Promise<void> {
     try {
       this.host.prefetchTalk();
-      this.graph = await loadSetGraph("_NITE");
-      this.graphs.set("_NITE", this.graph);
+      const spawnClock = this.host.sandbox ? (this.host.sandboxClock ?? 2) : 3;
+      const spawnFolder = sandboxGraphFolder(spawnClock);
+      this.graph = await loadSetGraph(spawnFolder);
+      this.graphs.set(spawnFolder, this.graph);
       this.world = WORLD_TOWN;
       this.pose = { x: 6, y: 14, facing: "N" };
       this.townPose = { ...this.pose };
       this.host.currentSet = "town";
-      this.host.currentSetFile = "nite.set";
+      this.host.currentSetFile = spawnClock === 3 ? "nite.set" : "town.set";
       this.host.currentScene = "scene g15";
       this.host.currentDir = "N";
       void this.showHold().catch((err) => {
@@ -887,23 +944,27 @@ export class PlayGame implements WorldView {
       this.setCursor("arrow");
       return;
     }
+    const point = this.hoverPoint;
+    // Range EXIT sits on the HUD. Do not let idle `scriptBusy` / sight
+    // steal the pointer — that flickered touch/arrow on the plaque.
+    if (point && point.y >= 264) {
+      this.setCursor(
+        hudBarCursor(
+          this.onRange(),
+          this.host.hitHudButton(point.x, point.y),
+          this.hitsHeldAt(point),
+          hitMacRect(MAINPANEL_BUTTONS, point.x, point.y)?.name,
+        ),
+      );
+      return;
+    }
     if (this.talking || this.host.scriptBusy) {
       const named = this.host.cursorName;
       this.setCursor(named && CURSORS[named] ? named : "watch");
       return;
     }
-    const point = this.hoverPoint;
     if (!point) {
       this.setCursor("arrow");
-      return;
-    }
-    if (point.y >= 264) {
-      if (this.hitsHeldAt(point)) {
-        this.setCursor("touch");
-        return;
-      }
-      const hit = hitMacRect(MAINPANEL_BUTTONS, point.x, point.y);
-      this.setCursor(hit ? "touch" : "arrow");
       return;
     }
     if (!this.scriptsReady) {
@@ -979,8 +1040,7 @@ export class PlayGame implements WorldView {
   }
 
   private onHudMove(event: MouseEvent): void {
-    const at = this.hudStagePoint(event);
-    this.hoverPoint = at ? { kind: "point", x: at.x, y: at.y, z: 0 } : null;
+    this.hoverPoint = this.stageFromPointer(event);
     this.applyCursor();
   }
 
@@ -994,15 +1054,19 @@ export class PlayGame implements WorldView {
     if (this.inputBlocked() || this.host.currentPuppet !== "none") {
       return;
     }
-    const at = this.hudStagePoint(event);
-    if (!at) {
+    // Range EXIT is `pointerdown` + `stilldown`. Town map/portrait still
+    // use `click` (HUD-band pointerdown returns without skipNextClick).
+    if (this.onRange()) {
       return;
     }
-    const point: Point = { kind: "point", x: at.x, y: at.y, z: 0 };
+    const point = this.stageFromPointer(event);
+    if (!point) {
+      return;
+    }
     if (this.hitsHeldAt(point)) {
       return;
     }
-    const hit = hitMacRect(MAINPANEL_BUTTONS, at.x, at.y);
+    const hit = hitMacRect(MAINPANEL_BUTTONS, point.x, point.y);
     if (hit) {
       void this.openHudFlat(hit.name);
       return;
@@ -1146,16 +1210,6 @@ export class PlayGame implements WorldView {
     }
   }
 
-  private hudStagePoint(event: MouseEvent): { x: number; y: number } | null {
-    const bounds = this.hudEl.getBoundingClientRect();
-    return stageFromHudClick(
-      event.clientX - bounds.left,
-      event.clientY - bounds.top,
-      bounds.width,
-      bounds.height,
-    );
-  }
-
   private stageFromPointer(event: { clientX: number; clientY: number }): Point | null {
     const at = stageFromClient(event.clientX, event.clientY, this.stageEl.getBoundingClientRect());
     if (!at) {
@@ -1164,7 +1218,14 @@ export class PlayGame implements WorldView {
     return { kind: "point", x: at.x, y: at.y, z: 0 };
   }
 
+  private onRange(): boolean {
+    return this.host.currentSet === "target";
+  }
+
   private hitsHeldAt(point: Point): boolean {
+    if (this.onRange()) {
+      return false;
+    }
     const hand = String(this.vm.globals.get("handitem") ?? "");
     return this.host.hitsHeldItem(point, hand);
   }
@@ -1176,7 +1237,29 @@ export class PlayGame implements WorldView {
    * whenever idle `runQueued` held `scriptBusy`.
    */
   private onPointerDown(event: PointerEvent): void {
-    if (!this.visible || event.button !== 0) {
+    if (!this.visible) {
+      return;
+    }
+    if (event.button === 2 && this.onRange()) {
+      event.preventDefault();
+      const point = this.stageFromPointer(event);
+      if (point) {
+        this.host.pointer = point;
+        this.hoverPoint = point;
+      }
+      if (this.booting || this.busy || !this.scriptsReady || this.inputBlocked()) {
+        return;
+      }
+      this.talking = true;
+      void this.host
+        .dispatchGunhandClick(this.vm, point ?? undefined)
+        .then(() => this.syncHud())
+        .finally(() => {
+          this.talking = false;
+        });
+      return;
+    }
+    if (event.button !== 0) {
       return;
     }
     const point = this.stageFromPointer(event);
@@ -1210,6 +1293,10 @@ export class PlayGame implements WorldView {
       return;
     }
     if (point.y >= 264) {
+      if (this.onRange() && !this.flats.open && !this.inputBlocked()) {
+        this.skipNextClick = true;
+        void this.runScriptMouse(point, "world");
+      }
       return;
     }
     if (this.flats.open) {
@@ -1368,6 +1455,28 @@ export class PlayGame implements WorldView {
       event.preventDefault();
       return;
     }
+    if (this.host.sandbox && event.code === "KeyN" && !event.repeat) {
+      event.preventDefault();
+      if (this.talking || this.inputBlocked() || !this.scriptsReady) {
+        return;
+      }
+      const clock = numGlobal(this.vm, "clock");
+      const slot = isClockSlot(clock) ? clock : 2;
+      const next = toggleDayNight(slot, this.lastDayClock);
+      this.lastDayClock = next.lastDayClock;
+      this.talking = true;
+      void this.host
+        .applySandboxClock(this.vm, next.clock)
+        .then(() => {
+          this.hqGen += 1;
+          return this.showHold();
+        })
+        .finally(() => {
+          this.talking = false;
+          this.syncHud();
+        });
+      return;
+    }
     if (event.code === "Escape" && !event.repeat) {
       if (this.flats.open && !this.flats.board) {
         this.flats.close();
@@ -1487,7 +1596,10 @@ export class PlayGame implements WorldView {
     }
     this.timer.reset();
     this.needsRender = true;
-    void this.loadZPlane(zUrlFromStill(urls[0]), "high");
+    this.preloadZ(urls, "high");
+    this.preloadZ(nextMoves, "low");
+    this.trimZCache([...urls, ...nextMoves]);
+    this.bindZ(zUrlFromStill(urls[0]));
   }
 
   private driveAnim(anim: StillAnim, dt: number): void {
@@ -1505,7 +1617,7 @@ export class PlayGame implements WorldView {
     const step = tickStillAnim(anim, dt, STILL_FRAME_SEC);
     if (step.frameChanged) {
       const next = anim.urls[anim.index];
-      void this.loadZPlane(zUrlFromStill(next), "high");
+      this.bindZ(zUrlFromStill(next));
       if (!this.view.showCached(next)) {
         anim.ready = false;
         void this.view.show(next).then(() => {
@@ -1568,7 +1680,9 @@ export class PlayGame implements WorldView {
     if (!this.graph) {
       return;
     }
-    this.view.preload(neighborStillUrls(this.graph, this.pose, this.stillsFolder(), 2), "low");
+    const urls = neighborStillUrls(this.graph, this.pose, this.stillsFolder(), 2);
+    this.view.preload(urls, "low");
+    this.preloadZ(urls, "low");
   }
 
   private async showHold(): Promise<void> {
@@ -1583,10 +1697,9 @@ export class PlayGame implements WorldView {
     }
     const folder = this.stillsFolder();
     const still = frameUrl(folder, frame.frame0, frame.offset);
-    await Promise.all([
-      this.view.show(still),
-      this.loadZPlane(zUrl(folder, frame.frame0, frame.offset)),
-    ]);
+    const z = zUrl(folder, frame.frame0, frame.offset);
+    this.bindZ(z);
+    await Promise.all([this.view.show(still), this.ensureZ(z, "high")]);
     if (gen !== this.hqGen) {
       return;
     }
@@ -1626,7 +1739,8 @@ export class PlayGame implements WorldView {
     this.view.hideOverlay();
     try {
       if (door.go.kind === "town") {
-        const graph = await this.graphFor("_NITE", WORLD_TOWN);
+        const folder = this.isNight() ? "_NITE" : "_TOWN";
+        const graph = await this.graphFor(folder, WORLD_TOWN);
         this.world = WORLD_TOWN;
         this.graph = graph;
         this.pose = exitTownPose(this.townPose);
@@ -1705,13 +1819,20 @@ export class PlayGame implements WorldView {
           bits: last.bits,
           topLeft: spriteStillTopLeft(still.x, still.y, last.place, holdScale),
           stillScale: holdScale,
-          z: actorBlitZ(exeSpriteZ(still.lensForward, actor.zclip), zPlane, still.x, still.y),
+          z: rangeGroundBlitZ(
+            exeSpriteZ(still.lensForward, actor.zclip),
+            zPlane,
+            still.x,
+            still.y,
+            actor,
+          ),
         });
         seen.add(actor.name);
         continue;
       }
-      const stillScale =
-        actorStillHeight(place.h, actor.scale, still.lensForward, CST_SCALE_FIELD) / place.h;
+      const stillScale = actor.screen
+        ? 1
+        : actorStillHeight(place.h, actor.scale, still.lensForward, CST_SCALE_FIELD) / place.h;
       const sized = sizedPlace(place, bits.w, bits.h);
       this.lastActorDraw.set(actor.name, { bits, place: sized, stillScale });
       seen.add(actor.name);
@@ -1721,14 +1842,22 @@ export class PlayGame implements WorldView {
         bits,
         topLeft: spriteStillTopLeft(still.x, still.y, sized, stillScale),
         stillScale,
-        z: actorBlitZ(exeSpriteZ(still.lensForward, actor.zclip), zPlane, still.x, still.y),
+        z: actor.screen
+          ? 1
+          : rangeGroundBlitZ(
+              exeSpriteZ(still.lensForward, actor.zclip),
+              zPlane,
+              still.x,
+              still.y,
+              actor,
+            ),
       });
     }
     for (const prop of this.host.nearbyProps()) {
       if (prop.name === "avatar") {
         continue;
       }
-      if (prop.view === "large" || prop.view === "panel" || prop.view === "hilite") {
+      if (isInventoryHudView(prop.view)) {
         continue;
       }
       const strip = this.filmstrip();
@@ -1774,7 +1903,7 @@ export class PlayGame implements WorldView {
         continue;
       }
       const place = sizedPlace(raw, bits.w, bits.h);
-      const stillScale = propStillScale(prop, still.lensForward);
+      const stillScale = prop.screen ? 1 : propStillScale(prop, still.lensForward);
       this.lastActorDraw.set(key, { bits, place, stillScale });
       seen.add(key);
       draws.push({
@@ -1783,7 +1912,9 @@ export class PlayGame implements WorldView {
         bits,
         topLeft: spriteStillTopLeft(still.x, still.y, place, stillScale),
         stillScale,
-        z: this.propBlitZ(
+        z: prop.screen
+          ? 1
+          : this.propBlitZ(
           prop.name,
           exeSpriteZ(still.lensForward, prop.zclip),
           zPlane,
@@ -1841,7 +1972,13 @@ export class PlayGame implements WorldView {
   /** HOUSE `noface` HUD portrait. `propdeg` picks nitefaces; timing tables play glances. */
   private layoutPortrait(): void {
     const prop = this.host.props.get("avatar");
-    if (!prop?.visible || this.flats.open || this.host.currentPuppet !== "none" || !this.ui.root.hidden) {
+    if (
+      !prop?.visible ||
+      this.flats.open ||
+      this.host.currentPuppet !== "none" ||
+      !this.ui.root.hidden ||
+      this.onRange()
+    ) {
       this.hudFace.hidden = true;
       return;
     }
@@ -1904,7 +2041,7 @@ export class PlayGame implements WorldView {
       return;
     }
     const prop = this.host.props.get(hand.toLowerCase());
-    if (this.host.currentPuppet !== "none" || this.flats.open) {
+    if (this.host.currentPuppet !== "none" || this.flats.open || this.onRange()) {
       this.handEl.hidden = true;
       return;
     }
@@ -1974,7 +2111,11 @@ export class PlayGame implements WorldView {
   }
 
   private liveZPlane(): Uint8Array | null {
-    return this.zKey === this.zWant ? this.zPlane : null;
+    const plane = liveZPlaneForStill(this.zWant, this.zCache, this.zPlane);
+    if (this.zCache.has(this.zWant)) {
+      this.zPlane = plane;
+    }
+    return plane;
   }
 
   private warmActorPlates(actor: { standSprites: { path: string }[]; spriteRoot: string }): void {
@@ -1998,43 +2139,88 @@ export class PlayGame implements WorldView {
     }
   }
 
-  private loadZPlane(url: string, priority: MediaPriority = "low"): Promise<void> {
+  private bindZ(url: string): void {
     this.zWant = url;
-    if (this.zKey === url) {
+    if (this.zCache.has(url)) {
+      this.zPlane = this.zCache.get(url) ?? null;
+    }
+    void this.ensureZ(url, "high");
+  }
+
+  private preloadZ(stillUrls: string[], priority: MediaPriority): void {
+    for (const still of stillUrls) {
+      void this.ensureZ(zUrlFromStill(still), priority);
+    }
+  }
+
+  private trimZCache(stillUrls: string[]): void {
+    const keep = new Set(stillUrls.map((still) => zUrlFromStill(still)));
+    if (this.zWant) {
+      keep.add(this.zWant);
+    }
+    for (const key of [...this.zCache.keys()]) {
+      if (!keep.has(key)) {
+        this.zCache.delete(key);
+      }
+    }
+  }
+
+  private ensureZ(url: string, priority: MediaPriority = "low"): Promise<void> {
+    if (this.zCache.has(url)) {
       return Promise.resolve();
     }
-    return decodeStillImage(url, priority)
+    const inflight = this.zLoading.get(url);
+    if (inflight) {
+      if (priority === "high") {
+        mediaGate.prefer(`bits:${url}`);
+      }
+      return inflight;
+    }
+    const job = decodeStillImage(url, priority)
       .then((image) => {
-        if (this.zWant !== url) {
-          return;
-        }
-        this.zPlane = zPlaneFromImageData(image);
-        this.zKey = url;
-        this.layoutActors();
-      })
-      .catch(() => {
+        this.zCache.set(url, zPlaneFromImageData(image));
         if (this.zWant === url) {
-          this.zPlane = null;
-          this.zKey = url;
+          this.zPlane = this.zCache.get(url) ?? null;
           this.layoutActors();
         }
+      })
+      .catch(() => {
+        this.zCache.set(url, null);
+        if (this.zWant === url) {
+          this.zPlane = null;
+          this.layoutActors();
+        }
+      })
+      .finally(() => {
+        this.zLoading.delete(url);
       });
+    this.zLoading.set(url, job);
+    return job;
   }
 
   private syncHud(): void {
+    const range = this.onRange();
+    this.stageEl.toggleAttribute("data-range", range);
+    if (range) {
+      this.handEl.hidden = true;
+    }
+    this.hudEl.style.backgroundImage = `url("${range ? RANGE_HUD_CHROME : PLAY_HUD_CHROME}")`;
     const day = numGlobal(this.vm, "day") || 1;
     const clock = numGlobal(this.vm, "clock") || 3;
     const cash = numGlobal(this.vm, "playercash");
     const label = this.graph ? poseLabel(this.graph, this.pose, this.world) : "Loading…";
     const clockName = clock === 1 ? "Morning" : clock === 2 ? "Afternoon" : "Night";
-    this.timeEl.textContent = `PLAY · Day ${day} · ${clockName} · $${cash}`;
+    const tag = this.kind === "sandbox" ? "UNLOCKED" : "PLAY";
+    this.timeEl.textContent = `${tag} · Day ${day} · ${clockName} · $${cash}`;
     const names = this.host.nearbyActors().map((a) => titleCase(a.name));
     this.promptEl.textContent = names.length
       ? `${label} · ${names.join(", ")} — click to talk`
       : label;
     const extra = [...this.vm.unimplemented].slice(0, 4).join(", ");
     const caption = [
-      "←/→ turn · ↑ walk · click people, signs, items · map/portrait on the bar",
+      this.kind === "sandbox"
+        ? "←/→ turn · ↑ walk · N day/night · all doors open · saloon cards · store checkers · Leroy at the range"
+        : "←/→ turn · ↑ walk · click people, signs, items · map/portrait on the bar",
       this.scriptsReady ? "" : "loading scripts…",
       this.logLine,
       extra ? `todo: ${extra}` : "",
@@ -2071,11 +2257,7 @@ function propSprite(prop: PropState): { path: string; x: number; y: number; w: n
   if (!frames?.length) {
     return undefined;
   }
-  if (frames.length === 1) {
-    return frames[0];
-  }
-  const oct = Math.floor(((prop.deg % 256) + 256) % 256 / 32) % frames.length;
-  return frames[oct] ?? frames[0];
+  return propBlitFrame(frames, prop.deg, prop.poseTiming[view], prop.animTick, prop.screen);
 }
 
 function titleCase(name: string): string {

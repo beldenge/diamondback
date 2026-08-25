@@ -5,7 +5,10 @@ How the remake plays Dust’s filmed town. Extract layout lives in
 **playback** book we filled in while getting Diamondback’s streets to
 match the original stills.
 
-Dust: Unlocked (`/?mode=unlocked`) is this walker. There is no 3D free-roam mode yet. The title chooser lives at `/`.
+Dust: Unlocked (`/?mode=unlocked`) and Dust: Resurrected share this
+stills walker inside `PlayGame`. Unlocked is a sandbox policy on that
+host, not a second implementation. There is no 3D free-roam mode yet.
+The title chooser lives at `/`.
 
 ---
 
@@ -188,19 +191,19 @@ closed door. Click (`pointin*` in 512×264, origin top-left) runs
 `setupprop ("apoth")` etc.: one house-prop overlay + owner flag.
 `closescene` (leaving the tile) calls `initprop` and hides it.
 Forward (`uparrow`) while `propowner ("door")` matches calls
-`gotointerior ("apoth.set")` or `gototown ("west")`. Play mode
-(`/?mode=play` / `/?mode=resurrected`) uses those scripts; the overlay is bound to the still
+`gotointerior ("apoth.set")` or `gototown ("west")`. Both Resurrected
+and Unlocked run those scripts; the overlay is bound to the still
 it opened on — see [`src/play/README.md`](../../play/README.md) § HOUSE
 door overlays. Do not blit `salout` / `chin` / `hotout` onto the next
 camera.
 
-We hand-port that table in `doors.ts`. We do not interpret DreamFactory
-scripts at runtime.
+`doors.ts` is the old hand-port (auto-walk stairs still consult it).
+Street doors are SET `mousedown` / `lock*` / `setupprop`. Unlocked sets
+`debugging` so every `lock*` returns false.
 
 Shop **facades** are the east/west views on the north–south road (column 7),
-not the G-row “looking down Main Street” stills. Sandbox: every door is
-unlocked. Click a door to open it (click again to close). Walk forward
-while it is open to go in (plays the matching `doorclose*`). Three tiles
+not the G-row “looking down Main Street” stills. Click a door to open it
+(click the overlay or walk forward to go in). Three tiles
 have opposite facades: **L7** jail / curiosities, **E7** hotel / doctor,
 **H7** saloon / stage. Stepping out keeps the tile you entered from,
 facing **away** from the door (walked through it). On those shared tiles

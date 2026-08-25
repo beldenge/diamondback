@@ -160,12 +160,36 @@ body.play #app {
   right: 0;
   bottom: 0;
   height: calc(120 / 384 * 100%);
+  overflow: hidden;
   background-repeat: no-repeat;
-  background-position: bottom;
-  background-size: 100% auto;
+  background-position: bottom left;
+  /* FLT stills are 512×384; this bar is the bottom 120px. 384/120 = 320%. */
+  background-size: 100% 320%;
   image-rendering: pixelated;
   pointer-events: auto;
   z-index: 40;
+}
+
+#play-hud-labels {
+  position: absolute;
+  inset: 0;
+  z-index: 41;
+  pointer-events: none;
+}
+
+#play-hud-labels > div {
+  position: absolute;
+  color: #1a120c;
+  font-family: "Courier New", Courier, monospace;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  transform: translateY(-50%);
+}
+
+#play-stage[data-range] #play-hand,
+#play-stage[data-range] #play-hud-face {
+  display: none !important;
 }
 
 #play-hud-face {

@@ -1,19 +1,12 @@
 import "./style.css";
-import { Game } from "./core/game";
 import { clientMode, type ClientMode } from "./core/mode";
 import { MovieGallery } from "./play/gallery";
 import { PlayGame } from "./play/game";
 
-const viewportEl = document.getElementById("viewport");
-if (!(viewportEl instanceof HTMLCanvasElement)) {
-  throw new Error("#viewport canvas missing");
-}
-const canvas: HTMLCanvasElement = viewportEl;
-
 const landing = document.getElementById("landing");
 let gallery: MovieGallery | null = null;
-let playGame: PlayGame | null = null;
-let townGame: Game | null = null;
+let storyGame: PlayGame | null = null;
+let sandboxGame: PlayGame | null = null;
 
 function currentMode(): ClientMode {
   return clientMode(window.location.search, window.location.pathname);
@@ -25,8 +18,8 @@ function hideLanding(): void {
 }
 
 function showLanding(): void {
-  playGame?.hide();
-  townGame?.stop();
+  storyGame?.hide();
+  sandboxGame?.hide();
   gallery?.hide();
   document.body.classList.add("landing");
   document.body.classList.remove("gallery", "play");
@@ -35,8 +28,8 @@ function showLanding(): void {
 }
 
 function showMovies(): void {
-  playGame?.hide();
-  townGame?.stop();
+  storyGame?.hide();
+  sandboxGame?.hide();
   hideLanding();
   document.title = "The Picture Show — Diamondback";
   if (!gallery) {
@@ -47,29 +40,28 @@ function showMovies(): void {
 }
 
 function showPlay(): void {
-  townGame?.stop();
+  sandboxGame?.hide();
   gallery?.hide();
   hideLanding();
   document.title = "Dust: Resurrected — Diamondback";
-  if (!playGame) {
-    playGame = new PlayGame();
-    playGame.start();
+  if (!storyGame) {
+    storyGame = new PlayGame("story");
+    storyGame.start();
   } else {
-    playGame.show();
+    storyGame.show();
   }
 }
 
 function showUnlocked(): void {
-  playGame?.hide();
+  storyGame?.hide();
   gallery?.hide();
   hideLanding();
-  document.body.classList.remove("gallery", "play");
   document.title = "Dust: Unlocked — Diamondback";
-  if (!townGame) {
-    townGame = new Game(canvas);
-    townGame.start();
+  if (!sandboxGame) {
+    sandboxGame = new PlayGame("sandbox");
+    sandboxGame.start();
   } else {
-    townGame.start();
+    sandboxGame.show();
   }
 }
 
