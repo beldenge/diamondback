@@ -1,4 +1,4 @@
-import { Clock, Color, WebGLRenderer } from "three";
+import { Color, Timer, WebGLRenderer } from "three";
 import {
   frameUrl,
   framesFolder,
@@ -50,7 +50,7 @@ import { formatTime, isClockSlot, isNight, toggleDayNight, type ClockSlot } from
 
 export class Game {
   private readonly renderer: WebGLRenderer;
-  private readonly clock = new Clock();
+  private readonly timer = new Timer();
   private state: GlobalState = createInitialState();
   private lastDayClock: ClockSlot = 2;
   private readonly timeEl: HTMLElement;
@@ -98,6 +98,7 @@ export class Game {
     this.promptEl = promptEl;
     this.hintEl = hintEl;
 
+    this.timer.connect(document);
     this.setupStills();
     this.syncHud();
 
@@ -167,7 +168,8 @@ export class Game {
     if (this.paused) {
       return;
     }
-    const dt = Math.min(this.clock.getDelta(), 0.05);
+    this.timer.update();
+    const dt = Math.min(this.timer.getDelta(), 0.05);
     this.tickStills(dt);
   }
 
@@ -403,7 +405,7 @@ export class Game {
         }
       });
     }
-    this.clock.getDelta();
+    this.timer.reset();
   }
 
   /** Advance one filmed frame per interval. If a PNG is not ready, wait — never skip. */

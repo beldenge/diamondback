@@ -71,6 +71,12 @@ function extractPlugin(): Plugin {
       server.middlewares.use("/extract", serveTree(extractRoot));
       server.middlewares.use("/rsrc", serveTree(rsrcRoot));
     },
+    closeBundle() {
+      if (!fs.existsSync(rsrcRoot)) {
+        return;
+      }
+      fs.cpSync(rsrcRoot, path.resolve(repoRoot, "dist/rsrc"), { recursive: true });
+    },
   };
 }
 

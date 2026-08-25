@@ -86,11 +86,14 @@ export const INVEN_GROUPS: readonly PropGroup[] = [
 export function propScriptRels(group: PropGroup): string[] {
   const folder = group.shop === "house" ? "PRP/_HOUSE" : "PRP/_INVEN";
   const id = group.script;
-  return [
-    `${folder}/initprop_${id}.json`,
-    `${folder}/setcursor _arg__${id}.json`,
-    `${folder}/setcursor_${id}.json`,
-  ];
+  const rels = [`${folder}/initprop_${id}.json`];
+  // INVEN only dumps shop-level `setcursor _arg__1.json`. Per-item
+  // setcursor files exist for some HOUSE props (door, gamblers, …).
+  // `setcursor_${id}.json` is never extracted.
+  if (group.shop === "house") {
+    rels.push(`${folder}/setcursor _arg__${id}.json`);
+  }
+  return rels;
 }
 
 export function shopScriptRels(shop: "house" | "inven"): string[] {

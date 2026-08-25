@@ -5,6 +5,7 @@ import { parseScript, type ScriptFile } from "../vm/ast";
 import { VM } from "../vm/runtime";
 import { examineHandName, inventorySpriteView } from "./hud";
 import { DustHost } from "./host";
+import { HOUSE_GROUPS, INVEN_GROUPS, propScriptRels } from "./propCatalog";
 import type { PuppetUi } from "./ui";
 
 function loadProcs(rel: string) {
@@ -101,5 +102,22 @@ describe("avatar inventory select and examine", () => {
     expect(examineHandName("jug", ["bone", "jug"])).toBe("jug");
     expect(examineHandName("helpbut", ["bone", "jug"])).toBe("bone");
     expect(examineHandName("", ["bone"])).toBe("bone");
+  });
+});
+
+describe("prop script dump names", () => {
+  it("does not probe INVEN setcursor files that were never extracted", () => {
+    const mask = INVEN_GROUPS.find((group) => group.name === "mask");
+    expect(mask).toBeTruthy();
+    expect(propScriptRels(mask!)).toEqual(["PRP/_INVEN/initprop_83.json"]);
+  });
+
+  it("keeps HOUSE per-item setcursor _arg__ files", () => {
+    const door = HOUSE_GROUPS.find((group) => group.name === "door");
+    expect(door).toBeTruthy();
+    expect(propScriptRels(door!)).toEqual([
+      "PRP/_HOUSE/initprop_562.json",
+      "PRP/_HOUSE/setcursor _arg__562.json",
+    ]);
   });
 });

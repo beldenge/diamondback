@@ -94,7 +94,8 @@ body.play {
   touch-action: none;
 }
 
-body.play #hud {
+body.play #hud,
+body.play #viewport {
   display: none;
 }
 
@@ -104,13 +105,13 @@ body.play #app {
 
 #play-stage {
   position: absolute;
+  z-index: 1;
   overflow: hidden;
   background: #000;
   image-rendering: pixelated;
   touch-action: none;
 }
 
-body.play #viewport,
 #play-world {
   position: absolute;
   left: 0;
@@ -209,7 +210,7 @@ body.play #viewport,
   height: 100%;
   transform: none;
   text-align: left;
-  cursor: url("/rsrc/cursors/arrow.cur"), auto;
+  cursor: default;
 }
 
 #puppet-layers {
@@ -218,6 +219,7 @@ body.play #viewport,
   top: 0;
   pointer-events: none;
   image-rendering: pixelated;
+  background: transparent;
 }
 
 #play-stage:has(#play-flat:not([hidden])) #play-hud,

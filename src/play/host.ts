@@ -320,6 +320,7 @@ export class DustHost implements OpcodeHost {
   private soundVolumes = new Map<string, number>();
   private shopSprites = new Map<string, Record<string, Record<string, SpritePlace[]>>>();
   private loadedScriptFiles = new Set<string>();
+  private readonly missingScripts = new Set<string>();
   private readonly scriptProcs = new Map<string, Proc[]>();
   private readonly setGraphs = new Map<string, SetGraph>();
   private readonly waypointBags = new Map<string, { points: Waypoint[]; paths: StarPath[] }>();
@@ -2260,6 +2261,9 @@ export class DustHost implements OpcodeHost {
     const mark = `${key}::${rel}`;
     // `removePrefix` drops the index but keeps this mark. Re-install
     // after an interior SET swap or town keydown/openscene never return.
+    if (this.missingScripts.has(rel)) {
+      return;
+    }
     if (this.loadedScriptFiles.has(mark) && this.index.has(key)) {
       return;
     }
@@ -2274,7 +2278,7 @@ export class DustHost implements OpcodeHost {
       }
       this.loadedScriptFiles.add(mark);
     } catch {
-      /* missing dump */
+      this.missingScripts.add(rel);
     }
   }
 

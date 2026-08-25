@@ -210,7 +210,7 @@ export class StillsView {
   }
 }
 
-function stillTexture(image: ImageBitmap | HTMLImageElement, flipY: boolean): Texture {
+function stillTexture(image: TexImageSource, flipY: boolean): Texture {
   const texture = new Texture(image);
   texture.colorSpace = SRGBColorSpace;
   texture.flipY = flipY;
@@ -221,55 +221,52 @@ function stillTexture(image: ImageBitmap | HTMLImageElement, flipY: boolean): Te
   return texture;
 }
 
-async function htmlImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
-  const url = URL.createObjectURL(blob);
+/**
+ * Decode an extract PNG onto a 2D canvas. Indexed SET stills go black in
+ * Firefox if we use createImageBitmap({ colorSpaceConversion: "none" })
+ * or revoke the blob URL before the pixels are copied.
+ */
+export async function rasterizePng(
+  url: string,
+): Promise<{ canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D }> {
+  const res = await fetch(url, { cache: "no-cache" });
+  if (!res.ok) {
+    throw new Error(`${url} ${res.status}`);
+  }
+  const blob = await res.blob();
+  const typed = blob.type.startsWith("image/") ? blob : new Blob([blob], { type: "image/png" });
+  const objectUrl = URL.createObjectURL(typed);
   try {
     const img = new Image();
-    img.src = url;
+    img.src = objectUrl;
     if (typeof img.decode === "function") {
       await img.decode();
     } else {
       await new Promise<void>((resolve, reject) => {
         img.onload = () => resolve();
-        img.onerror = () => reject(new Error("still image"));
+        img.onerror = () => reject(new Error(url));
       });
     }
-    return img;
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    if (w <= 0 || h <= 0) {
+      throw new Error(`${url} empty still`);
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d", { alpha: true, willReadFrequently: true });
+    if (!ctx) {
+      throw new Error("still canvas");
+    }
+    ctx.drawImage(img, 0, 0);
+    return { canvas, ctx };
   } finally {
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(objectUrl);
   }
 }
 
-async function decodeStillTexture(url: string, priority: MediaPriority): Promise<Texture> {
-  const res = await fetch(url, {
-    cache: "no-cache",
-    priority: priority === "high" ? "high" : "low",
-  });
-  if (!res.ok) {
-    throw new Error(`${url} ${res.status}`);
-  }
-  const blob = await res.blob();
-  try {
-    const bitmap = await createImageBitmap(blob, {
-      imageOrientation: "flipY",
-      premultiplyAlpha: "none",
-      colorSpaceConversion: "none",
-    });
-    if (bitmap.width > 0 && bitmap.height > 0) {
-      return stillTexture(bitmap, false);
-    }
-    bitmap.close();
-  } catch {
-    /* iOS Safari often rejects the ImageBitmap options bag. */
-  }
-  try {
-    const bitmap = await createImageBitmap(blob, { imageOrientation: "flipY" });
-    if (bitmap.width > 0 && bitmap.height > 0) {
-      return stillTexture(bitmap, false);
-    }
-    bitmap.close();
-  } catch {
-    /* fall through to HTMLImageElement */
-  }
-  return stillTexture(await htmlImageFromBlob(blob), true);
+async function decodeStillTexture(url: string, _priority: MediaPriority): Promise<Texture> {
+  const { canvas } = await rasterizePng(url);
+  return stillTexture(canvas, true);
 }

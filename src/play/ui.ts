@@ -1,4 +1,5 @@
 import { extractUrl } from "../world/set/extract";
+import { rasterizePng } from "../world/set/stillsView";
 import { HUD_HEIGHT, STAGE_HEIGHT, STAGE_WIDTH } from "./stage";
 import { voices } from "./speech";
 
@@ -375,8 +376,8 @@ export class PuppetUi {
   private fidgetT0 = 0;
   private viseme: VisemeLine | null = null;
   private visemeTick = -1;
-  private readonly bitmaps = new Map<string, HTMLImageElement>();
-  private readonly bitmapLoads = new Map<string, Promise<HTMLImageElement>>();
+  private readonly bitmaps = new Map<string, HTMLCanvasElement>();
+  private readonly bitmapLoads = new Map<string, Promise<HTMLCanvasElement>>();
   private readonly flatBackdrop = new Map<string, boolean>();
   private readonly layerIndex = new Map<string, number>();
   private readonly layerAt = new Map<string, { x: number; y: number }>();
@@ -395,7 +396,7 @@ export class PuppetUi {
     this.root.hidden = true;
     this.canvas = document.createElement("canvas");
     this.canvas.id = "puppet-layers";
-    const ctx = this.canvas.getContext("2d");
+    const ctx = this.canvas.getContext("2d", { alpha: true });
     if (!ctx) {
       throw new Error("2d canvas missing");
     }
@@ -458,7 +459,11 @@ export class PuppetUi {
     // that paint used to skip `hidden = false`, so the second blackjack
     // `mainbetbj` waited on `puppetevent` with no visible choices.
     this.root.hidden = false;
-    await this.paint();
+    try {
+      await this.paint();
+    } catch {
+      /* keep bevels; a failed blit must not reject openpuppet */
+    }
     if (this.paintGen !== gen || this.sheet !== sheet) {
       return;
     }
@@ -716,24 +721,24 @@ export class PuppetUi {
       this.clearCanvas();
       return;
     }
-    const jobs: { name: string; place: SpritePlace; img: Promise<HTMLImageElement> }[] = [];
+    const jobs: { name: string; place: SpritePlace; url: string; img: Promise<HTMLCanvasElement> }[] =
+      [];
     for (const name of FACE_TABLES) {
       const index = this.layerIndex.get(name) ?? idleLayerIndex(name, sheet.restLayers);
       const place = layerPlace(sheet, name, index);
       if (!place) {
         continue;
       }
-      jobs.push({ name, place, img: this.bitmap(sheet.folder, place.path) });
+      const url = extractUrl(`${sheet.folder}/FRAMES/${place.path}`);
+      jobs.push({ name, place, url, img: this.bitmap(url) });
     }
-    let loaded: { name: string; place: SpritePlace; img: HTMLImageElement }[];
-    try {
-      loaded = await Promise.all(jobs.map(async (job) => ({
-        name: job.name,
-        place: job.place,
-        img: await job.img,
-      })));
-    } catch {
-      return;
+    const loaded: { name: string; place: SpritePlace; url: string; img: HTMLCanvasElement }[] = [];
+    for (const job of jobs) {
+      try {
+        loaded.push({ name: job.name, place: job.place, url: job.url, img: await job.img });
+      } catch {
+        /* missing sprite */
+      }
     }
     if (
       puppetPaintIsStale(started, {
@@ -747,8 +752,8 @@ export class PuppetUi {
     this.ctx.imageSmoothingEnabled = false;
     this.ctx.clearRect(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
     const rest = sheet.rest ?? {};
-    for (const { name, img, place } of loaded) {
-      if (name === "Background" && this.backdropIsFlat(img)) {
+    for (const { name, img, place, url } of loaded) {
+      if (name === "Background" && this.backdropIsFlat(url, img)) {
         continue;
       }
       const dest = layerBlitDest(place, this.layerAt.get(name) ?? rest[name]);
@@ -756,51 +761,52 @@ export class PuppetUi {
     }
   }
 
-  private backdropIsFlat(img: CanvasImageSource): boolean {
-    if (!(img instanceof HTMLImageElement) || !img.src) {
-      return false;
-    }
-    const cached = this.flatBackdrop.get(img.src);
+  /**
+   * CloudFront PUP frames used to load via `new Image()` without CORS.
+   * Firefox then throws `DOMException: The operation is insecure` on
+   * getImageData — that aborted Help's paint and left a black overlay.
+   */
+  private backdropIsFlat(key: string, img: CanvasImageSource): boolean {
+    const cached = this.flatBackdrop.get(key);
     if (cached !== undefined) {
       return cached;
     }
     const sample = document.createElement("canvas");
     sample.width = 64;
     sample.height = 32;
-    const ctx = sample.getContext("2d");
+    const ctx = sample.getContext("2d", { willReadFrequently: true });
     if (!ctx) {
-      this.flatBackdrop.set(img.src, false);
+      this.flatBackdrop.set(key, false);
       return false;
     }
-    ctx.drawImage(img, 0, 0, 64, 32);
-    const flat = isFlatBackdrop(ctx.getImageData(0, 0, 64, 32).data);
-    this.flatBackdrop.set(img.src, flat);
-    return flat;
+    try {
+      ctx.drawImage(img, 0, 0, 64, 32);
+      const flat = isFlatBackdrop(ctx.getImageData(0, 0, 64, 32).data);
+      this.flatBackdrop.set(key, flat);
+      return flat;
+    } catch {
+      this.flatBackdrop.set(key, false);
+      return false;
+    }
   }
 
-  private bitmap(folder: string, rel: string): Promise<HTMLImageElement> {
-    const url = extractUrl(`${folder}/FRAMES/${rel}`);
+  private bitmap(url: string): Promise<HTMLCanvasElement> {
     const hit = this.bitmaps.get(url);
-    if (hit && hit.complete && hit.naturalWidth) {
+    if (hit) {
       return Promise.resolve(hit);
     }
     const pending = this.bitmapLoads.get(url);
     if (pending) {
       return pending;
     }
-    const job = new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = hit ?? new Image();
-      this.bitmaps.set(url, img);
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error(url));
-      if (!img.src) {
-        img.src = url;
-      } else if (img.complete && img.naturalWidth) {
-        resolve(img);
-      }
-    }).finally(() => {
-      this.bitmapLoads.delete(url);
-    });
+    const job = rasterizePng(url)
+      .then(({ canvas }) => {
+        this.bitmaps.set(url, canvas);
+        return canvas;
+      })
+      .finally(() => {
+        this.bitmapLoads.delete(url);
+      });
     this.bitmapLoads.set(url, job);
     return job;
   }

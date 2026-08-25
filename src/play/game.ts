@@ -1,4 +1,4 @@
-import { Clock, Color, WebGLRenderer } from "three";
+import { Color, Timer, WebGLRenderer } from "three";
 import { VM, type Point } from "../vm/runtime";
 import {
   applyTransition,
@@ -48,7 +48,7 @@ import {
   zUrl,
   zUrlFromStill,
 } from "../world/set/graph";
-import { StillsView } from "../world/set/stillsView";
+import { rasterizePng, StillsView } from "../world/set/stillsView";
 import {
   actorSprite,
   actorStillHeight,
@@ -122,6 +122,27 @@ const CURSORS: Record<string, string> = {
   fist: "/rsrc/cursors/fist.cur",
 };
 
+const CURSOR_FALLBACK: Record<string, string> = {
+  arrow: "default",
+  touch: "pointer",
+  goleft: "w-resize",
+  goright: "e-resize",
+  gostrait: "n-resize",
+  watch: "wait",
+  hand: "grab",
+  fist: "grabbing",
+};
+
+/** GitHub Pages has no `dustdecompile/out/rsrc`; skip the 404 `.cur` fetch. */
+function cursorCss(name: string): string {
+  const fallback = CURSOR_FALLBACK[name] ?? "auto";
+  if (import.meta.env.PROD) {
+    return fallback;
+  }
+  const url = CURSORS[name] ?? CURSORS.arrow;
+  return `url("${url}"), ${fallback}`;
+}
+
 export { worldToStill } from "./facing";
 
 /**
@@ -149,7 +170,7 @@ export class PlayGame implements WorldView {
   graph!: SetGraph;
 
   private readonly renderer: WebGLRenderer;
-  private readonly clock = new Clock();
+  private readonly timer = new Timer();
   private readonly canvas: HTMLCanvasElement;
   private readonly timeEl: HTMLElement;
   private readonly promptEl: HTMLElement;
@@ -302,6 +323,7 @@ export class PlayGame implements WorldView {
     this.timeEl = timeEl;
     this.promptEl = promptEl;
     this.hintEl = hintEl;
+    this.timer.connect(document);
     this.view = new StillsView();
     this.ui = new PuppetUi();
     this.flats = new FlatOverlay();
@@ -452,6 +474,7 @@ export class PlayGame implements WorldView {
     document.body.classList.add("play");
     this.syncHud();
     this.layoutStage();
+    requestAnimationFrame(() => this.layoutStage());
     this.renderer.setAnimationLoop(() => this.tick());
     void this.boot();
   }
@@ -462,6 +485,7 @@ export class PlayGame implements WorldView {
     this.captionEl.hidden = false;
     document.body.classList.add("play");
     this.layoutStage();
+    requestAnimationFrame(() => this.layoutStage());
     this.renderer.setAnimationLoop(() => this.tick());
   }
 
@@ -742,7 +766,11 @@ export class PlayGame implements WorldView {
       this.host.currentSetFile = "nite.set";
       this.host.currentScene = "scene g15";
       this.host.currentDir = "N";
-      void this.showHold();
+      void this.showHold().catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        this.loadEl.hidden = false;
+        this.loadEl.textContent = message;
+      });
       this.syncHud();
       this.host.skipBootBlack = this.host.skipMovies;
       await this.host.installLibrary(this.vm);
@@ -762,7 +790,8 @@ export class PlayGame implements WorldView {
       const message = err instanceof Error ? err.message : String(err);
       this.logLine = message;
       this.booting = false;
-      this.loadEl.hidden = true;
+      this.loadEl.hidden = false;
+      this.loadEl.textContent = message;
       this.syncHud();
     } finally {
       this.host.skipBootBlack = false;
@@ -788,7 +817,8 @@ export class PlayGame implements WorldView {
     if (!this.visible) {
       return;
     }
-    const dt = Math.min(this.clock.getDelta(), 0.05);
+    this.timer.update();
+    const dt = Math.min(this.timer.getDelta(), 0.05);
     // Boot owns the VM (`boot` / `advanceday`). Do not drain `makeface`
     // or runQueued on the same VM until that returns.
     const scriptsLive = !this.booting && this.scriptsReady;
@@ -941,8 +971,7 @@ export class PlayGame implements WorldView {
       return;
     }
     this.cursorOn = name;
-    const url = CURSORS[name] ?? CURSORS.arrow;
-    const value = `url("${url}"), auto`;
+    const value = cursorCss(name);
     this.canvas.style.cursor = value;
     this.actorLayer.style.cursor = value;
     this.stageEl.style.cursor = value;
@@ -1456,7 +1485,7 @@ export class PlayGame implements WorldView {
         }
       });
     }
-    this.clock.getDelta();
+    this.timer.reset();
     this.needsRender = true;
     void this.loadZPlane(zUrlFromStill(urls[0]), "high");
   }
@@ -2078,7 +2107,7 @@ function decodeStillImage(url: string, priority: MediaPriority = "low"): Promise
   const promise = new Promise<ImageData>((resolve, reject) => {
     mediaGate.enqueue(`bits:${url}`, priority, async () => {
       try {
-        resolve(await fetchStillImageData(url, priority));
+        resolve(await fetchStillImageData(url));
       } catch (err) {
         reject(err);
       }
@@ -2090,71 +2119,9 @@ function decodeStillImage(url: string, priority: MediaPriority = "low"): Promise
   return promise;
 }
 
-async function fetchStillImageData(url: string, priority: MediaPriority): Promise<ImageData> {
-  const res = await fetch(url, {
-    cache: "no-cache",
-    priority: priority === "high" ? "high" : "low",
-  });
-  if (!res.ok) {
-    throw new Error(`${url} ${res.status}`);
-  }
-  const blob = await res.blob();
-  let drawable: CanvasImageSource;
-  try {
-    const bitmap = await createImageBitmap(blob, {
-      premultiplyAlpha: "none",
-      colorSpaceConversion: "none",
-    });
-    drawable = bitmap.width > 0 ? bitmap : await blobImage(blob);
-    if (bitmap.width <= 0) {
-      bitmap.close();
-    }
-  } catch {
-    try {
-      drawable = await createImageBitmap(blob);
-    } catch {
-      drawable = await blobImage(blob);
-    }
-  }
-  const canvas = document.createElement("canvas");
-  const dw = "width" in drawable ? Number(drawable.width) : 0;
-  const dh = "height" in drawable ? Number(drawable.height) : 0;
-  canvas.width = dw;
-  canvas.height = dh;
-  const ctx = canvas.getContext("2d");
-  if (!ctx || dw <= 0 || dh <= 0) {
-    closeBitmap(drawable);
-    throw new Error("image canvas");
-  }
-  ctx.drawImage(drawable, 0, 0);
-  const data = ctx.getImageData(0, 0, dw, dh);
-  closeBitmap(drawable);
-  return data;
-}
-
-async function blobImage(blob: Blob): Promise<HTMLImageElement> {
-  const url = URL.createObjectURL(blob);
-  try {
-    const img = new Image();
-    img.src = url;
-    if (typeof img.decode === "function") {
-      await img.decode();
-    } else {
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error("still image"));
-      });
-    }
-    return img;
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-function closeBitmap(image: CanvasImageSource): void {
-  if (typeof ImageBitmap !== "undefined" && image instanceof ImageBitmap) {
-    image.close();
-  }
+async function fetchStillImageData(url: string): Promise<ImageData> {
+  const { canvas, ctx } = await rasterizePng(url);
+  return ctx.getImageData(0, 0, canvas.width, canvas.height);
 }
 
 function keyToScriptArg(code: string): string | null {
