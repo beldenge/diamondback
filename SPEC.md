@@ -8,7 +8,7 @@
 - We won't upscale visuals or audio at this time.
 - This will not be released commercially.
 - Interpret extracted DreamFactory **tokens** at runtime (TypeScript VM). Do not hand-port 541 scripts into JSON graphs. Do not port `DF.EXE` C.
-- `https://diamondback.town` is the title chooser. **Dust: Unlocked** (`/?mode=unlocked`) is the town-sandbox walker. **Dust: Resurrected** (`/?mode=resurrected` or `/?mode=play`) is the VM game.
+- `https://diamondback.town` is a title chooser. **Dust: Resurrected** (`/?mode=resurrected` or `/?mode=play`) is the VM game. **Dust: Unlocked** (`/?mode=unlocked`) is the town-sandbox walker. **The Picture Show** (`/?mode=movies`) is extracted full-screen reels. Chooser cards switch in-page (no document reload).
 - Do not build save/load in the first VM slice (format is `*.rtd`, still unknown).
 
 ## 3. Tech Stack & Principles
@@ -97,9 +97,9 @@ Default run (`/`) is the title chooser. Modes:
 
 | Name | URL | What |
 |---|---|---|
+| **Dust: Resurrected** | `/?mode=resurrected` or `/?mode=play` | VM game (Day 1 night so far). `&intro=1` plays openings in-game |
 | **Dust: Unlocked** | `/?mode=unlocked` | Outdoor stills sandbox (all doors open) |
-| **Dust: Resurrected** | `/?mode=resurrected` or `/?mode=play` | VM boot, Day 1 night. `&intro=1` still plays openings in-game |
-| **The picture show** | `/?mode=movies` | Full-screen `playmovie` reels. Default `reel=intro`. Not item inspect MOVs |
+| **The Picture Show** | `/?mode=movies` | Browser reel player (`timeline.json` + PNG/WAV). Opening is selected first. Not inspect MOVs |
 
 - `npm test` — unit tests (time, SET graph / HQ lookup, doors)
 - `npm run dev` — http://localhost:5173 (needs `dfextract/out/SET/_TOWN` + `_NITE`)
@@ -121,7 +121,7 @@ Default run (`/`) is the title chooser. Modes:
 
 | Date | Decision |
 |---|---|
-| 2026-08-24 | Title chooser at `/`. **Dust: Unlocked** = sandbox walker (`/?mode=unlocked`). **Dust: Resurrected** = play VM (`/?mode=resurrected` or `/?mode=play`). **The picture show** (`/?mode=movies`) lists full-screen reels; default is `intro.mov`. Opening movies are not a Resurrected boot option on the landing. No in-game return to the landing. |
+| 2026-08-24 | Title chooser at `/` with three cards. **Dust: Resurrected** = play VM (`/?mode=resurrected` or `/?mode=play`). **Dust: Unlocked** = sandbox walker (`/?mode=unlocked`). **The Picture Show** (`/?mode=movies`) is the TypeScript reel player (same dump as `movplay.py`, not that process). Opening is selected first; intros are not a Resurrected landing option. Card switches are in-page; browser back returns to the chooser. |
 | 2026-08-17 | Not a DreamFactory port. No visual/audio upscale. Non-commercial. |
 | 2026-08-17 | Stack: TypeScript + Vite + Vitest. HTML/CSS menus later. Three.js for gameplay. |
 | 2026-08-17 | Slice 1 look: graybox Diamondback, somewhat recognizable. SET extract / decompile if layout is insufficient. |

@@ -2,7 +2,7 @@
 
 Browser rebuild of *Dust: A Tale of the Wired West*, plus a DreamFactory extractor.
 
-Non-commercial fan reconstruction. Not a port of CyberFlix’s engine C. Playable client is Three.js. Game logic will run extracted DreamFactory tokens in a TypeScript VM. https://diamondback.town is the title chooser for **Dust: Unlocked** and **Dust: Resurrected**.
+Non-commercial fan reconstruction. Not a port of CyberFlix’s engine C. Playable client is Three.js. Game logic will run extracted DreamFactory tokens in a TypeScript VM. https://diamondback.town is a title chooser: **Dust: Resurrected**, **Dust: Unlocked**, and **The Picture Show**.
 
 Hosted: **https://diamondback.town** (GitHub Pages + CloudFront extract).
 
@@ -20,13 +20,13 @@ npm test
 npm run dev
 ```
 
-Open http://localhost:5173 — title chooser. Vite serves stills from `dfextract/out/` at `/extract/…`.
+Open http://localhost:5173 — title chooser (three cards). Cards switch in-page; they do not reload the document. Vite serves stills from `dfextract/out/` at `/extract/…`.
+
+**Dust: Resurrected** (`/?mode=resurrected` or `/?mode=play`): the VM game (Day 1 night so far). Original dashboard, CST sprites, PUP talking-heads. Needs a full extract (PUP/CST/FLT/PRP, not just SET stills). Boot skips intros unless `&intro=1`. Playback notes: [`src/play/README.md`](src/play/README.md).
 
 **Dust: Unlocked** (`/?mode=unlocked`): unlocked-doors town walker.
 
-**Dust: Resurrected** (`/?mode=resurrected` or `/?mode=play`): Day 1 night with the original dashboard under the stills, CST sprites that face you / walk up on talk, and a layered PUP talking-head. Needs a full extract (PUP/CST/FLT/PRP, not just SET stills). Intros skipped unless `&intro=1`. Playback notes (visemes, Firefox audio, all-cast puppets, town scale): [`src/play/README.md`](src/play/README.md).
-
-**The picture show** (`/?mode=movies`): full-screen Dust reels (openings, day-changes, endings). Default is `intro.mov`. `/?mode=movies&reel=intro3` picks another. Not INVEN inspectables.
+**The Picture Show** (`/?mode=movies`): extracted `playmovie` reels in the browser (not `movplay.py`). Opening is selected first. `/?mode=movies&reel=intro3` picks another. Not INVEN inspectables or stairs.
 
 | Key / click | Action |
 |---|---|
@@ -38,7 +38,7 @@ Open http://localhost:5173 — title chooser. Vite serves stills from `dfextract
 | Click a nearby person (play mode) | Talk (puppet + choices) |
 | **C** (play mode) | Hide / show the black speech bar (audio keeps going) |
 
-`?clock=1|2|3` — morning / afternoon / night (sandbox).
+`/?mode=unlocked&clock=1|2|3` — morning / afternoon / night (Unlocked only).
 
 Production-style local build (`preview` still mounts `/extract` from `dfextract/out/`):
 
