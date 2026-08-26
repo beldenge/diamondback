@@ -1301,7 +1301,9 @@ export class DustHost implements OpcodeHost {
     actor.walking = true;
     const hasWalk =
       (actor.sprites?.walk?.length ?? 0) > 0 || actor.walkSprites.length > 0;
-    if (hasWalk) {
+    // TARGET crows have `flight` and no walk strip — keep that pose.
+    // Town NPCs still go to `walk` even before CST plates are loaded.
+    if (hasWalk || (actor.pose || "stand").toLowerCase() !== "flight") {
       actor.pose = "walk";
     }
     const walkTable = timingForPose(actor.poseTiming, actor.pose || "walk");
@@ -1358,14 +1360,14 @@ export class DustHost implements OpcodeHost {
     this.advancePropViews();
     let moved = false;
     for (const actor of this.actors.values()) {
-      // Leroy `pausewalk ("all")` freezes the town during TARGET.
-      // Range pig / chicken / crows still have to walk on this SET.
-      if (
-        this.walksPaused &&
-        actor.set &&
-        !setNamesEqual(actor.set, this.currentSet)
-      ) {
-        continue;
+      // `pausewalk ("all")` freezes everyone not on this SET (town NPCs
+      // during TARGET / blackjack). Range livestock keep walking here.
+      // No `actorset` (idle tests, unset extras) counts as not-here.
+      if (this.walksPaused) {
+        const here = Boolean(actor.set) && setNamesEqual(actor.set, this.currentSet);
+        if (!here) {
+          continue;
+        }
       }
       if (actor.walking) {
         const dx = actor.destX - actor.x;
