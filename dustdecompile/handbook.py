@@ -172,7 +172,6 @@ def render_markdown(data: dict[str, Any]) -> str:
         "- MOV reel timing / audio cues (see dfextract reconstruction-gaps §4a).",
         "- `walktostar` async vs blocking; `actorxyz` units.",
         "- Save file layout (`savegame` / `opengame`). Filter is `*.rtd`; no save in this install.",
-        "- `pluginfx(\"checkmove\", …)` encoding inside CHECKERS.DLL (scripts already parse the returned string).",
         "- UI chrome besides cursors (bevel / inventory layout). Cursors: `dustdecompile/out/rsrc/cursors/`.",
         "- How `animLogic` (now in `texts.csv`) maps to jaw/mouth frames.",
         "",

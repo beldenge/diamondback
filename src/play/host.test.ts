@@ -6,6 +6,7 @@ import { VM } from "../vm/runtime";
 import { buildSetGraph, SET_SPAWN } from "../world/set/graph";
 import type { SceneRecord, TransitionRecord } from "../world/set/types";
 import { cameraFromPose, worldToStill } from "./facing";
+import { STARTING_BOARD } from "./checkers";
 import {
   dirWord,
   DustHost,
@@ -1379,7 +1380,345 @@ describe("saloon SALGAMES scripts", () => {
     expect(await host.call("substring", ["2h 3h ah", "ah"], vm)).toBeGreaterThan(0);
     expect(await host.call("substring", ["2h 3h", "kd"], vm)).toBe(-1);
     expect(await host.call("stringlength", ["1234"], vm)).toBe(4);
+    expect(await host.call("stringtonum", ["-1"], vm)).toBe(-1);
+    expect(await host.call("stringtonum", ["-2"], vm)).toBe(-2);
     expect(await host.call("button", [], vm)).toBe(true);
+  });
+
+  it("parses extracted checkers stage, flat, and piece scripts", () => {
+    if (!existsSync(resolve("dfextract/out/FLT/_CHECKERS/playcheckers.json"))) {
+      return;
+    }
+    const names = (rel: string) => loadProcs(rel).map((proc) => proc.name);
+    expect(names("FLT/_CHECKERS/playcheckers.json")).toEqual(
+      expect.arrayContaining(["playcheckers", "closecheckers"]),
+    );
+    expect(names("FLT/_CHECKERS/setcursor _arg__2.json")).toEqual(
+      expect.arrayContaining(["initgame", "newgame", "quitgame", "updatescreen"]),
+    );
+    expect(names("FLT/_CHECKERS/mousedown _arg__5.json")).toEqual(
+      expect.arrayContaining(["mousedown"]),
+    );
+    expect(names("PRP/_CHECKERS/automove_1.json")).toEqual(
+      expect.arrayContaining(["automove", "makemove", "goodjump", "decodemove"]),
+    );
+    expect(names("PRP/_CHECKERS/setcursor _arg__2.json")).toEqual(
+      expect.arrayContaining(["mousedown", "goodloc", "rowcol2move"]),
+    );
+  });
+
+  it("updatescreen still paints Bolivar's piece after he steps", async () => {
+    if (!existsSync(resolve("dfextract/out/FLT/_CHECKERS/setcursor _arg__2.json"))) {
+      return;
+    }
+    const restore = mockExtractDisk();
+    try {
+      const host = new DustHost({} as PuppetUi);
+      host.rng = () => 0.99;
+      const intern = host as unknown as {
+        openStage(name: string): Promise<void>;
+        openShop(name: string): Promise<void>;
+        puzzleItems(): { name: string; x: number; y: number; w: number; h: number }[];
+        nearbyProps(): { name: string; shop: string }[];
+        props: Map<string, { name: string; visible: boolean; x: number; y: number; view: string; shop: string }>;
+      };
+      const vm = new VM({
+        call: (name, args, ctx) => host.call(name, args, ctx),
+        lookup: (name, ctx) => host.lookup(name, ctx),
+        lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+      });
+      await intern.openStage("checkers.flt");
+      await intern.openShop("checkers.prp");
+      await vm.inObject("flat", "flat 0", () => vm.evalCall("initgame", []));
+      const himBefore = intern.puzzleItems().filter((item) => item.name.startsWith("him"));
+      expect(himBefore).toHaveLength(12);
+      expect(intern.nearbyProps().filter((prop) => prop.shop === "checkers")).toEqual([]);
+
+      await vm.inObject("shop", "checkers", () =>
+        vm.evalCall("makemove", [
+          { type: "str", value: "216" },
+          { type: "str", value: "him" },
+        ]),
+      );
+      const board = String(vm.globals.get("mainboard"));
+      expect(board.split(" ")[2 * 8 + 1]).toBe("0");
+      expect(board.split(" ")[3 * 8 + 2]).toBe("1");
+      await vm.inObject("flat", "flat 0", () =>
+        vm.evalCall("updatescreen", [{ type: "var", name: "mainboard" }]),
+      );
+      const after = intern.puzzleItems();
+      const himAfter = after.filter((item) => item.name.startsWith("him"));
+      expect(himAfter, JSON.stringify(after.map((i) => `${i.name}@${Math.round(i.x)},${Math.round(i.y)}`))).toHaveLength(
+        12,
+      );
+      expect(after.filter((item) => item.name.startsWith("me"))).toHaveLength(12);
+      const destHotX = 138 + 15 + 2 * 29;
+      const destHotY = 16 + 15 + 3 * 29;
+      const atDest = [...intern.props.values()].filter(
+        (prop) =>
+          prop.visible &&
+          prop.shop === "checkers" &&
+          prop.name.startsWith("him") &&
+          prop.x === destHotX &&
+          prop.y === destHotY,
+      );
+      expect(atDest.map((prop) => prop.name), `dest ${destHotX},${destHotY}`).not.toHaveLength(0);
+      expect(atDest.every((prop) => intern.props.get(prop.name)?.view)).toBeTruthy();
+
+      await vm.inObject("shop", "checkers", () =>
+        vm.evalCall("makemove", [
+          { type: "str", value: "505" },
+          { type: "str", value: "me" },
+        ]),
+      );
+      const afterStep = String(vm.globals.get("mainboard")).trimEnd().split(" ");
+      expect(afterStep.filter((cell) => cell.startsWith("-")).length).toBe(12);
+      expect(afterStep.filter((cell) => cell === "1" || cell === "2").length).toBe(12);
+      expect(afterStep[5 * 8 + 0]).toBe("0");
+      expect(afterStep[4 * 8 + 1]).toBe("-1");
+    } finally {
+      restore();
+    }
+  });
+
+  it("automove after 505 keeps 12 him on-screen and a legal him step", async () => {
+    if (!existsSync(resolve("dfextract/out/FLT/_CHECKERS/setcursor _arg__2.json"))) {
+      return;
+    }
+    const restore = mockExtractDisk();
+    try {
+      const host = new DustHost({} as PuppetUi);
+      host.rng = () => 0.99;
+      const intern = host as unknown as {
+        openStage(name: string): Promise<void>;
+        openShop(name: string): Promise<void>;
+        props: Map<string, { name: string; visible: boolean; x: number; y: number; shop: string }>;
+      };
+      const rawCall = host.call.bind(host);
+      host.call = async (name, args, ctx) => {
+        const op = name.toLowerCase();
+        if (op === "delay" || op === "voicesound" || op === "singlesound") {
+          return 0;
+        }
+        return rawCall(name, args, ctx);
+      };
+      const vm = new VM({
+        call: (name, args, ctx) => host.call(name, args, ctx),
+        lookup: (name, ctx) => host.lookup(name, ctx),
+        lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+      });
+      await intern.openStage("checkers.flt");
+      await intern.openShop("checkers.prp");
+      await vm.inObject("flat", "flat 0", () => vm.evalCall("initgame", []));
+      vm.globalNames.add("lookahead");
+      vm.globals.set("lookahead", 2);
+      await vm.inObject("shop", "checkers", () =>
+        vm.evalCall("makemove", [
+          { type: "str", value: "505" },
+          { type: "str", value: "me" },
+        ]),
+      );
+      await vm.inObject("flat", "flat 0", () =>
+        vm.evalCall("updatescreen", [{ type: "var", name: "mainboard" }]),
+      );
+      const move = String(
+        await vm.inObject("shop", "checkers", () =>
+          vm.evalCall("pluginfx", [
+            { type: "str", value: "checkmove" },
+            { type: "var", name: "mainboard" },
+            { type: "num", value: 2 },
+            { type: "num", value: 0 },
+          ]),
+        ),
+      );
+      expect(move).toBe("217,");
+      await vm.inObject("shop", "checkers", () => vm.evalCall("automove", []));
+      const raw = String(vm.globals.get("mainboard"));
+      const board = raw.trimEnd().split(" ");
+      const himCells = board.filter((cell) => cell === "1" || cell === "2").length;
+      const meCells = board.filter((cell) => cell.startsWith("-")).length;
+      const himProps = [...intern.props.values()].filter(
+        (prop) => prop.visible && prop.shop === "checkers" && prop.name.startsWith("him"),
+      );
+      expect(raw.split(" ").length).toBeLessThanOrEqual(65);
+      expect(himCells).toBe(12);
+      expect(meCells).toBe(12);
+      expect(himProps).toHaveLength(12);
+      expect(board[2 * 8 + 1]).toBe("0");
+      expect(board[3 * 8 + 0]).toBe("1");
+      expect(board[3 * 8 + 2]).toBe("0");
+    } finally {
+      restore();
+    }
+  });
+
+  it("makemove jump captures after automove has declared global move", async () => {
+    if (!existsSync(resolve("dfextract/out/PRP/_CHECKERS/automove_1.json"))) {
+      return;
+    }
+    const restore = mockExtractDisk();
+    try {
+      const host = new DustHost({} as PuppetUi);
+      host.rng = () => 0.99;
+      const intern = host as unknown as {
+        openStage(name: string): Promise<void>;
+        openShop(name: string): Promise<void>;
+      };
+      const rawCall = host.call.bind(host);
+      host.call = async (name, args, ctx) => {
+        const op = name.toLowerCase();
+        if (op === "delay" || op === "voicesound" || op === "singlesound") {
+          return 0;
+        }
+        return rawCall(name, args, ctx);
+      };
+      const vm = new VM({
+        call: (name, args, ctx) => host.call(name, args, ctx),
+        lookup: (name, ctx) => host.lookup(name, ctx),
+        lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+      });
+      await intern.openStage("checkers.flt");
+      await intern.openShop("checkers.prp");
+      await vm.inObject("flat", "flat 0", () => vm.evalCall("initgame", []));
+      vm.globalNames.add("move");
+      vm.globals.set("move", "212,432,");
+      const cells = STARTING_BOARD.trimEnd().split(" ");
+      cells[3 * 8 + 2] = "-1";
+      vm.globals.set("mainboard", `${cells.join(" ")} `);
+      await vm.inObject("shop", "checkers", () =>
+        vm.evalCall("makemove", [
+          { type: "str", value: "212" },
+          { type: "str", value: "him" },
+        ]),
+      );
+      const raw = String(vm.globals.get("mainboard"));
+      const board = raw.trimEnd().split(" ");
+      expect(raw.split(" ").length).toBeLessThanOrEqual(65);
+      expect(board[2 * 8 + 1]).toBe("0");
+      expect(board[3 * 8 + 2]).toBe("0");
+      expect(board[4 * 8 + 3]).toBe("1");
+      expect(vm.globals.get("move")).toBe("212,432,");
+      expect(Number(vm.globals.get("playerdead"))).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("player step after automove still lands on the 8x8", async () => {
+    if (!existsSync(resolve("dfextract/out/FLT/_CHECKERS/setcursor _arg__2.json"))) {
+      return;
+    }
+    const restore = mockExtractDisk();
+    try {
+      const host = new DustHost({} as PuppetUi);
+      host.rng = () => 0.99;
+      const intern = host as unknown as {
+        openStage(name: string): Promise<void>;
+        openShop(name: string): Promise<void>;
+        props: Map<string, { name: string; visible: boolean; shop: string }>;
+      };
+      const rawCall = host.call.bind(host);
+      host.call = async (name, args, ctx) => {
+        const op = name.toLowerCase();
+        if (op === "delay" || op === "voicesound" || op === "singlesound") {
+          return 0;
+        }
+        return rawCall(name, args, ctx);
+      };
+      const vm = new VM({
+        call: (name, args, ctx) => host.call(name, args, ctx),
+        lookup: (name, ctx) => host.lookup(name, ctx),
+        lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+      });
+      await intern.openStage("checkers.flt");
+      await intern.openShop("checkers.prp");
+      await vm.inObject("flat", "flat 0", () => vm.evalCall("initgame", []));
+      vm.globalNames.add("lookahead");
+      vm.globals.set("lookahead", 2);
+      await vm.inObject("shop", "checkers", () =>
+        vm.evalCall("makemove", [
+          { type: "str", value: "505" },
+          { type: "str", value: "me" },
+        ]),
+      );
+      await vm.inObject("shop", "checkers", () => vm.evalCall("automove", []));
+      expect(vm.globalNames.has("move")).toBe(true);
+      await vm.inObject("shop", "checkers", () =>
+        vm.evalCall("makemove", [
+          { type: "str", value: "525" },
+          { type: "str", value: "me" },
+        ]),
+      );
+      const raw = String(vm.globals.get("mainboard"));
+      const board = raw.trimEnd().split(" ");
+      expect(raw.split(" ").length).toBeLessThanOrEqual(65);
+      expect(board.filter((cell) => cell.startsWith("-")).length).toBe(12);
+      expect(board[5 * 8 + 2]).toBe("0");
+      expect(board[4 * 8 + 3]).toBe("-1");
+    } finally {
+      restore();
+    }
+  });
+
+  it("automove plays both words of a jump chain without padding the board", async () => {
+    if (!existsSync(resolve("dfextract/out/PRP/_CHECKERS/automove_1.json"))) {
+      return;
+    }
+    const restore = mockExtractDisk();
+    try {
+      const host = new DustHost({} as PuppetUi);
+      host.rng = () => 0.99;
+      const intern = host as unknown as {
+        openStage(name: string): Promise<void>;
+        openShop(name: string): Promise<void>;
+      };
+      const rawCall = host.call.bind(host);
+      host.call = async (name, args, ctx) => {
+        const op = name.toLowerCase();
+        if (op === "delay" || op === "voicesound" || op === "singlesound") {
+          return 0;
+        }
+        return rawCall(name, args, ctx);
+      };
+      const vm = new VM({
+        call: (name, args, ctx) => host.call(name, args, ctx),
+        lookup: (name, ctx) => host.lookup(name, ctx),
+        lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+      });
+      await intern.openStage("checkers.flt");
+      await intern.openShop("checkers.prp");
+      await vm.inObject("flat", "flat 0", () => vm.evalCall("initgame", []));
+      const cells = Array.from({ length: 64 }, () => "0");
+      cells[2 * 8 + 1] = "1";
+      cells[3 * 8 + 2] = "-1";
+      cells[5 * 8 + 4] = "-1";
+      vm.globals.set("mainboard", `${cells.join(" ")} `);
+      vm.globalNames.add("lookahead");
+      vm.globals.set("lookahead", 0);
+      await vm.inObject("shop", "checkers", () => vm.evalCall("automove", []));
+      const raw = String(vm.globals.get("mainboard"));
+      const board = raw.trimEnd().split(" ");
+      expect(String(vm.globals.get("move"))).toBe("212,432,");
+      expect(raw.split(" ").length).toBeLessThanOrEqual(65);
+      expect(board[2 * 8 + 1]).toBe("0");
+      expect(board[3 * 8 + 2]).toBe("0");
+      expect(board[4 * 8 + 3]).toBe("0");
+      expect(board[5 * 8 + 4]).toBe("0");
+      expect(board[6 * 8 + 5]).toBe("1");
+      expect(Number(vm.globals.get("playerdead"))).toBe(2);
+    } finally {
+      restore();
+    }
+  });
+
+  it("pluginfx checkmove matches CHECKERS.DLL opening step", async () => {
+    const host = new DustHost({} as PuppetUi);
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    expect(await host.call("pluginfx", ["checkmove", STARTING_BOARD, 0, 1], vm)).toBe("505,");
+    expect(await host.call("pluginfx", ["checkmove", STARTING_BOARD, 0, 0], vm)).toBe("216,");
+    expect(await host.call("pluginfx", ["checkmove", "", 2, 0], vm)).toBe("");
   });
 
   it("sendtobutton three-arg runs the named button mousedown", async () => {

@@ -17,6 +17,8 @@ describe("saloon game helpers", () => {
     expect(findWord(deck, " ", 1)).toBe("2h");
     expect(findWord(deck, " ", 3)).toBe("4h");
     expect(findWord(deck, " ", 4)).toBe("");
+    expect(findWord("1 -1 ", " ", 1)).toBe("1");
+    expect(findWord("1 -1 ", " ", 2)).toBe("-1");
   });
 
   it("putword swaps like SALGAMES shuffle without dropping cards", () => {
@@ -46,10 +48,13 @@ describe("saloon game helpers", () => {
 
   it("treats SALGAMES as a puzzle stage and names the shop file", () => {
     expect(isPuzzleStage("salgames")).toBe(true);
+    expect(isPuzzleStage("checkers")).toBe(true);
+    expect(isPuzzleStage("checkers.flt")).toBe(true);
     expect(isPuzzleStage("new")).toBe(false);
     expect(isPuzzleStage("target")).toBe(false);
     expect(isPuzzleStage("target.flt")).toBe(false);
     expect(shopFileOf("salgames")).toBe("salgames.prp");
+    expect(shopFileOf("checkers")).toBe("checkers.prp");
     expect(
       pointHitsFlatItem({ url: "x", x: 100, y: 100, w: 40, h: 50 }, 110, 120),
     ).toBe(true);

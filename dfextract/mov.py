@@ -45,8 +45,21 @@ TICK_HZ = 60
 FRAME_TABLE_OFF = 0x8C2
 FRAME_REC_SIZE = 80
 FRAME_AUDIO_OFF = 32  # u16, 1-based group-A slot
+FRAME_CMD_OFF = 0x24  # u32 offset of DF.EXE in-engine command stream
 PLAYLIST_COUNT_OFF = 0x34
 PLAYLIST_OFF = 0x83E
+# DF.EXE 0x4196a0: rec+0 is command *count*, not actionframe. Commands
+# live in the scene header at rec+0x24. Size jump table at 0x419ca0.
+# Type 2 is 16 bytes: Mac rect (top,left,bottom,right) + A-slot at +10
+# + dest-frame at +14. 0x40ac60 is point-in-rect; 0x419530 plays the
+# slot; 0x419b73 writes dest-frame into the playhead. last=0/1 stay
+# (harmonica / MUSIPLAT). last>1 play + jump. Linear extract fires
+# last>1 at the *dest* rec's start tick, one cue per (slot, dest).
+# Replay wait-stills (grocpots rec 9 last=2 again) do not clang twice.
+CMD_SIZES = {1: 0x0E, 2: 0x10, 3: 0x2E, 4: 0x30, 5: 0x0E}
+# INFO/MAIN is an interactive attract reel with hundreds of jump
+# hotspots. Do not treat those as auto SFX.
+MAX_CMD_AUTO_SFX = 32
 REEL_FPS = 14  # legacy fallback; not original
 
 # playmovie / doamovie stems, plus INTRO3 / FINALEND (unreferenced
@@ -128,9 +141,10 @@ class FrameHold:
     container: int
     hold_ticks: int
     start_tick: int
-    # u16 at rec+0. Non-zero = MOVPLAY `actionframe` (hold still until click).
-    # WARNING/BONE use 1 on the inspect still; DOG1 is all 0 (auto-close).
+    # Raw rec+0: DF.EXE command count (MOVPLAY ignores this stream).
     action: int = 0
+    # Type-2 slot-0 last=2: inspect still, hold until click (WARNING/BONE).
+    wait: bool = False
 
 
 @dataclass(frozen=True)
@@ -199,6 +213,33 @@ def audio_duration_ticks(data: bytes, tick_hz: int = TICK_HZ) -> int:
     return max(0, int(round(samples * tick_hz / hertz)))
 
 
+def _frame_commands(header: bytes, rec: bytes) -> list[tuple[int, int, int]]:
+    """DF.EXE 0x4196a0 stream: (type, A-slot at +10, dest-frame at last u16)."""
+    if len(rec) < FRAME_CMD_OFF + 4:
+        return []
+    count = struct.unpack_from("<H", rec, 0)[0]
+    if count < 1 or count > 64:
+        return []
+    pos = struct.unpack_from("<I", rec, FRAME_CMD_OFF)[0]
+    out: list[tuple[int, int, int]] = []
+    for _ in range(count):
+        if pos + 2 > len(header):
+            break
+        raw = struct.unpack_from("<h", header, pos)[0]
+        kind = abs(raw)
+        size = CMD_SIZES.get(kind)
+        if size is None or pos + size > len(header):
+            break
+        slot = 0
+        last = 0
+        if kind in (1, 2) and size >= 12:
+            slot = struct.unpack_from("<H", header, pos + 10)[0]
+            last = struct.unpack_from("<H", header, pos + size - 2)[0]
+        out.append((kind, slot, last))
+        pos += size
+    return out
+
+
 def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
     """Read v1 scene headers. None if this MOV has no Dust frame table."""
     if len(df.containers) < 2:
@@ -213,8 +254,9 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
             scenes.append(index)
     frames: list[FrameHold] = []
     clip_starts: list[ClipStart] = []
-    # Group-A starts: (container, frame_tick, duration_ticks, channel, scene)
-    a_events: list[tuple[int, int, int, str, int]] = []
+    # Group-A starts: (container, tick, dur, channel, scene, from_cmd)
+    a_events: list[tuple[int, int, int, str, int, bool]] = []
+    cmd_raw = 0
     tick = 0
     ncont = len(df.containers)
     for scene_i, scene_index in enumerate(scenes):
@@ -254,6 +296,8 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
         need = count * FRAME_REC_SIZE
         if FRAME_TABLE_OFF + need > len(data):
             return None
+        # Type-2 last>1: (container, dest rec, dur, channel, scene).
+        scene_cmd: list[tuple[int, int, int, str, int]] = []
         for rec_i in range(count):
             rec = data[
                 FRAME_TABLE_OFF + rec_i * FRAME_REC_SIZE : FRAME_TABLE_OFF
@@ -275,25 +319,73 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
                         audio_duration_ticks(df.containers[cont].data),
                         f"A{slot}",
                         scene_index,
+                        False,
                     )
                 )
+            wait = False
+            for kind, cmd_slot, last in _frame_commands(data, rec):
+                # Inspect still: the only command is a full-frame jump
+                # (WARNING/BONE). Do not pause on last=2 among several
+                # hotspots (INFO/MAIN, KEYS).
+                if (
+                    action == 1
+                    and kind == 2
+                    and cmd_slot == 0
+                    and last == 2
+                ):
+                    wait = True
+                # last 0/1 stay on this still (click-to-play). last>1 is
+                # play + jump to that 0-based rec (0x419b73). Collect here;
+                # resolve to dest-frame ticks after this scene's holds.
+                if kind in (1, 2) and 1 <= cmd_slot <= len(a_clips) and last > 1:
+                    cont = a_clips[cmd_slot - 1]
+                    scene_cmd.append(
+                        (
+                            cont,
+                            last,
+                            audio_duration_ticks(df.containers[cont].data),
+                            f"A{cmd_slot}",
+                            scene_index,
+                        )
+                    )
             frames.append(
                 FrameHold(
                     container=scene_index + local,
                     hold_ticks=hold,
                     start_tick=tick,
                     action=action,
+                    wait=wait,
                 )
             )
             tick += hold
+        cmd_raw += len(scene_cmd)
+        scene_frames = frames[-count:] if count > 0 else []
+        seen_cmd: set[tuple[str, int]] = set()
+        resolved: list[tuple[int, int, int, str, int, bool]] = []
+        for cont, dest_i, dur, channel, scene in scene_cmd:
+            dest = dest_i
+            if dest < 0:
+                dest = 0
+            if scene_frames and dest >= len(scene_frames):
+                dest = len(scene_frames) - 1
+            key = (channel, dest)
+            if key in seen_cmd:
+                continue
+            seen_cmd.add(key)
+            start = scene_frames[dest].start_tick if scene_frames else tick
+            resolved.append((cont, start, dur, channel, scene, True))
+        resolved.sort(key=lambda item: (item[1], item[3]))
+        a_events.extend(resolved)
+    if cmd_raw > MAX_CMD_AUTO_SFX:
+        a_events = [event for event in a_events if not event[5]]
     # A new scene can fire rec+32 while the previous scene's line is still
     # going (INTRO clip 325 vs 423). MOVPLAY's voice start is that frame;
     # stacking the two makes the first unintelligible. Hold the new scene's
     # line until the previous scene's *original* end — do not chain delays,
     # and do not change same-scene retriggers (INTRO2 A2).
-    for index, (cont, start, dur, channel, scene) in enumerate(a_events):
+    for index, (cont, start, dur, channel, scene, _from_cmd) in enumerate(a_events):
         held = start
-        for _c, prev_start, prev_dur, _ch, prev_scene in a_events[:index]:
+        for _c, prev_start, prev_dur, _ch, prev_scene, _prev_cmd in a_events[:index]:
             if prev_scene == scene or prev_start > start:
                 continue
             prev_end = prev_start + prev_dur
@@ -374,7 +466,7 @@ def write_mov_extract(
     if write_frames and stills is not None:
         counts["frames"] = _write_frames(stills, out_dir)
     timeline = parse_reel_timeline(df)
-    if timeline is not None and (write_frames or write_video):
+    if timeline is not None:
         _write_timeline(timeline, out_dir)
         counts["timeline"] = 1
     if write_video and stills:
@@ -542,6 +634,7 @@ def _write_timeline(timeline: ReelTimeline, out_dir: Path) -> None:
                 "hold_ticks": f.hold_ticks,
                 "start_tick": f.start_tick,
                 "action": f.action,
+                "wait": f.wait,
             }
             for f in timeline.frames
         ],
@@ -555,7 +648,8 @@ def _write_timeline(timeline: ReelTimeline, out_dir: Path) -> None:
         ],
         "source": (
             "MOVPLAY tick=timeGetTime()*3/50; record at header+0x8C2 i*80; "
-            "hold=max(header+0x26, rec+2); A cue=rec+32; B playlist at +0x83E"
+            "hold=max(header+0x26, rec+2); A cue=rec+32; B playlist at +0x83E; "
+            "DF.EXE rec+0 command stream at rec+0x24 (spotmovie SFX at dest-frame last)"
         ),
     }
     (out_dir / "timeline.json").write_text(

@@ -60,6 +60,7 @@ import {
   propScriptRels,
   shopScriptRels,
 } from "./propCatalog";
+import { checkMove } from "./checkers";
 import {
   findWord,
   flatPropItem,
@@ -208,7 +209,7 @@ export interface WorldView {
   /** Sprite still-position; filmstrips reproject with the SET camera. */
   projectWorld?(obj: { x: number; y: number; z?: number; screen?: boolean }): StillHit | null;
   playMovie?(
-    frames: { url: string; holdSec: number; action?: number }[],
+    frames: { url: string; holdSec: number; action?: number; wait?: boolean }[],
     clips: { url: string; startSec: number; channel?: string }[],
   ): Promise<void>;
   /** Dust `screentoblack` / `blacktoscreen` ticks (60 Hz). */
@@ -358,6 +359,8 @@ export class DustHost implements OpcodeHost {
   currentStageName = "new";
   private worldVisible = true;
   private puzzleShop = "";
+  /** Group names created by `openshopfile` (not `propinstance` clones). */
+  private readonly puzzleGroups = new Map<string, Set<string>>();
   private readonly stageStills = new Map<string, string>();
   private readonly stageHits = new Map<string, FlatHit[]>();
   private puzzleLabels: PuzzleLabel[] = [];
@@ -467,6 +470,10 @@ export class DustHost implements OpcodeHost {
       case "menuvisible":
       case "clut":
       case "visualeffect":
+        if (isPuzzleStage(this.currentStageName)) {
+          this.syncPuzzleView();
+        }
+        return 0;
       case "plain":
       case "showcursor":
       case "flushevents":
@@ -752,6 +759,11 @@ export class DustHost implements OpcodeHost {
         this.view?.log("script error()");
         return 0;
       case "currentvoice":
+        // Dust empty `while currentvoice () != "none"` pumps the mixer.
+        // Yield so Bolivar checkers banter can finish before the next line.
+        if (this.currentVoice !== "none") {
+          await sleep(16);
+        }
         return this.currentVoice;
       case "currenttheme":
         if (args.length && this.trackFolder === "_NIGHT") {
@@ -814,6 +826,17 @@ export class DustHost implements OpcodeHost {
         return num(args[0]);
       case "findword":
         return findWord(str(args[0]), str(args[1]), num(args[2]));
+      case "plugin":
+        return 0;
+      case "pluginfx": {
+        const verb = str(args[0]).toLowerCase();
+        if (verb === "checkmove") {
+          return checkMove(str(args[1]), num(args[2]), num(args[3]));
+        }
+        ctx.unimplemented.add(name);
+        this.view?.log(`unimplemented pluginfx ${verb}`);
+        return "";
+      }
       case "playmovie":
         await this.playMovie(str(args[0]));
         return 0;
@@ -2098,6 +2121,8 @@ export class DustHost implements OpcodeHost {
     // setcursor. EXIT `sendtostage (gototown ("south"))` needs it.
     await this.addScriptFile("stage", `${folder}/gototown _dirname_.json`);
     await this.addScriptFile("stage", `${folder}/gototown _dirname__1.json`);
+    // CHECKERS.FLT container 1 is playcheckers / closecheckers, not setcursor.
+    await this.addScriptFile("stage", `${folder}/playcheckers.json`);
     const flats = await fetchJson<{
       stage?: string;
       flats?: {
@@ -2110,7 +2135,9 @@ export class DustHost implements OpcodeHost {
       }[];
     }>(extractUrl(`${folder}/flats.json`)).catch(() => null);
     if (flats?.stage) {
-      this.currentStageName = flats.stage.toLowerCase() === "cardflats" ? stem : flats.stage.toLowerCase();
+      const stageName = flats.stage.toLowerCase();
+      this.currentStageName =
+        stageName === "cardflats" ? stem : stageName.replace(/\.flt$/i, "");
     }
     if (flats?.flats?.length) {
       for (const flat of flats.flats) {
@@ -2212,6 +2239,8 @@ export class DustHost implements OpcodeHost {
     const key = `shop:${stem}`;
     this.puzzleShop = stem;
     await this.addScriptFile(key, `${folder}/setcursor _arg__1.json`);
+    // CHECKERS.PRP keeps automove / makemove on container 1, not a group script.
+    await this.addScriptFile(key, `${folder}/automove_1.json`);
     const groups = await fetchJson<{ name: string; script: number }[]>(
       extractUrl(`${folder}/groups.json`),
     ).catch(() => [] as { name: string; script: number }[]);
@@ -2234,6 +2263,7 @@ export class DustHost implements OpcodeHost {
       });
     }
     this.shopSprites.set(stem, byGroup);
+    this.puzzleGroups.set(stem, new Set(groups.map((group) => group.name.toLowerCase())));
     const timing = await fetchJson<Record<string, Record<string, number[]>>>(
       extractUrl(`${folder}/timing.json`),
     ).catch(() => ({} as Record<string, Record<string, number[]>>));
@@ -2242,7 +2272,13 @@ export class DustHost implements OpcodeHost {
       const prop = this.ensureProp(name);
       prop.shop = stem;
       prop.spriteRoot = folder;
-      prop.sprites = byGroup[name] ?? {};
+      prop.screen = true;
+      const frames = byGroup[name];
+      if (frames && Object.keys(frames).length) {
+        prop.sprites = frames;
+      } else if (!Object.keys(prop.sprites).length) {
+        prop.sprites = {};
+      }
       const tables = timing[group.name] ?? timing[name] ?? {};
       prop.poseTiming = Object.fromEntries(
         Object.entries(tables).map(([view, seq]) => [view.toLowerCase(), seq]),
@@ -2265,15 +2301,18 @@ export class DustHost implements OpcodeHost {
 
   private closeShop(name: string): void {
     const stem = name.replace(/\.prp$/i, "").toLowerCase();
-    for (const prop of this.props.values()) {
-      if (prop.shop === stem) {
-        prop.visible = false;
+    for (const prop of [...this.props.values()]) {
+      if (prop.shop !== stem) {
+        continue;
       }
+      prop.visible = false;
     }
     if (this.puzzleShop === stem) {
       this.puzzleShop = "";
     }
-    this.syncPuzzleView();
+    // Hide clones; do not delete them. `updatescreen` `propinstance`s
+    // the same names again. Deleting dropped the sprite bag so the
+    // next clone had no frames.
   }
 
   private async flushOpenProps(ctx: VM): Promise<void> {
@@ -2321,8 +2360,14 @@ export class DustHost implements OpcodeHost {
       .filter((prop) => prop.visible && shop && prop.shop === shop)
       .sort((a, b) => b.dist - a.dist);
     for (const prop of props) {
-      const view = (prop.view || Object.keys(prop.sprites)[0] || "").toLowerCase();
-      const frames = prop.sprites[view] ?? [];
+      const view = (prop.view || "normal").toLowerCase();
+      const bag = this.pieceSpriteBag(prop);
+      const frames =
+        bag[view] ??
+        bag.normal ??
+        bag.king ??
+        Object.values(bag)[0] ??
+        [];
       const place = propViewFrame(frames, prop.deg, prop.poseTiming[view], prop.animTick);
       if (!place) {
         continue;
@@ -2330,6 +2375,15 @@ export class DustHost implements OpcodeHost {
       items.push(flatPropItem(prop, place));
     }
     return items;
+  }
+
+  private pieceSpriteBag(prop: PropState): Record<string, SpritePlace[]> {
+    if (Object.keys(prop.sprites).length) {
+      return prop.sprites;
+    }
+    const shop = prop.shop || this.puzzleShop;
+    const group = prop.name.replace(/\d+$/, "1");
+    return this.shopSprites.get(shop)?.[group] ?? this.shopSprites.get(shop)?.[prop.name] ?? {};
   }
 
   private noteFx(name: string): void {
@@ -2964,8 +3018,12 @@ export class DustHost implements OpcodeHost {
   }
 
   nearbyProps(): PropState[] {
+    const puzzle = isPuzzleStage(this.currentStageName);
     return [...this.props.values()].filter((prop) => {
       if (!prop.visible) {
+        return false;
+      }
+      if (puzzle && this.puzzleShop && prop.shop === this.puzzleShop) {
         return false;
       }
       if (prop.name === "avatar") {
@@ -3168,13 +3226,26 @@ export class DustHost implements OpcodeHost {
   private instanceProp(from: string, to: string): void {
     const src = this.namedProp(from);
     const dest = this.namedProp(to);
-    dest.shop = src.shop;
-    dest.spriteRoot = src.spriteRoot;
-    dest.sprites = src.sprites;
+    const shop = src.shop || this.puzzleShop;
+    const bag = this.shopSprites.get(shop)?.[from.toLowerCase()];
+    const sprites =
+      bag && Object.keys(bag).length
+        ? bag
+        : Object.keys(src.sprites).length
+          ? src.sprites
+          : dest.sprites;
+    dest.shop = shop;
+    dest.spriteRoot = src.spriteRoot || (shop ? `PRP/_${shop.toUpperCase()}` : dest.spriteRoot);
+    dest.sprites = sprites;
+    dest.poseTiming = src.poseTiming;
+    dest.view = src.view;
     dest.scale = src.scale;
     dest.speed = src.speed;
     dest.zclip = src.zclip;
-    dest.screen = src.screen;
+    dest.screen = true;
+    dest.dist = src.dist;
+    dest.animTick = 0;
+    dest.visible = false;
     this.index.copyKey(`prop:${from.toLowerCase()}`, `prop:${to.toLowerCase()}`);
   }
 
@@ -3417,6 +3488,7 @@ export class DustHost implements OpcodeHost {
       url: frameUrl(folder, frame.container),
       holdSec: Math.max(1, frame.hold_ticks || 0) / hz,
       action: frame.action ?? 0,
+      wait: frame.wait,
     }));
     const clips = (timeline.clips ?? []).map((clip) => ({
       url: clipUrl(folder, clip.container),

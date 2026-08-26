@@ -260,9 +260,41 @@ export interface FlatItem {
   h: number;
 }
 
+/** Same FLT still: do not retarget img.src (that flashes the board). */
+export function boardStillNeedsBlit(drawnUrl: string, nextUrl: string): boolean {
+  return nextUrl !== "" && drawnUrl !== nextUrl;
+}
+
+export function flatItemKey(item: FlatItem, index: number): string {
+  return item.name || `${item.url}#${index}`;
+}
+
+export function sameFlatItems(a: readonly FlatItem[], b: readonly FlatItem[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i += 1) {
+    const left = a[i]!;
+    const right = b[i]!;
+    if (
+      left.name !== right.name ||
+      left.url !== right.url ||
+      left.x !== right.x ||
+      left.y !== right.y ||
+      left.w !== right.w ||
+      left.h !== right.h
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export class FlatOverlay {
   readonly root: HTMLDivElement;
   private readonly img: HTMLImageElement;
+  private boardUrl = "";
+  private boardItems: FlatItem[] = [];
   private readonly cash: HTMLDivElement;
   private readonly itemsEl: HTMLDivElement;
   private readonly labelsEl: HTMLDivElement;
@@ -310,6 +342,7 @@ export class FlatOverlay {
     }
     this.kind = kind;
     this.root.classList.remove("board");
+    this.boardUrl = "";
     this.img.src = url;
     this.root.hidden = false;
     this.cash.hidden = kind !== "avatar";
@@ -318,14 +351,21 @@ export class FlatOverlay {
     this.setLabels([]);
   }
 
-  /** SALGAMES.FLT (and other puzzle stages): full 512×384 still + screen-space props. */
+  /** SALGAMES.FLT / CHECKERS.FLT: full 512×384 still + screen-space props. */
   showBoard(url: string, items: FlatItem[] = [], labels: { text: string; x: number; y: number; size?: number }[] = []): void {
     this.kind = "board";
     this.root.classList.add("board");
-    this.img.src = url;
     this.root.hidden = false;
     this.cash.hidden = true;
     this.cash.textContent = "";
+    if (boardStillNeedsBlit(this.boardUrl, url)) {
+      this.boardUrl = url;
+      this.img.src = url;
+    }
+    if (items.length === 0 && this.boardItems.length > 0) {
+      this.setLabels(labels);
+      return;
+    }
     this.setItems(items);
     this.setLabels(labels);
   }
@@ -343,14 +383,41 @@ export class FlatOverlay {
   }
 
   setItems(items: FlatItem[]): void {
-    this.itemsEl.replaceChildren();
-    for (const item of items) {
-      const img = document.createElement("img");
-      img.alt = "";
-      img.draggable = false;
-      img.src = item.url;
+    if (sameFlatItems(this.boardItems, items)) {
+      return;
+    }
+    this.boardItems = items.map((item) => ({ ...item }));
+    const prev = new Map<string, HTMLImageElement>();
+    for (const node of [...this.itemsEl.children]) {
+      if (!(node instanceof HTMLImageElement)) {
+        node.remove();
+        continue;
+      }
+      const key = node.dataset.item || node.src;
+      if (key && !prev.has(key)) {
+        prev.set(key, node);
+      } else {
+        node.remove();
+      }
+    }
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i]!;
+      const key = flatItemKey(item, i);
+      let img = prev.get(key);
+      if (img) {
+        prev.delete(key);
+      } else {
+        img = document.createElement("img");
+        img.alt = "";
+        img.draggable = false;
+      }
       if (item.name) {
         img.dataset.item = item.name;
+      } else {
+        delete img.dataset.item;
+      }
+      if (img.getAttribute("src") !== item.url) {
+        img.src = item.url;
       }
       img.style.left = `${(item.x / STAGE_WIDTH) * 100}%`;
       img.style.top = `${(item.y / STAGE_HEIGHT) * 100}%`;
@@ -358,12 +425,16 @@ export class FlatOverlay {
       img.style.height = `${(item.h / STAGE_HEIGHT) * 100}%`;
       this.itemsEl.append(img);
     }
+    for (const leftover of prev.values()) {
+      leftover.remove();
+    }
   }
 
   close(): void {
     const wasBoard = this.kind === "board";
     this.kind = null;
     this.root.classList.remove("board");
+    this.boardUrl = "";
     this.setItems([]);
     this.setLabels([]);
     this.root.hidden = true;

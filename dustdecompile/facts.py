@@ -180,8 +180,10 @@ OPCODES: list[dict] = [
             "move = pluginfx (\"checkmove\", mainboard, count, 0)",
             "playerjumps = pluginfx (\"checkmove\", mainboard, 0, 1)",
             "Empty string means no moves (AI loss / no jumps).",
-            "Returned move list is comma-separated; each move is words parsed with findword.",
-            "Player-legal step/jump tests also exist in PRP/_CHECKERS scripts (goodmove/goodjump). The DLL is the AI / jump-generator, not the only rules copy.",
+            "Returned move list is comma-separated row/col/code triples (trailing comma). Codes 1-4 jump, 5-8 step. findword(list, \",\", n) then findword(word, \"\", 3).",
+            "Mode 0 = him AI minimax (lookahead ply, no alpha-beta). Mode 1 lookahead 0 = player jump list.",
+            "Player-legal step/jump tests also exist in PRP/_CHECKERS scripts (goodmove/goodjump). Play copy of the DLL is src/play/checkers.ts.",
+            "automove keeps the comma list in global move; makemove (move, person) reassigns its parameter to the decoded delta. That assignment is local — writing the global made delrow the packed triple and writeboard padded mainboard off the 8x8.",
         ],
     },
     {
@@ -551,7 +553,10 @@ OPCODES: list[dict] = [
         "summary": "Declare globals (persist across procedures / save).",
         "args": "comma-separated names",
         "confidence": "proven-scripts",
-        "notes": ["Boot declares day, clock, phase, handitem, …"],
+        "notes": [
+            "Boot declares day, clock, phase, handitem, …",
+            "A parameter of the same name is still a local of that proc. Assignment does not clobber the global (checkers `makemove (move)` vs `automove` `global move`).",
+        ],
     },
     {
         "name": "local",

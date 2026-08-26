@@ -9,8 +9,8 @@ Firefox audio delay, world→still (X, Y, scale, Z, pans), interior
 spawn/Z, HOUSE door overlays, EXAMINE pointer, dest-rect hits, the
 map `cross`, the script pump that runs FLT minigames (`mousedown`
 press, `makeloop` / `pauseloop`, `forceupdate` vs idle `runQueued`,
-60 Hz `delay` / fades, `findword` / `putword` holes), or the TARGET
-shooting range.
+60 Hz `delay` / fades, `findword` / `putword` holes, params vs
+globals), store checkers, or the TARGET shooting range.
 
 Dust: Unlocked (`/?mode=unlocked`) is the **same** PlayGame / VM with
 `host.sandbox`. It is not `src/core/game.ts` (retired). Stills playback
@@ -54,7 +54,7 @@ Code: [`sceneName.ts`](sceneName.ts).
 | Ground items | Jug at `town.jug` (after Leroy walks off). Bone at `town.bone` (Help’s day1 script). |
 | Sky / extras | `shootingstar` (night). Tumbleweeds are **day** (`clock != 3`). |
 | Ambience | `night.snd` + looping `town.snd`. `nightfxs`: saloon bed, chin chime, then owl / coyote / cricket. |
-| Click movies | South-gate rules / firearms (`nitewarn` / `nitefire`), shop signs, `dog1` / `dog2`, item inspects. Intros skipped unless `?intro`. `dog1.mov` is a 59-tick overlay with two A1 cues 100 ms apart on the same 0.88 s growl. Play **two sequential still+audio passes** (one growl each) so the second cue does not cut the first into one bark. Wait-for-click is MOV frame **rec+0** (`actionframe`), not the `spotmovie` wrapper. WARNING/BONE set 1 on the inspect still; DOG1 is all 0 so Scene G12 can `setupactor("dog")` as soon as the lunge ends. |
+| Click movies | South-gate rules / firearms (`nitewarn` / `nitefire`), shop signs, `dog1` / `dog2`, item inspects, store pots (`grocpots.mov`), mission bells (`bell.mov`). Intros skipped unless `?intro`. `dog1.mov` is a 59-tick overlay with two A1 cues 100 ms apart on the same 0.88 s growl. Play **two sequential still+audio passes** (one growl each) so the second cue does not cut the first into one bark. Wait-for-click is DF.EXE command type 2 slot 0 last 2 (`timeline.wait`), not rec+0≠0 (that field is command count). Pots/bells SFX are A-slot commands in that stream, timed at dest-frame `last` (bells A1/A2/A3 at recs 2/22/43; pots one clang at rec 2 — rec 9 is replay). WARNING/BONE wait; DOG1 rec+32 cues only. |
 | Locked | Jail, chin (until `phase >= 2`), bank, apoth, store, doctor, stage. Hotel + saloon open. |
 
 `gotointerior` (`gotospecial` with an empty scene) stands at the SET
@@ -114,8 +114,10 @@ HUD `handitem`). EXAMINE is `sendtoprop (handitem, infoyoself ())` →
 `trackbut`, not a leftover `click`). HUD buttons win over item sprites.
 Boot `addinven ("helpbut")` is not an inspect target — empty hand falls
 back to the first owned prop. Inspect MOVs wait on the still whose
-80-byte record has rec+0 ≠ 0, then play the fade-out frames. That
-dismiss must not `skipNextClick` the next real EXAMINE.
+command stream has type-2 slot 0 last 2 (`timeline.wait`), then play
+the fade-out frames. Rec+0 is that stream’s command count, not a wait
+flag — pots/bells use 2–4. Dismiss must not `skipNextClick` the next
+real EXAMINE.
 
 INVEN `addinven` parks the large prop at **(316, 320)** on the mainpanel
 HUD — that pixel is also the skull chrome. Dust `stdmouse` **mousedown**
@@ -224,10 +226,86 @@ hands and checkers move lists.
 A C-style break on the empty label makes poker skip the sit and
 blackjack `dealertake` loop forever.
 
+**Params shadow globals.** `global foo` in one proc does not steal a
+parameter named `foo` in another. `getVar` already reads the frame
+local first; `setVar` must write that local too. Checkers `automove`
+holds `global move` (the comma list); `makemove (move, person)` then
+`move = decodemove (…)` is the packed triple → delta. Writing the
+global left `delrow` as `216` and `writeboard` off the 8×8. The global
+list must stay intact for multi-jump `findword (move, ",", count)`.
+
 Code: pump [`lock.ts`](lock.ts) `idlePumpAllowed` / `worldMouseGate`;
 loops [`host.ts`](host.ts) `runQueued` / `pauseLoop` / `makeLoop`;
 ticks [`facing.ts`](facing.ts) `dustTicksToMs`; words [`puzzle.ts`](puzzle.ts)
-`findWord` / `putWord`; press [`game.ts`](game.ts) `runScriptMouse`.
+`findWord` / `putWord`; press [`game.ts`](game.ts) `runScriptMouse`;
+locals [`../vm/runtime.ts`](../vm/runtime.ts) `setVar`.
+
+## Store checkers
+
+Extracted `checkers.flt` + `checkers.prp` + `checkers.snd`, same VM as
+SALGAMES. Bolivar `store.check` → Scene D2 `playagame(lookahead)` opens
+the flat. Do not write a second checkers engine.
+
+**Start.** CST Bolivar `mousedown` after `checkers()` sets `bolivarphase`
+9001/9002/9003 (hard/medium/easy) then `playagame (4|3|2)`. That SET
+proc fades the store, `openstagefile ("checkers.flt")`,
+`openshopfile ("checkers.prp")`, `gotoflat ("flat 0")`,
+`sendtostage (playcheckers ())`. Player (negative, rows 5–7) moves first.
+
+**Board.** `mainboard` is 64 space-separated cells: `0` empty, `1`/`2`
+Bolivar man/king, `-1`/`-2` the player. Dark squares only; men step one
+diagonal (player −row, him +row), kings both ways; jumps are forced;
+landing on row 0/7 kings. Scripts own those tests (`goodmove` /
+`goodjump` / `makemove`). `mousedown` `arg` is the **press** square
+(`xtocol`/`ytorow`). The drag loop reads `mouse()` for the drop. Using
+hover after an idle wait turns a step into a jump and `makemove`
+clears the mid cell. A man on the a/h files cannot be jumped (landing
+would be off the board). Multi-jump: `doublejumper` holds the landing
+square so the next drag must be that piece.
+
+**DLL.** `pluginfx ("checkmove", mainboard, lookahead, mode)` is
+CHECKERS.DLL `PlugProc` opcode 2 (`src/play/checkers.ts`). Mode `0` is
+Bolivar’s minimax (no alpha-beta; ties keep the first move in row/col/
+code order). Mode `1` with lookahead `0` is the player jump list (empty
+or a step means no forced jump). Return is `row col code` triples joined
+with commas (trailing comma). Codes 1–4 jump, 5–8 step. Empty string =
+no moves (`win ("me")` / `win ("him")`). A jump may append the first
+continuation so `automove` plays a multi-jump as several comma words.
+
+**Flat.** One named flat (`Flat 0`), still `frame_3.png`. EXIT
+`(52,312)–(136,335)` holds to `quitgame`; avatar is the think plate.
+Pieces are PRP `me1` / `him1` instances; `propxy` is the cell hotspot
+`138+15+col*29`, `16+15+row*29` (kings one pixel up-left). Cell pick is
+integer `(x-138)/29`, `(y-16)/29`. `updatescreen` `closeshopfile`s then
+re-`propinstance`s every man; hide clones on close so the sprite bags
+stay (`propinstance` of a deleted clone had no frames).
+
+**Table.** `CHECKERS.FLT` still 3 is a full 512×384 painting: board on a
+crate, room, HUD. `playagame` `setvisible (false)` hides the store SET,
+then the engine BitBlts that still. Overlay is the same FLT `<img>` as
+other flats — do not retarget `img.src` on every `forceupdate`.
+`updatescreen` `closeshopfile` must not paint an empty overlay; keep
+the last piece imgs until the new `propinstance`s exist.
+
+**Extract.** `python cli.py --type flt,prp --scripts --frames` on
+`DUSTCD/CHECKERS` so `flats.json`, `groups.json`, and sprite `x,y,w,h`
+exist. `playcheckers.json` lives on `stage`; `automove_1.json` on
+`shop:checkers`.
+
+`win` / `rowcol2move` close with `endif` and no `endcode`; the VM
+treats that as the end of the proc so `automove` still loads.
+
+**`makemove` `move` param.** `automove` declares `global move` (the
+comma list). `makemove (move, person)` then does `move = decodemove
+(…)`. That assignment is the **parameter**: `getVar` already read the
+local packed triple, so `setVar` must write that local too. Writing the
+global left `delrow` as `216` (the whole triple); `writeboard` padded
+`mainboard` to ~1700 slots, cleared the start square, and Bolivar’s man
+vanished. `automove` still needs the global list for a multi-jump
+`while findword (move, ",", count)`.
+
+Traps: [`dustdecompile/docs/findings.md`](../../dustdecompile/docs/findings.md)
+§ CHECKERS.DLL.
 
 ## TARGET shooting range
 
@@ -417,6 +495,7 @@ still has forward > 0.
 | `pauseloop (kind, "all")` as a sticky kind pause | Sit pauses HUD/world loops, then bust does `makeloop ("flat", me, "resetgame")`. Treating the kind as sticky left that timer paused, so the next hand never started. Dust `makeloop` is live. Pause existing loops and drop already-due ones of that kind; do not pause the next-hand timer. Nested `forceupdate` still must not run other `makeloop`s. |
 | `screentoblack` / `delay` waiting on `requestAnimationFrame` | Those opcodes are 60 Hz ticks (`blacktoscreen (…, 30)` = 0.5 s). Waiting on rAF inside Three’s animation loop can stall after the second-hand bet (fade never finishes, `dealcards` never runs). Use wall-clock ticks. `forceupdate` (`0x433740`) is one 20 Hz display/walk pump, not a `makeloop` drain. |
 | `putword (list, " ", n, "")` dropping the word | SALGAMES `shuffle` clears a slot then writes the swap. Filtering empties shrinks 52 cards to ~12. Hand two `findword` past the end deals nothing. Keep holes; `findword` is the same 1-based split. |
+| `setVar` writing checkers `move` to the automove global | Bolivar’s man vanished; jumps never captured; overlay/click patches did nothing. `makemove (move, person)` reassigns the **parameter** to the decoded delta; the global stays the comma list. Params are locals even when the name is a declared global. |
 | Skip `showHold` when `setPose` matches boot’s pre-set O7 N | First `opensetfile` no-ops; MeshBasicMaterial stays white (HUD + Leroy/jug, no town) until a turn. Skip only if a still is already on screen. |
 | Load NEW.FLT flats without running `openflat` | HUD portrait stays the cowboy baked into `frame_3.png`. Engine `openstagefile` shows mainpanel (`noface` / `makeloop makeface`). `initall` `stoploop ("flat", "all")` then `opensetfile` must re-arm that loop. |
 | Tick `runQueued` during `boot()` | Animation loop and `advanceday` share the VM. `makeface` due during boot is dropped; `stoploop` did not clear `dueLoops`, so re-arm thought the portrait was still live. Do not tick scripts until boot returns; `stoploop` cancels due callbacks; `ensureHudPortrait` after boot. |

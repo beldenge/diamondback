@@ -4,8 +4,10 @@ export interface MovieFrame {
   container: number;
   hold_ticks: number;
   start_tick: number;
-  /** MOV rec+0. Non-zero = hold this still until click (`actionframe`). */
+  /** MOV rec+0: DF.EXE command count. 1 on inspect stills (WARNING/BONE). */
   action?: number;
+  /** Type-2 slot-0 last=2 with cmd count 1: hold this still until click. */
+  wait?: boolean;
 }
 
 export interface MovieClip {
@@ -55,12 +57,21 @@ export function isIntroMovie(name: string): boolean {
 }
 
 /**
- * MOV 80-byte frame rec+0. Non-zero is MOVPLAY `actionframe`: show the
- * still and wait for a click. WARNING/BONE use 1 on the inspect still.
- * DOG1 is all 0 so `playmovie` returns and Scene G12 can spawn Help.
+ * Inspect stills wait for a click. Rec+0 is DF.EXE's *command count*,
+ * not a boolean: grocpots/bells use 2–4 for jump/SFX commands. Prefer the
+ * extract `wait` flag. Old sidecars: only `action === 1` (WARNING/BONE).
  */
-export function movieFrameWaitsForClick(action: number | undefined): boolean {
-  return (action ?? 0) !== 0;
+export function movieFrameWaitsForClick(
+  action: number | undefined,
+  wait?: boolean,
+): boolean {
+  if (wait === true) {
+    return true;
+  }
+  if (wait === false) {
+    return false;
+  }
+  return action === 1;
 }
 
 /**

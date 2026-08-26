@@ -65,6 +65,19 @@ export function boardMouseGate(state: {
 }
 
 /**
+ * `mousedown` `arg` is the press. Checkers `xtocol`/`ytorow` that point
+ * as the start square. Using hover after `wait` / `cursorWork` turns a
+ * one-square drag into a jump (`delrow` ±2) and `makemove` clears the
+ * mid square — the player's own man if they dragged over him.
+ */
+export function mouseDispatchPoint<T>(kind: "world" | "board", press: T, hover: T | null): T {
+  if (kind === "board") {
+    return press;
+  }
+  return hover ?? press;
+}
+
+/**
  * Animation-frame idle pump. `forceupdate` already calls `runQueued` on
  * this stack to drain walkEnds. A second tick pump while `scriptBusy`
  * (blackjack `resetgame`) interleaved with that `forceupdate` and the

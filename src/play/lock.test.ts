@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boardMouseGate, idlePumpAllowed, worldInputBlocked, worldMouseGate } from "./lock";
+import { boardMouseGate, idlePumpAllowed, mouseDispatchPoint, worldInputBlocked, worldMouseGate } from "./lock";
 
 describe("world input lock", () => {
   const idle = { booting: false, busy: false, talking: false, flatsOpen: false };
@@ -62,6 +62,30 @@ describe("world mouse vs idle scriptBusy", () => {
     expect(boardMouseGate({ talking: true, scriptBusy: false, puppetOpen: false })).toBe(
       "ignore",
     );
+  });
+});
+
+describe("board press point", () => {
+  it("keeps checkers mousedown on the press square, not the drag hover", () => {
+    const press = { x: 153, y: 176 };
+    const hover = { x: 211, y: 118 };
+    expect(mouseDispatchPoint("board", press, hover)).toEqual(press);
+    expect(mouseDispatchPoint("world", press, hover)).toEqual(hover);
+    expect(mouseDispatchPoint("world", press, null)).toEqual(press);
+  });
+
+  it("a one-cell checkers drag is not two cells on the 29px grid", () => {
+    const press = { x: 153, y: 176 };
+    const hover = { x: 211, y: 118 };
+    const at = mouseDispatchPoint("board", press, hover);
+    const startCol = Math.trunc((at.x - 138) / 29);
+    const startRow = Math.trunc((at.y - 16) / 29);
+    const hoverCol = Math.trunc((hover.x - 138) / 29);
+    const hoverRow = Math.trunc((hover.y - 16) / 29);
+    expect(startCol).toBe(0);
+    expect(startRow).toBe(5);
+    expect(Math.abs(hoverRow - startRow)).toBe(2);
+    expect(Math.abs(hoverCol - startCol)).toBe(2);
   });
 });
 

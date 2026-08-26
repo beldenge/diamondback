@@ -3,7 +3,9 @@ import {
   AVATAR_BUTTONS,
   AVATAR_SLOT,
   avatarFlatAction,
+  boardStillNeedsBlit,
   examineHandName,
+  flatItemKey,
   HAND_SLOT,
   hitMacRect,
   hitsHandSlot,
@@ -17,6 +19,7 @@ import {
   mapCrossLit,
   propBlitFrame,
   propViewFrame,
+  sameFlatItems,
   stageFromClient,
   stageFromHudClick,
 } from "./hud";
@@ -136,6 +139,23 @@ describe("sprite hold while the next PNG loads", () => {
     expect(holdWhileLoading(true, true)).toBe(true);
     expect(holdWhileLoading(false, true)).toBe(true);
     expect(holdWhileLoading(false, false)).toBe(false);
+  });
+});
+
+describe("puzzle board overlay", () => {
+  it("does not reload the FLT still on every forceupdate", () => {
+    const url = "/extract/FLT/_CHECKERS/frame_3.png";
+    expect(boardStillNeedsBlit("", url)).toBe(true);
+    expect(boardStillNeedsBlit(url, url)).toBe(false);
+    expect(boardStillNeedsBlit(url, "/extract/FLT/_SALGAMES/frame_3.png")).toBe(true);
+  });
+
+  it("keeps piece identity so a drag can move one img without wiping the rest", () => {
+    const a = { name: "him3", url: "him.png", x: 10, y: 20, w: 26, h: 26 };
+    const b = { ...a, x: 40, y: 50 };
+    expect(flatItemKey(a, 0)).toBe("him3");
+    expect(sameFlatItems([a], [a])).toBe(true);
+    expect(sameFlatItems([a], [b])).toBe(false);
   });
 });
 

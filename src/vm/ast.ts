@@ -140,8 +140,11 @@ class Parser {
       params.push(this.expectName());
     }
     this.expectCmd(KW.rparen);
-    const body = this.parseBlock([KW.endcode]);
-    this.expectCmd(KW.endcode);
+    // CHECKERS PRP `win` / `rowcol2move` close with `endif` and no `endcode`.
+    const body = this.parseBlock([KW.endcode, KW.code]);
+    if (this.isCmd(KW.endcode)) {
+      this.i += 1;
+    }
     return { name, params, body };
   }
 
@@ -154,6 +157,10 @@ class Parser {
       }
       if (this.isComment()) {
         this.skipComment();
+        continue;
+      }
+      if (this.isStrayEnder(stops)) {
+        this.i += 1;
         continue;
       }
       body.push(this.parseStmt(stops));
@@ -452,6 +459,18 @@ class Parser {
       throw new ParseError("expected name", this.peek());
     }
     return name;
+  }
+
+  private isStrayEnder(stops: number[]): boolean {
+    const tok = this.peek();
+    if (!tok || tok.kind !== "opcode") {
+      return false;
+    }
+    const cmd = tok.cmd;
+    if (cmd !== KW.endif && cmd !== KW.endwhile && cmd !== KW.endfor && cmd !== KW.endswitch) {
+      return false;
+    }
+    return !stops.includes(cmd);
   }
 
   private isKeyword(cmd: number): boolean {

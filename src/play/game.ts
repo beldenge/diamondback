@@ -109,7 +109,7 @@ import {
 import { playStageRect, STAGE_HEIGHT, STAGE_WIDTH } from "./stage";
 import { parseScriptScene } from "./sceneName";
 import { PLAY_HUD_CHROME, RANGE_HUD_CHROME, PuppetUi } from "./ui";
-import { boardMouseGate, idlePumpAllowed, worldInputBlocked, worldMouseGate } from "./lock";
+import { boardMouseGate, idlePumpAllowed, mouseDispatchPoint, worldInputBlocked, worldMouseGate } from "./lock";
 import type { PuzzleBoard, PuzzleLabel } from "./puzzle";
 import {
   movieClipsStarting,
@@ -429,6 +429,8 @@ export class PlayGame implements WorldView {
       }
       return;
     }
+    // `playagame` `setvisible (false)` then BitBlts the FLT still.
+    this.setWorldVisible(false);
     this.flats.showBoard(board.stillUrl, board.items, board.labels);
   }
 
@@ -634,14 +636,14 @@ export class PlayGame implements WorldView {
   }
 
   async playMovie(
-    frames: { url: string; holdSec: number; action?: number }[],
+    frames: { url: string; holdSec: number; action?: number; wait?: boolean }[],
     clips: { url: string; startSec: number; channel?: string }[],
   ): Promise<void> {
     if (!frames.length) {
       return;
     }
     this.busy = true;
-    const playable: { url: string; holdSec: number; action?: number }[] = [];
+    const playable: { url: string; holdSec: number; action?: number; wait?: boolean }[] = [];
     this.movieImages.clear();
     for (const frame of frames) {
       try {
@@ -667,7 +669,7 @@ export class PlayGame implements WorldView {
     }));
     this.movieEl.hidden = false;
     try {
-      if (playable.some((frame) => movieFrameWaitsForClick(frame.action))) {
+      if (playable.some((frame) => movieFrameWaitsForClick(frame.action, frame.wait))) {
         await this.playActionMovie(playable, clips);
       } else {
         const passes = planMoviePasses(holds, timed);
@@ -693,11 +695,11 @@ export class PlayGame implements WorldView {
   }
 
   /**
-   * Frames with rec+0 ≠ 0 wait for a click (inspect still). Then the
-   * reel continues — warning fades out; dog1 never hits this path.
+   * Inspect stills wait for a click (`timeline.wait`, type-2 slot 0 last 2).
+   * Then the reel continues — warning fades out; dog1 never hits this path.
    */
   private async playActionMovie(
-    frames: { url: string; holdSec: number; action?: number }[],
+    frames: { url: string; holdSec: number; action?: number; wait?: boolean }[],
     clips: { url: string; startSec: number; channel?: string }[],
   ): Promise<void> {
     const starts = clips.map((clip) => clip.startSec);
@@ -717,7 +719,7 @@ export class PlayGame implements WorldView {
         });
       }
       t += hold;
-      if (movieFrameWaitsForClick(frame.action)) {
+      if (movieFrameWaitsForClick(frame.action, frame.wait)) {
         await this.waitMovieClick();
       }
     }
@@ -1406,7 +1408,7 @@ export class PlayGame implements WorldView {
       if (this.host.currentPuppet !== "none") {
         return;
       }
-      const at = this.hoverPoint ?? point;
+      const at = mouseDispatchPoint(kind, point, this.hoverPoint);
       this.host.pointer = at;
       await this.host.dispatchMouse(this.vm, at);
       if (kind === "board") {

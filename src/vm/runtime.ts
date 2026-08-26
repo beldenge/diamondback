@@ -359,7 +359,12 @@ export class VM {
 
   setVar(name: string, value: Value): void {
     const frame = this.frame();
-    if (frame?.locals.has(name) && !this.globalNames.has(name)) {
+    // Params are locals. `makemove (move, …)` reassigns `move` to the
+    // decoded delta while `automove` still holds the comma list in the
+    // global of the same name. Writing the global here left the packed
+    // triple in the local; `getVar` then treated `delrow` as 216 and
+    // `writeboard` padded `mainboard` off the 8×8.
+    if (frame?.locals.has(name)) {
       frame.locals.set(name, value);
       return;
     }

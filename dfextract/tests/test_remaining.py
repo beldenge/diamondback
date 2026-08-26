@@ -27,6 +27,7 @@ TOWN = DUST / "DATA" / "TOWN.SET"
 NITE = DUST / "DATA" / "NITE.SET"
 TARGET = DUST / "TARGET" / "TARGET.SET"
 CHECKERS_FLT = DUST / "CHECKERS" / "CHECKERS.FLT"
+CHECKERS_PRP = DUST / "CHECKERS" / "CHECKERS.PRP"
 SALGAMES_FLT = DUST / "SALGAMES" / "SALGAMES.FLT"
 SALGAMES_PRP = DUST / "SALGAMES" / "SALGAMES.PRP"
 NEW_FLT = DUST / "DATA" / "NEW.FLT"
@@ -326,6 +327,67 @@ class TestRemaining(unittest.TestCase):
             self.skipTest("CHECKERS.FLT not present")
         df = read_df_file(CHECKERS_FLT)
         self.assertTrue(looks_like_script(df.containers[1].data))
+
+    def test_checkers_flt_dumps_flat_0_and_exit_button(self) -> None:
+        from flt import parse_flt_buttons, parse_flt_flats, write_flt_extract
+
+        if not CHECKERS_FLT.exists():
+            self.skipTest("CHECKERS.FLT not present")
+        df = read_df_file(CHECKERS_FLT)
+        payload = parse_flt_flats(df.containers[0].data)
+        self.assertEqual(payload["stage"], "checkers.flt")
+        self.assertEqual(payload["flats"][0]["name"], "Flat 0")
+        self.assertEqual(payload["flats"][0]["script"], 2)
+        self.assertEqual(payload["flats"][0]["still"], 3)
+        hits = parse_flt_buttons(df.containers[4].data)
+        names = [row["name"] for row in hits]
+        self.assertEqual(names, ["exit", "avatar"])
+        self.assertEqual(hits[0]["left"], 52)
+        self.assertEqual(hits[0]["top"], 312)
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            write_flt_extract(df, dest, write_scripts=True, write_frames=False)
+            dumped = json.loads((dest / "flats.json").read_text(encoding="utf-8"))
+            self.assertEqual(dumped["flats"][0]["file"], "setcursor _arg__2.json")
+            exit_hit = next(hit for hit in dumped["flats"][0]["hits"] if hit["name"] == "exit")
+            self.assertEqual(exit_hit["file"], "mousedown _arg__5.json")
+            self.assertIn("code playcheckers ()", (dest / "playcheckers.txt").read_text())
+            self.assertIn("code quitgame ()", (dest / "setcursor _arg_.txt").read_text())
+
+    def test_checkers_table_is_painted_wood_not_skip(self) -> None:
+        """FLT still 3 is a full 512×384 painting (board on a crate).
+        Wood is authored indices, not codec skip."""
+        if not CHECKERS_FLT.exists():
+            self.skipTest("CHECKERS.FLT not present")
+        df = read_df_file(CHECKERS_FLT)
+        image = decode_indexed_image(df.containers[3].data)
+        self.assertEqual((image.width, image.height), (512, 384))
+        pal0 = 0
+        for y in range(40, 240):
+            for x in range(20, 140):
+                if image.pixels[y * 512 + x] == 0:
+                    pal0 += 1
+        self.assertEqual(pal0, 0)
+        sample = image.pixels[120 * 512 + 80]
+        self.assertNotIn(sample, (0, 255))
+
+    def test_checkers_prp_groups_point_at_piece_scripts(self) -> None:
+        from prp import parse_prp_groups, write_prp_extract
+
+        if not CHECKERS_PRP.exists():
+            self.skipTest("CHECKERS.PRP not present")
+        df = read_df_file(CHECKERS_PRP)
+        groups = {row["name"]: row for row in parse_prp_groups(df)}
+        self.assertEqual(groups["me1"]["script"], 2)
+        self.assertEqual(groups["him1"]["script"], 8)
+        self.assertEqual(groups["exitclick"]["script"], 14)
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            write_prp_extract(df, dest, write_scripts=True, write_frames=False)
+            payload = json.loads((dest / "groups.json").read_text(encoding="utf-8"))
+            self.assertEqual([row["name"] for row in payload], ["me1", "him1", "exitclick"])
+            self.assertIn("code automove ()", (dest / "automove_1.txt").read_text())
+            self.assertIn("code mousedown (arg)", (dest / "setcursor _arg__2.txt").read_text())
 
     def test_salgames_flt_dumps_comment_first_card_flats(self) -> None:
         from flt import looks_like_flt_script, parse_flt_buttons, write_flt_extract

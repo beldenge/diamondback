@@ -99,10 +99,38 @@ byte-identical. Hash before comparing notes with anyone else.
 - PE32, linker **2.55**, image base `0x10000000`.
 - Installed build timestamp **1995-07-25 05:07:38 UTC**, export name **`Checkers.486.release.dll`**. ALT31 build is **~1.5 minutes earlier**, export name **`Checkers.386.release.dll`**. Same size, same `PlugProc` RVA `0x22d0`, different bytes (CPU-tuned).
 - `.text` virtual size **9522**. **KERNEL32 only** — no GDI, no USER, no WINMM. The DLL is compute, not drawing.
-- One export: **`PlugProc` ordinal 1 @ RVA `0x22d0`**.
-- Verb **`checkmove`** is a C string inside the DLL, not an export. Scripts call `pluginfx("checkmove", mainboard, count, 0)` and `pluginfx("checkmove", mainboard, 0, 1)`.
-- Return value is a **string**. Empty = no moves. Non-empty is comma-separated moves; each move is word-split with `findword`. Mode `0` = AI/automove list; mode `1` = player jump list (as used in `PRP/_CHECKERS/automove_1.txt`).
-- Legal step/jump tests also exist **in scripts** (`goodmove`, `goodjump`, board as 64 space-separated cells, kings `"2"`/`"-2"`). The DLL is the search/AI (and jump generator), not the only copy of the rules.
+- One export: **`PlugProc` ordinal 1 @ RVA `0x22d0`** (VA `0x100022d0`).
+- Verb **`checkmove`** is a C string at `0x10005009`. Play writes the Pascal length at `0x10005008` during opcode 0 (register).
+
+**PlugProc ABI** (cdecl, returns `int16` error; `0` = ok):
+
+```
+short PlugProc(PluginMsg *msg, EngineCallback cb);
+```
+
+`cb` is stored at `0x10004184` and used for engine memcpy / atoi / itoa / strcat (opcodes `0x1f4`, `0x1fe`, `0x1ff`, `0x200`, `0x201`). Type tags: `0x3e8` none/int, `0x3e9` int, `0x3ea` string.
+
+`msg->op` at `+0`:
+
+| op | Meaning |
+|---|---|
+| 0 | Register: return Pascal `"checkmove"`, type `0x3ea` |
+| 1 | Shutdown |
+| 2 | Invoke. Args: string board `+4`, int lookahead `+0xa`, int mode `+0x10`. Result string written back over the board pointer |
+
+**`checkmove` (`FUN_10001000`)** — play copy is [`src/play/checkers.ts`](../../src/play/checkers.ts).
+
+- Skip the Pascal length byte, then parse 64 cells: spaces skipped; `'-'` plus one digit is −1/−2; else one digit. Stored as `int16[8][8]` at `.bss` `0x10004000`, index `row*8+col`.
+- Mode `0` = him (positive, maximise, init score −999). Mode `1` = me (negative, minimise, init 999).
+- Generate jumps (`FUN_10001b30`) first; only if that list is empty, steps (`FUN_100019f0`). Scan row 0..7, col 0..7, codes 1–4 then 5–8. `goodjump` / `goodstep` are `FUN_10001e60` / `FUN_10001c70` (same tests as the PRP scripts).
+- Lookahead `0`: return the first list entry (and the static eval). Depth `>0`: full minimax, **no alpha-beta**. Equal scores keep the earlier move. Recurse with the other side and `depth-1`. A jump applies its **first** continuation chain (same first-match rule) before the child node.
+- Eval: each cell adds `piece * 100`, plus a four-diagonal neighbour term (empty ±1, enemy `|piece|`, friend 0). Scores are 16-bit.
+- Return string: `numtostring(row) @ numtostring(col) @ numtostring(code)` then `","`. Jump codes `<=4` then `FUN_100015d0` appends the continuation chain the same way. Empty string = no moves. `findword(list, ",", n)` / `findword(word, "", 3)` is how scripts split it.
+- Codes match `decodemove`: `1`=(−2,+2), `2`=(+2,+2), `3`=(+2,−2), `4`=(−2,−2), `5`=(−1,+1), `6`=(+1,+1), `7`=(+1,−1), `8`=(−1,−1).
+
+Legal step/jump tests also exist **in scripts** (`goodmove`, `goodjump`). The DLL is the search / jump generator / encoding, not the only copy of the rules.
+
+Play trap (not this DLL): `automove` holds the comma list in `global move`; `makemove (move, person)` then `move = decodemove (…)` is the **parameter**. `setVar` must write that local (`src/vm/runtime.ts`). Preferring the global made `delrow` the packed triple (`216`) and `writeboard` padded `mainboard` off the 8×8 — Bolivar’s man vanished and jumps never captured. Overlay / click patches do not fix that. Book: [`src/play/README.md`](../../src/play/README.md) § Store checkers.
 
 ### `DUST.EXE`
 
@@ -474,8 +502,17 @@ Different A slots overlap. A new scene can fire its first line while
 the previous scene’s line is still playing (INTRO `clip_325` vs
 `clip_423`); the extract **holds** that new cue until the previous
 line’s original end so the two don’t stack. `0x40B820` / `0x40B840`
-are **ret stubs** in MOVPLAY (in-game `DF.EXE` may use them for
-click/action).
+are **ret stubs** in MOVPLAY. In-game `DF.EXE` `0x4196a0` runs rec+0
+**commands** at rec+0x24. Type 2 is 16 bytes: Mac rect, A-slot at +10
+(`0x419530` starts that 104-byte voice object), dest-frame at +14.
+`0x40ac60` is mouse-in-rect. last 0/1 stay (click-to-play). last>1
+plays and jumps (`0x419b73` writes the dest rec into the playhead).
+Pots/bells have rec+32 = 0; SFX live on those last>1 A-slots. Rec 1 of
+`bell.mov` is three bell rects (A1→rec 2, A2→rec 22, A3→rec 43) plus a
+full-frame dismiss to rec 64. Rec 1 and rec 9 of `grocpots.mov` both
+jump A1 to rec 2 — rec 9 is replay, not a second clang. Linear extract
+schedules each unique `(slot, dest)` at the dest rec’s start tick.
+Inspect wait is type 2 slot 0 last 2, not rec+0≠0.
 
 `singlesound` / `dualsound` / `multiplesound` are VM opcodes in the
 shared table; reel playback does not dispatch them. The reel mixer is
@@ -640,8 +677,8 @@ Do not pretend these are done:
 - Handler/function-pointer table next to the name table — we looked;
   the 6-byte records are `{name, id}` only. Dispatch is elsewhere
   (search / switch on id).
-- `PlugProc` calling convention and `checkmove` search internals
-  (9.5 KB of code; scripts already consume the result string).
+- ~~`PlugProc` calling convention and `checkmove` search internals~~
+  **done** — §3 CHECKERS.DLL. Play copy: `src/play/checkers.ts`.
 - MOVPLAY **B playlist wrap** (`header+0x8BE` last-item next pointer) —
   sequential play of the `+0x83E` list is implemented; whether the
   theme loops the list after the last entry is not pinned.
@@ -682,8 +719,8 @@ Do not pretend these are done:
 3. Treat `new.flt` as part of the game (travel, movies, day advance),
    not as something to re-invent in TypeScript from first principles —
    **port those procedures**.
-4. Implement native `pluginfx("checkmove")` as a function that matches
-   the string protocol; port `goodmove`/`goodjump` from the PRP scripts.
+4. ~~Implement native `pluginfx("checkmove")`~~ **done** (`src/play/checkers.ts`
+   plus extracted `goodmove`/`goodjump`).
 5. Never guess `unknown` rows (delay units, save format, MOV timing).
 6. CST world→still is §7a. Do not invent 90° FOV, `255`/tile, or a
    star nudge. Dead ends: [`src/play/README.md`](../../src/play/README.md).

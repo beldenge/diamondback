@@ -328,14 +328,31 @@ u16 B playlist length             @ 0x34
 ColorPalette[256]                 @ 0x3E  # 8 bytes each; MOVPLAY copy @ 0x40BC9A
 u16 B playlist[]                  @ 0x83E # 1-based indices into the B clips
 80-byte frame records             @ 0x8C2 # count × 80; MOVPLAY rep movsd ecx=20
-    u16 action                    @ rec+0 # 0 = play through; non-zero = `actionframe` (hold still until click). WARNING/BONE use 1 on the inspect still; DOG1 is all 0.
+    u16 cmd count                 @ rec+0 # DF.EXE in-engine command count (MOVPLAY ignores). 1 on inspect stills (WARNING/BONE). grocpots/bells use 2–4. Not a wait boolean.
     u32 extra hold                @ rec+2 # hold = max(default, extra); 0 → default
     u16 still container           @ rec+28 # relative to this scene header’s index
     u16 group-A slot              @ rec+32 # 0 = none; else 1-based, retrigger restarts
+    u32 cmd stream                @ rec+0x24 # offset in the scene header of DF.EXE commands
 ```
 
 Tick = `timeGetTime() * 3 / 50` = **60 Hz**. Duplicate each still
 `hold` times and encode at 60 fps.
+
+DF.EXE `0x4196a0` runs `cmd count` commands at `cmd stream`. Type 2 is
+16 bytes: Mac rect + 1-based A-slot at +10 + dest-frame at +14.
+`0x40ac60` is point-in-rect; `0x419530` plays the slot; `0x419b73`
+writes dest-frame into the playhead (0-based rec index, clamped to
+`header+0x18`). last 0/1 stay on this still (harmonica / MUSIPLAT keys)
+— do not auto-fire. last>1 plays and jumps. In-game those are click
+hotspots on a wait still (mission bells: three rects on rec 1 jumping
+to recs 2 / 22 / 43). The extract is a linear player, so it fires each
+unique `(slot, dest)` at that dest rec’s start tick — not at the wait
+still, and not again when a later still repeats the same jump (store
+pots rec 9 last=2 is “clang again”, not a second timed clang). Drop
+command SFX when a reel has more than 32 last>1 A-slot commands (`INFO/MAIN`).
+Type 2 slot 0 last 2 with cmd count 1 is inspect wait-for-click.
+MOVPLAY stubs this stream (`0x40B820`); dog1/intros cue audio with
+rec+32 instead.
 
 Then each later container is classified:
 

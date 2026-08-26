@@ -13,11 +13,14 @@ import {
 } from "./movies";
 
 describe("inspect movie hold", () => {
-  it("waits only on MOV actionframe stills, not every spotmovie", () => {
+  it("waits only on inspect stills, not grocpots/bell command counts", () => {
     expect(movieFrameWaitsForClick(1)).toBe(true);
-    expect(movieFrameWaitsForClick(8)).toBe(true);
+    expect(movieFrameWaitsForClick(2)).toBe(false);
+    expect(movieFrameWaitsForClick(4)).toBe(false);
     expect(movieFrameWaitsForClick(0)).toBe(false);
     expect(movieFrameWaitsForClick(undefined)).toBe(false);
+    expect(movieFrameWaitsForClick(2, true)).toBe(true);
+    expect(movieFrameWaitsForClick(1, false)).toBe(false);
   });
 
   it("does not skip the next real click after an actionframe pointerdown", () => {
@@ -36,9 +39,15 @@ describe("inspect movie hold", () => {
     const warn = JSON.parse(readFileSync(warning, "utf8")) as MovieTimeline;
     const dog = JSON.parse(readFileSync(dog1, "utf8")) as MovieTimeline;
     const item = JSON.parse(readFileSync(bone, "utf8")) as MovieTimeline;
-    expect(warn.frames.some((frame) => movieFrameWaitsForClick(frame.action))).toBe(true);
-    expect(item.frames.some((frame) => movieFrameWaitsForClick(frame.action))).toBe(true);
-    expect(dog.frames.some((frame) => movieFrameWaitsForClick(frame.action))).toBe(false);
+    expect(
+      warn.frames.some((frame) => movieFrameWaitsForClick(frame.action, frame.wait)),
+    ).toBe(true);
+    expect(
+      item.frames.some((frame) => movieFrameWaitsForClick(frame.action, frame.wait)),
+    ).toBe(true);
+    expect(
+      dog.frames.some((frame) => movieFrameWaitsForClick(frame.action, frame.wait)),
+    ).toBe(false);
   });
 });
 
@@ -73,6 +82,48 @@ describe("movie clock", () => {
     expect(movieClipsStarting(starts, 20 / 60, 25 / 60)).toEqual([]);
     expect(movieClipsStarting(starts, 25 / 60, 26 / 60)).toEqual([1]);
     expect(movieClipsStarting(starts, 19 / 60, 27 / 60)).toEqual([0, 1]);
+  });
+});
+
+describe("spotmovie SFX commands", () => {
+  it("schedules one grocpots clang at the swing dest-frame", () => {
+    const path = resolve("dfextract/out/MOV/_GROCPOTS/timeline.json");
+    if (!existsSync(path)) {
+      return;
+    }
+    const timeline = JSON.parse(readFileSync(path, "utf8")) as MovieTimeline;
+    expect(timeline.frames.some((frame) => movieFrameWaitsForClick(frame.action, frame.wait))).toBe(
+      false,
+    );
+    expect(timeline.clips ?? []).toEqual([{ container: 1, start_tick: 42, channel: "A1" }]);
+  });
+
+  it("schedules each mission-bell clip at its dest-frame", () => {
+    const path = resolve("dfextract/out/MOV/_BELL/timeline.json");
+    if (!existsSync(path)) {
+      return;
+    }
+    const timeline = JSON.parse(readFileSync(path, "utf8")) as MovieTimeline;
+    expect(timeline.frames.some((frame) => movieFrameWaitsForClick(frame.action, frame.wait))).toBe(
+      false,
+    );
+    expect(timeline.clips ?? []).toEqual([
+      { container: 1, start_tick: 18, channel: "A1" },
+      { container: 2, start_tick: 78, channel: "A2" },
+      { container: 3, start_tick: 141, channel: "A3" },
+    ]);
+  });
+
+  it("does not dump harmonica notes on inspect open", () => {
+    const path = resolve("dfextract/out/MOV/_HARMON/timeline.json");
+    if (!existsSync(path)) {
+      return;
+    }
+    const timeline = JSON.parse(readFileSync(path, "utf8")) as MovieTimeline;
+    expect(timeline.clips ?? []).toEqual([]);
+    expect(timeline.frames.some((frame) => movieFrameWaitsForClick(frame.action, frame.wait))).toBe(
+      true,
+    );
   });
 });
 

@@ -101,12 +101,12 @@ plugin ("writestats", "gblw")                          # boot
 move = pluginfx ("checkmove", mainboard, count, 0)     # checkers
 ```
 
-Checkers (and possibly fight / saloon / scorpion) **rules may live in
-the DLL**, not in FLT/PRP text. The scripts only show when the plugin
-is invoked and which strings/boards are passed.
-
-**Fill this with:** play, or disassemble the DLL. Do not reconstruct
-legal checkers moves from `playcheckers.txt` alone.
+Legal step/jump tests live in PRP/_CHECKERS (`goodmove` / `goodjump`).
+`CHECKERS.DLL` `PlugProc` / `checkmove` is the AI search and the
+comma-separated `row col code` encoding. Play copy:
+[`src/play/checkers.ts`](../../src/play/checkers.ts). Writeup:
+[`dustdecompile/docs/findings.md`](../../dustdecompile/docs/findings.md)
+§ CHECKERS.DLL. Fight / saloon / scorpion are still script-only.
 
 ### 4. Presentation the scripts never describe
 
@@ -147,6 +147,11 @@ Layout: [file-types.md](file-types.md) (MOV).
   the 1-based slot. Retrigger restarts that slot (does not stack).
   A new scene that would overlap the previous scene’s still-playing A
   line is **held** until that line’s original end (INTRO 325 vs 423).
+  In-game, DF.EXE also fires A-slots from the rec+0x24 command stream
+  (type 2 last>1, dest-frame jump at `0x419b73`). MOVPLAY ignores that
+  stream, so pots/bells are silent there; play uses the extract clips
+  timed at each unique dest rec (not the wait still, not replay
+  hotspots).
 - **Group B** (`u16 +0x1C`): theme playlist at `+0x83E`. Sequential, one
   channel. A later scene with `n_b=0` keeps the bed running.
 - Stills are **deltas into one framebuffer**. Scene headers are not
@@ -205,6 +210,9 @@ bit-identical state. Do not invent the `.rtd` layout.
    day change. Those hit the common gaps.
 
 The extract plus `dustdecompile --rsrc` is enough to start a TypeScript
-VM. Remaining engine holes (`delay` units, `.rtd` layout, checkers
-search, viseme mapping) get filled while implementing verbs, not as a
-pre-req to 100% of `DF.EXE`.
+VM. Remaining engine holes (`delay` units, `.rtd` layout, viseme mapping)
+get filled while implementing verbs, not as a pre-req to 100% of `DF.EXE`.
+Checkers `checkmove` is implemented. Movement is PRP `makemove` /
+`writeboard`; a param named `move` is local even though `automove`
+declares `global move` ([`src/play/README.md`](../../src/play/README.md)
+§ Store checkers).

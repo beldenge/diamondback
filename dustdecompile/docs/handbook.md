@@ -218,8 +218,10 @@ Call a native plugin and use the return value.
 - move = pluginfx ("checkmove", mainboard, count, 0)
 - playerjumps = pluginfx ("checkmove", mainboard, 0, 1)
 - Empty string means no moves (AI loss / no jumps).
-- Returned move list is comma-separated; each move is words parsed with findword.
-- Player-legal step/jump tests also exist in PRP/_CHECKERS scripts (goodmove/goodjump). The DLL is the AI / jump-generator, not the only rules copy.
+- Returned move list is comma-separated row/col/code triples (trailing comma). Codes 1-4 jump, 5-8 step. `findword(list, ",", n)` then `findword(word, "", 3)`.
+- Mode 0 = him AI minimax (lookahead ply, no alpha-beta). Mode 1 lookahead 0 = player jump list.
+- Player-legal step/jump tests also exist in PRP/_CHECKERS scripts (goodmove/goodjump). Play copy of the DLL is `src/play/checkers.ts`.
+- automove keeps the comma list in global move; makemove (move, person) reassigns its parameter to the decoded delta. That assignment is local — writing the global made delrow the packed triple and writeboard padded mainboard off the 8x8.
 - Example: `pluginfx ("checkmove", mainboard, count, 0)`  (PRP/_CHECKERS/automove_1.txt:14)
 - Example: `pluginfx ("checkmove", mainboard, 0, 1)`  (PRP/_CHECKERS/automove_1.txt:48)
 
@@ -699,6 +701,7 @@ Declare globals (persist across procedures / save).
 - **Args:** comma-separated names
 - **Calls in dump:** 0
 - Boot declares day, clock, phase, handitem, …
+- A parameter of the same name is still a local of that proc. Assignment does not clobber the global (checkers `makemove (move)` vs `automove` `global move`).
 
 ### `local` (4003, language)
 
@@ -877,7 +880,6 @@ Fade down.
 - MOV reel timing / audio cues (see dfextract reconstruction-gaps §4a).
 - `walktostar` named dest uses the SET polyline at waypoint +0x18 (not BFS). Scripts wait with `while iswalk { forceupdate }`. `actorxyz` is SET units (256/tile in the EXE; scripts often `/ 256`). `actorspeed` is units per 20 Hz game frame.
 - Save file layout (`savegame` / `opengame`).
-- `pluginfx("checkmove", …)` encoding inside CHECKERS.DLL (scripts already parse the returned string).
 - UI chrome besides cursors (bevel / inventory layout). Cursors:
   `dustdecompile/out/rsrc/cursors/{touch,arrow,watch,…}.png`.
 - How `animLogic` (now in `texts.csv`) maps to jaw/mouth frames.

@@ -35,6 +35,13 @@ WARNING = DUST / "MOVIES" / "WARNING.MOV"
 DOG1 = DUST / "MOVIES" / "DOG1.MOV"
 NITEWARN = DUST / "MOVIES" / "NITEWARN.MOV"
 BONE = DUST / "INVEN" / "BONE.MOV"
+GROCPOTS = DUST / "MOVIES" / "GROCPOTS.MOV"
+BELL = DUST / "MOVIES" / "BELL.MOV"
+NITEBELL = DUST / "MOVIES" / "NITEBELL.MOV"
+KETTLE = DUST / "MOVIES" / "KETTLE.MOV"
+HARMON = DUST / "INVEN" / "HARMON.MOV"
+MAIN = DUST / "INFO" / "MAIN.MOV"
+HWIN = DUST / "MOVIES" / "HWIN.MOV"
 SKIP = "Dust CD MOV not present"
 
 
@@ -191,7 +198,10 @@ class TestActionframeWait(unittest.TestCase):
         assert warning is not None and dog is not None and bone is not None
         self.assertEqual([f.action for f in warning.frames], [0, 1, 0])
         self.assertEqual([f.action for f in bone.frames], [0, 1, 0])
+        self.assertEqual([f.wait for f in warning.frames], [False, True, False])
+        self.assertEqual([f.wait for f in bone.frames], [False, True, False])
         self.assertTrue(all(f.action == 0 for f in dog.frames))
+        self.assertTrue(all(not f.wait for f in dog.frames))
 
     def test_nitewarn_odd_size_still_parses_actionframe(self) -> None:
         if not NITEWARN.is_file():
@@ -201,6 +211,85 @@ class TestActionframeWait(unittest.TestCase):
         assert tl is not None
         self.assertEqual(len(tl.frames), 3)
         self.assertEqual([f.action for f in tl.frames], [0, 1, 0])
+        self.assertEqual([f.wait for f in tl.frames], [False, True, False])
+
+
+@unittest.skipUnless(GROCPOTS.is_file() and BELL.is_file(), SKIP)
+class TestSpotmovieCommandSfx(unittest.TestCase):
+    def test_grocpots_clangs_once_at_the_swing_dest_frame(self) -> None:
+        """Rec 1 and rec 9 both jump A1 to rec 2. Rec 9 is replay, not a second clang."""
+        tl = parse_reel_timeline(read_df_file(GROCPOTS))
+        self.assertIsNotNone(tl)
+        assert tl is not None
+        self.assertFalse(any(f.wait for f in tl.frames))
+        self.assertEqual(tl.frames[2].start_tick, 42)
+        clips = [(c.start_tick, c.container, c.channel) for c in tl.clip_starts]
+        self.assertEqual(clips, [(42, 1, "A1")])
+
+    def test_bell_rings_each_a_slot_at_its_dest_frame(self) -> None:
+        """Three click rects on rec 1 jump to recs 2 / 22 / 43 (the three swings)."""
+        tl = parse_reel_timeline(read_df_file(BELL))
+        self.assertIsNotNone(tl)
+        assert tl is not None
+        self.assertFalse(any(f.wait for f in tl.frames))
+        self.assertEqual(tl.frames[2].start_tick, 18)
+        self.assertEqual(tl.frames[22].start_tick, 78)
+        self.assertEqual(tl.frames[43].start_tick, 141)
+        clips = [(c.container, c.channel, c.start_tick) for c in tl.clip_starts]
+        self.assertEqual(
+            clips,
+            [(1, "A1", 18), (2, "A2", 78), (3, "A3", 141)],
+        )
+
+    def test_nitebell_matches_bell_dest_frames(self) -> None:
+        if not NITEBELL.is_file():
+            self.skipTest("NITEBELL.MOV not present")
+        tl = parse_reel_timeline(read_df_file(NITEBELL))
+        self.assertIsNotNone(tl)
+        assert tl is not None
+        clips = [(c.container, c.channel, c.start_tick) for c in tl.clip_starts]
+        self.assertEqual(
+            clips,
+            [(1, "A1", 33), (2, "A2", 93), (3, "A3", 156)],
+        )
+
+    def test_kettle_replay_hotspots_do_not_retrigger(self) -> None:
+        if not KETTLE.is_file():
+            self.skipTest("KETTLE.MOV not present")
+        tl = parse_reel_timeline(read_df_file(KETTLE))
+        self.assertIsNotNone(tl)
+        assert tl is not None
+        clips = [(c.start_tick, c.channel) for c in tl.clip_starts]
+        self.assertEqual(clips, [(39, "A1"), (75, "A2")])
+
+    def test_harmonica_notes_are_click_hotspots_not_auto_sfx(self) -> None:
+        if not HARMON.is_file():
+            self.skipTest("HARMON.MOV not present")
+        tl = parse_reel_timeline(read_df_file(HARMON))
+        self.assertIsNotNone(tl)
+        assert tl is not None
+        self.assertEqual(list(tl.clip_starts), [])
+        self.assertTrue(any(f.wait for f in tl.frames))
+
+    def test_info_main_does_not_auto_fire_jump_hotspots(self) -> None:
+        if not MAIN.is_file():
+            self.skipTest("MAIN.MOV not present")
+        tl = parse_reel_timeline(read_df_file(MAIN))
+        self.assertIsNotNone(tl)
+        assert tl is not None
+        a_clips = [c for c in tl.clip_starts if (c.channel or "").startswith("A")]
+        self.assertLessEqual(len(a_clips), 8)
+        beds = [c for c in tl.clip_starts if c.channel == "B"]
+        self.assertGreaterEqual(len(beds), 1)
+
+    def test_hotel_window_sfx_from_command_stream(self) -> None:
+        if not HWIN.is_file():
+            self.skipTest("HWIN.MOV not present")
+        tl = parse_reel_timeline(read_df_file(HWIN))
+        self.assertIsNotNone(tl)
+        assert tl is not None
+        clips = [(c.start_tick, c.channel) for c in tl.clip_starts]
+        self.assertEqual(clips, [(33, "A1"), (36, "A2")])
 
 
 @unittest.skipUnless(SALUP.is_file(), SKIP)

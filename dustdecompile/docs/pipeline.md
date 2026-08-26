@@ -33,12 +33,12 @@ it, play-verify.
    verbs *do*, Titanic-vs-Dust name aliases, engine hooks, `new.flt`
    library (`spotmovie`, `gototown`, …), call sites from `dfextract/out`.
    Marked proven / inferred / unknown. Do not invent the unknown rows.
-2. **Native plugins / MOVPLAY / rsrc.** Checkers `PlugProc` encoding;
-   movie holds, A/B mixer, framebuffer + per-scene palettes
+2. **Native plugins / MOVPLAY / rsrc.** Checkers `PlugProc` / `checkmove`
+   encoding is in play (`src/play/checkers.ts`, findings.md §3).
+   Movie holds, A/B mixer, framebuffer + per-scene palettes
    (findings.md §7). Cursors/menu/strings from `DF.EXE` `.rsrc`
-   (`--rsrc`). dfextract `--video` implements the mux (opt-in). Ghidra
-   optional for checkers search and `.rtd`. B playlist wrap and VM
-   `*sound` handlers still open.
+   (`--rsrc`). dfextract `--video` implements the mux (opt-in).
+   `.rtd` still open. B playlist wrap and VM `*sound` handlers still open.
 3. **TypeScript remake, one subsystem at a time,** using scripts + this
    handbook so an agent does not guess verb meanings.
 4. **Play-verify.** Jenix money, one door, checkers, one death, day

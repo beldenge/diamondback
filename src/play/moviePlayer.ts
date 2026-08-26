@@ -75,6 +75,7 @@ export class MoviePlayer {
       url: frameUrl(folder, frame.container),
       holdSec: Math.max(1, frame.hold_ticks || 0) / hz,
       action: frame.action ?? 0,
+      wait: frame.wait,
     }));
     const clips = (timeline.clips ?? []).map((clip) => ({
       url: clipUrl(folder, clip.container),
@@ -111,7 +112,7 @@ export class MoviePlayer {
     report(this.images.size, "Playing");
     const holds = frames.map((frame) => frame.holdSec);
     const stillSec = holds.reduce((sum, hold) => sum + hold, 0);
-    if (frames.some((frame) => movieFrameWaitsForClick(frame.action))) {
+    if (frames.some((frame) => movieFrameWaitsForClick(frame.action, frame.wait))) {
       opts.onProgress?.(0, stillSec || movieDurationSec(timeline));
       await this.playAction(frames, clips, gen, opts.waitClick, opts.onProgress);
       if (gen === this.gen) {
@@ -196,7 +197,7 @@ export class MoviePlayer {
   }
 
   private async playAction(
-    frames: { url: string; holdSec: number; action?: number }[],
+    frames: { url: string; holdSec: number; action?: number; wait?: boolean }[],
     clips: { url: string; startSec: number; channel?: string }[],
     gen: number,
     waitClick?: () => Promise<void>,
@@ -225,7 +226,7 @@ export class MoviePlayer {
         });
       }
       t += hold;
-      if (movieFrameWaitsForClick(frame.action) && waitClick) {
+      if (movieFrameWaitsForClick(frame.action, frame.wait) && waitClick) {
         await waitClick();
       }
     }

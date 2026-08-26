@@ -10,6 +10,8 @@ const jenixDay1 = resolve(here, "../../dfextract/out/PUP/_JENIX/day1.json");
 const bootFile = resolve(here, "../../dfextract/out/BOOT/_BOOTFILE/Script 1.json");
 const newFlt = resolve(here, "../../dfextract/out/FLT/_NEW/setcursor _arg_.json");
 const gangCast = resolve(here, "../../dfextract/out/CST/_GANG/Cast.json");
+const checkersAuto = resolve(here, "../../dfextract/out/PRP/_CHECKERS/automove_1.json");
+const checkersPiece = resolve(here, "../../dfextract/out/PRP/_CHECKERS/setcursor _arg__2.json");
 
 describe("parseScript", () => {
   it("parses Jenix day1 runyoself", () => {
@@ -41,6 +43,24 @@ describe("parseScript", () => {
       names.push(...procs.map((p) => p.name));
     }
     expect(names).toEqual(expect.arrayContaining(["boot", "advanceday", "initactors", "runpuppet"]));
+  });
+
+  it("parses checkers procs that close with endif instead of endcode", () => {
+    if (!existsSync(checkersAuto) || !existsSync(checkersPiece)) {
+      return;
+    }
+    const auto = parseScript(
+      (JSON.parse(readFileSync(checkersAuto, "utf8")) as ScriptFile).tokens,
+    );
+    expect(auto.map((p) => p.name)).toEqual(
+      expect.arrayContaining(["automove", "makemove", "win", "isking", "goodjump"]),
+    );
+    const piece = parseScript(
+      (JSON.parse(readFileSync(checkersPiece, "utf8")) as ScriptFile).tokens,
+    );
+    expect(piece.map((p) => p.name)).toEqual(
+      expect.arrayContaining(["mousedown", "goodloc", "rowcol2move", "sayjump"]),
+    );
   });
 });
 
@@ -241,5 +261,61 @@ describe("VM control flow", () => {
     const result = await vm.runProc(procs[0]!, [3]);
     expect(result.value).toBe(6);
     expect(vm.globals.get("out")).toBe(6);
+  });
+});
+
+describe("VM param vs global", () => {
+  const host = { async call() { return 0; } };
+
+  it("reassignment of a param does not clobber a global of the same name", async () => {
+    const makemove = {
+      name: "makemove",
+      params: ["move"],
+      body: [
+        {
+          type: "assign" as const,
+          target: { type: "var" as const, name: "move" },
+          value: { type: "str" as const, value: "1 -1 " },
+        },
+        { type: "return" as const, value: { type: "var" as const, name: "move" } },
+      ],
+    };
+    const vm = new VM(host);
+    vm.globalNames.add("move");
+    vm.globals.set("move", "217,");
+    expect((await vm.runProc(makemove, ["217"])).value).toBe("1 -1 ");
+    expect(vm.globals.get("move")).toBe("217,");
+  });
+
+  it("the call argument is the param even when a leftover global has that name", async () => {
+    const read = {
+      name: "readmove",
+      params: ["move"],
+      body: [{ type: "return" as const, value: { type: "var" as const, name: "move" } }],
+    };
+    const vm = new VM(host);
+    vm.globalNames.add("move");
+    vm.globals.set("move", "999,");
+    expect((await vm.runProc(read, ["525"])).value).toBe("525");
+    expect(vm.globals.get("move")).toBe("999,");
+  });
+
+  it("assignment still updates a global when the frame has no local of that name", async () => {
+    const win = {
+      name: "win",
+      params: [],
+      body: [
+        {
+          type: "assign" as const,
+          target: { type: "var" as const, name: "move" },
+          value: { type: "str" as const, value: "done" },
+        },
+      ],
+    };
+    const vm = new VM(host);
+    vm.globalNames.add("move");
+    vm.globals.set("move", "217,");
+    await vm.runProc(win);
+    expect(vm.globals.get("move")).toBe("done");
   });
 });
