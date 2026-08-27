@@ -212,6 +212,21 @@ describe("VM while cap", () => {
 });
 
 describe("VM control flow", () => {
+  it("loads named objects before sendtoactor / inObject", async () => {
+    const ensured: string[] = [];
+    const host: OpcodeHost = {
+      async ensureObject(object, name) {
+        ensured.push(`${object}:${name}`);
+      },
+      async call(): Promise<Value> {
+        return 0;
+      },
+    };
+    const vm = new VM(host);
+    await vm.inObject("actor", "leroy", async () => 0);
+    expect(ensured).toEqual(["actor:leroy"]);
+  });
+
   it("runs for loops and returns", async () => {
     const host: OpcodeHost = {
       async call(): Promise<Value> {

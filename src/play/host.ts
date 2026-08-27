@@ -272,6 +272,30 @@ const SET_FILE: Record<string, string> = {
   "target.set": "_TARGET",
 };
 
+/**
+ * `horse2` / `chicken3` share `horse1` / `chicken1` scripts. `birdtarg2`
+ * shares `birdtarg`. Exact folder names win.
+ */
+export function actorTemplateFolder(
+  name: string,
+  folders: readonly string[],
+): string | undefined {
+  const key = name.toLowerCase();
+  const exact = folders.find((folder) => folder.toLowerCase() === key);
+  if (exact) {
+    return exact;
+  }
+  const m = /^(.+?)(\d+)$/.exec(key);
+  if (!m || m[2] === "1") {
+    return undefined;
+  }
+  const base = m[1];
+  return (
+    folders.find((folder) => folder.toLowerCase() === `${base}1`) ??
+    folders.find((folder) => folder.toLowerCase() === base)
+  );
+}
+
 export class DustHost implements OpcodeHost {
   readonly index = new ScriptIndex();
   readonly actors = new Map<string, ActorState>();
@@ -355,6 +379,19 @@ export class DustHost implements OpcodeHost {
   private shopSprites = new Map<string, Record<string, Record<string, SpritePlace[]>>>();
   private readonly missingScripts = new Set<string>();
   private readonly scriptProcs = new Map<string, Proc[]>();
+  private readonly loadedCasts = new Set<string>();
+  private readonly loadedShops = new Set<string>();
+  private readonly loadedActorScripts = new Set<string>();
+  private readonly actorScriptLoads = new Map<string, Promise<void>>();
+  private readonly castBags = new Map<
+    string,
+    {
+      dir: string;
+      folders: string[];
+      sprites: Record<string, Record<string, SpritePlace[]>>;
+      timing: Record<string, Record<string, number[]>>;
+    }
+  >();
   private readonly setGraphs = new Map<string, SetGraph>();
   private readonly waypointBags = new Map<string, { points: Waypoint[]; paths: StarPath[] }>();
   /** FLT `flats.json` names, 1-based for `gotoflat (2)`. */
@@ -410,6 +447,13 @@ export class DustHost implements OpcodeHost {
       return undefined;
     }
     return sandboxLeroyRangeRunyoself();
+  }
+
+  async ensureObject(object: string, name: string): Promise<void> {
+    if (object !== "actor" || !name) {
+      return;
+    }
+    await this.ensureActor(name);
   }
 
   lookupKeys(ctx: VM): string[] {
@@ -850,7 +894,6 @@ export class DustHost implements OpcodeHost {
       case "opencastfile": {
         const file = str(args[0]);
         await this.openCast(file);
-        await this.flushOpenActors(ctx);
         const stem = file.replace(/\.cst$/i, "").toLowerCase();
         const hook = this.index.lookup([`cast:${stem}`], "opencast");
         if (hook) {
@@ -1776,6 +1819,77 @@ export class DustHost implements OpcodeHost {
     return actor;
   }
 
+  private async ensureActor(name: string): Promise<void> {
+    const key = name.toLowerCase();
+    const pending = this.actorScriptLoads.get(key);
+    if (pending) {
+      await pending;
+      return;
+    }
+    const job = this.loadActorScript(key);
+    this.actorScriptLoads.set(key, job);
+    await job;
+  }
+
+  private async loadActorScript(key: string): Promise<void> {
+    if (this.loadedActorScripts.has(key)) {
+      return;
+    }
+    const source = this.resolveActorSource(key);
+    if (!source) {
+      this.loadedActorScripts.add(key);
+      return;
+    }
+    const templateKey = source.folder.toLowerCase();
+    if (templateKey !== key) {
+      await this.ensureActor(source.folder);
+      this.instanceActor(templateKey, key);
+      this.loadedActorScripts.add(key);
+      return;
+    }
+    const actor = this.namedActor(key);
+    actor.cast = source.stem;
+    actor.spriteRoot = source.dir;
+    this.attachCastSprites(actor, source.folder);
+    await this.addScriptFile(`actor:${key}`, `${source.dir}/${source.folder}/Script.json`);
+    this.loadedActorScripts.add(key);
+  }
+
+  private resolveActorSource(
+    name: string,
+  ): { stem: string; dir: string; folder: string } | undefined {
+    for (const [stem, bag] of this.castBags) {
+      const names = bag.folders.length ? bag.folders : Object.keys(bag.sprites);
+      const folder = actorTemplateFolder(name, names);
+      if (folder) {
+        return { stem, dir: bag.dir, folder };
+      }
+    }
+    return undefined;
+  }
+
+  private attachCastSprites(actor: ActorState, folder: string): void {
+    const bag = this.castBags.get(actor.cast);
+    if (!bag) {
+      return;
+    }
+    const poses =
+      bag.sprites[folder] ??
+      bag.sprites[actor.name] ??
+      Object.entries(bag.sprites).find(([key]) => key.toLowerCase() === folder.toLowerCase())?.[1];
+    if (!poses) {
+      return;
+    }
+    actor.spriteRoot = bag.dir;
+    actor.sprites = poses;
+    actor.standSprites = poses.stand ?? [];
+    actor.walkSprites = poses.walk ?? poses.lowwalk ?? [];
+    actor.drinkSprites = poses.drink ?? [];
+    const tables = bag.timing[folder] ?? bag.timing[actor.name] ?? bag.timing[folder.toLowerCase()] ?? {};
+    actor.poseTiming = tables;
+    actor.walkTiming = timingForPose(tables, actor.pose || "walk");
+  }
+
   namedProp(name: string): PropState {
     return this.ensureProp(name);
   }
@@ -2095,19 +2209,13 @@ export class DustHost implements OpcodeHost {
     const timing = await fetchJson<Record<string, Record<string, number[]>>>(
       extractUrl(`${dir}/timing.json`),
     ).catch(() => ({} as Record<string, Record<string, number[]>>));
-    const cast = dir.replace(/^CST\/_/, "").toLowerCase();
-    for (const [name, poses] of Object.entries(actors)) {
-      const actor = this.namedActor(name);
-      actor.cast = cast;
-      actor.spriteRoot = dir;
-      actor.sprites = poses;
-      actor.standSprites = poses.stand ?? [];
-      actor.walkSprites = poses.walk ?? poses.lowwalk ?? [];
-      actor.drinkSprites = poses.drink ?? [];
-      const tables = timing[name] ?? timing[name.toLowerCase()] ?? {};
-      actor.poseTiming = tables;
-      actor.walkTiming = timingForPose(tables, actor.pose || "walk");
-    }
+    const stem = dir.replace(/^CST\/_/, "").toLowerCase();
+    this.castBags.set(stem, {
+      dir,
+      folders: await this.listActorFolders(dir),
+      sprites: actors,
+      timing,
+    });
   }
 
   private async openStage(name: string): Promise<void> {
@@ -2120,9 +2228,7 @@ export class DustHost implements OpcodeHost {
     this.stageStills.clear();
     this.puzzleLabels = [];
     this.currentStageName = stem;
-    for (const rel of stageScriptRels(stem)) {
-      await this.addScriptFile("stage", rel);
-    }
+    await Promise.all(stageScriptRels(stem).map((rel) => this.addScriptFile("stage", rel)));
     const flats = await fetchJson<{
       stage?: string;
       flats?: {
@@ -2190,11 +2296,12 @@ export class DustHost implements OpcodeHost {
       return;
     }
     const shop = stem;
+    if (this.loadedShops.has(shop)) {
+      return;
+    }
     const key = `shop:${shop}`;
     const groups = shop === "inven" ? INVEN_GROUPS : HOUSE_GROUPS;
-    for (const rel of shopScriptRels(shop)) {
-      await this.addScriptFile(key, rel);
-    }
+    await Promise.all(shopScriptRels(shop).map((rel) => this.addScriptFile(key, rel)));
     const folder = shop === "inven" ? "PRP/_INVEN" : "PRP/_HOUSE";
     const sheet = await loadPropSheet(folder);
     const byGroup: Record<string, Record<string, SpritePlace[]>> = {};
@@ -2218,6 +2325,7 @@ export class DustHost implements OpcodeHost {
     const timing = await fetchJson<Record<string, Record<string, number[]>>>(
       extractUrl(`${folder}/timing.json`),
     ).catch(() => ({} as Record<string, Record<string, number[]>>));
+    const scriptJobs: Promise<void>[] = [];
     for (const group of groups) {
       const prop = this.ensureProp(group.name);
       prop.shop = shop;
@@ -2227,20 +2335,24 @@ export class DustHost implements OpcodeHost {
       prop.poseTiming = Object.fromEntries(
         Object.entries(tables).map(([view, seq]) => [view.toLowerCase(), seq]),
       );
+      const propKey = `prop:${group.name.toLowerCase()}`;
       for (const rel of propScriptRels(group)) {
-        await this.addScriptFile(`prop:${group.name.toLowerCase()}`, rel);
+        scriptJobs.push(this.addScriptFile(propKey, rel));
       }
       this.pendingOpenProps.push(group.name.toLowerCase());
     }
+    await Promise.all(scriptJobs);
+    this.loadedShops.add(shop);
   }
 
   private async openPuzzleShop(stem: string): Promise<void> {
     const folder = `PRP/_${stem.toUpperCase()}`;
     const key = `shop:${stem}`;
     this.puzzleShop = stem;
-    for (const rel of puzzleShopScriptRels(stem)) {
-      await this.addScriptFile(key, rel);
+    if (this.loadedShops.has(stem)) {
+      return;
     }
+    await Promise.all(puzzleShopScriptRels(stem).map((rel) => this.addScriptFile(key, rel)));
     const groups = await fetchJson<{ name: string; script: number }[]>(
       extractUrl(`${folder}/groups.json`),
     ).catch(() => [] as { name: string; script: number }[]);
@@ -2267,6 +2379,7 @@ export class DustHost implements OpcodeHost {
     const timing = await fetchJson<Record<string, Record<string, number[]>>>(
       extractUrl(`${folder}/timing.json`),
     ).catch(() => ({} as Record<string, Record<string, number[]>>));
+    const scriptJobs: Promise<void>[] = [];
     for (const group of groups) {
       const name = group.name.toLowerCase();
       const prop = this.ensureProp(name);
@@ -2284,10 +2397,12 @@ export class DustHost implements OpcodeHost {
         Object.entries(tables).map(([view, seq]) => [view.toLowerCase(), seq]),
       );
       for (const rel of puzzlePropScriptRels(stem, group.script)) {
-        await this.addScriptFile(`prop:${name}`, rel);
+        scriptJobs.push(this.addScriptFile(`prop:${name}`, rel));
       }
       this.pendingOpenProps.push(name);
     }
+    await Promise.all(scriptJobs);
+    this.loadedShops.add(stem);
     // Pull lever: FLT button has only setcursor; the handle prop owns mousedown.
     if (this.index.lookup(["prop:handle"], "mousedown")) {
       this.index.copyKey("prop:handle", "button:flat 3:pull");
@@ -2395,12 +2510,14 @@ export class DustHost implements OpcodeHost {
   }
 
   private pendingOpenProps: string[] = [];
-  private pendingOpenActors: string[] = [];
 
   private async openCast(name: string): Promise<void> {
-    const stem = name.replace(/\.cst$/i, "").toUpperCase();
-    const key = `cast:${stem.toLowerCase()}`;
-    const prefix = `CST/_${stem}`;
+    const stem = name.replace(/\.cst$/i, "").toLowerCase();
+    if (this.loadedCasts.has(stem)) {
+      return;
+    }
+    const key = `cast:${stem}`;
+    const prefix = `CST/_${stem.toUpperCase()}`;
     try {
       const procs = await loadScriptJson(`${prefix}/Cast.json`);
       for (const proc of procs) {
@@ -2409,37 +2526,21 @@ export class DustHost implements OpcodeHost {
     } catch {
       this.view?.log(`cast library missing for ${name}`);
     }
-    const catalog = await fetchJson<{ files?: Record<string, { dir?: string }> }>(
-      extractUrl("catalog.json"),
-    ).catch(() => null);
-    const dir = catalog?.files?.[name.toLowerCase()]?.dir ?? prefix;
-    await this.loadCastSprites(dir);
-    const listing = await this.listActorFolders(dir);
-    for (const actor of listing) {
-      try {
-        const rel = `${dir}/${actor}/Script.json`;
-        const procs = await loadScriptJson(rel);
-        for (const proc of procs) {
-          this.index.add(`actor:${actor.toLowerCase()}`, proc, rel);
-        }
-        const stand = await firstStand(dir, actor);
-        const state = this.namedActor(actor);
-        state.cast = stem.toLowerCase();
-        state.standUrl = stand;
-        this.pendingOpenActors.push(actor.toLowerCase());
-      } catch {
-        /* skip */
-      }
-    }
+    await this.loadCastSprites(prefix);
+    this.loadedCasts.add(stem);
   }
 
   private closeCast(name: string): void {
     const stem = name.replace(/\.cst$/i, "").toLowerCase();
+    this.loadedCasts.delete(stem);
+    this.castBags.delete(stem);
     this.index.removePrefix(`cast:${stem}`);
     for (const actor of this.actors.values()) {
       if (actor.cast !== stem) {
         continue;
       }
+      this.loadedActorScripts.delete(actor.name);
+      this.actorScriptLoads.delete(actor.name);
       actor.visible = false;
       actor.walking = false;
       actor.turning = false;
@@ -2492,12 +2593,14 @@ export class DustHost implements OpcodeHost {
     this.index.removePrefix("set");
     this.index.removePrefix("scene:");
     await this.addScriptFile("set", `SET/${folder}/Boot Script.json`);
-    await this.addScriptFile("scene:chicken", `SET/${folder}/chicken.json`);
     const files = isTownGridSize(graph.scenes.size)
       ? TOWN_SCENE_FILES
       : [...graph.scenes.values()]
           .map((scene) => scene.name)
           .filter((name, i, all) => Boolean(name) && all.indexOf(name) === i);
+    if (isTownGridSize(graph.scenes.size)) {
+      await this.addScriptFile("scene:chicken", `SET/${folder}/chicken.json`);
+    }
     await Promise.all(
       files.map((fileName) =>
         this.addScriptFile(`scene:${fileName.toLowerCase()}`, `SET/${folder}/${fileName}.json`),
@@ -2541,7 +2644,8 @@ export class DustHost implements OpcodeHost {
 
   /**
    * Load boot + stage + casts + shops so `boot()` can run. Then fire
-   * `openactor` / `openprop` clones (horse2, table2, …).
+   * `openprop` (tables, avatar, …). Actor clones (`horse2`) load with
+   * the template script on first `sendtoactor`.
    */
   async installLibrary(vm: VM): Promise<void> {
     await this.bootIndex();
@@ -2550,7 +2654,6 @@ export class DustHost implements OpcodeHost {
     await this.openCast("extra.cst");
     await this.openShop("house.prp");
     await this.openShop("inven.prp");
-    await this.flushOpenActors(vm);
     for (const name of this.pendingOpenProps) {
       const proc = this.index.lookup([`prop:${name}`], "openprop");
       if (proc) {
@@ -2558,16 +2661,6 @@ export class DustHost implements OpcodeHost {
       }
     }
     this.pendingOpenProps = [];
-  }
-
-  private async flushOpenActors(ctx: VM): Promise<void> {
-    const pending = this.pendingOpenActors.splice(0);
-    for (const name of pending) {
-      const proc = this.index.lookup([`actor:${name}`], "openactor");
-      if (proc) {
-        await ctx.inObject("actor", name, () => ctx.runProc(proc));
-      }
-    }
   }
 
   /**
@@ -3731,10 +3824,6 @@ async function fetchJson<T>(url: string): Promise<T> {
     throw new Error(`${url} ${res.status}`);
   }
   return (await res.json()) as T;
-}
-
-async function firstStand(dir: string, actor: string): Promise<string | undefined> {
-  return extractUrl(`${dir}/${actor}/stand/frame_0.png`);
 }
 
 /** Undo latin-1 reads of Mac Roman (0xD5 apostrophe became Õ). */

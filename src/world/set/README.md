@@ -100,13 +100,15 @@ O7 north spawn HQ is `1640_5.png`.
 | Dead / unfilmed move | No-op (no transition in the graph). |
 
 On keydown the first motion frame paints immediately if it is already
-decoded. While you stand, we prefetch **depth-2** neighbors (this
-pose’s left / right / forward strips, then each dest’s next strips)
-at low priority. Starting a walk/turn promotes **that strip + the dest
-pose’s depth-1 neighborhood** so the next tap does not wait on a cold
-PNG. A shared decode gate (max 8 inflight) keeps CST/PRP sprite loads
-from starving the film; the current plate is always high priority.
-If a PNG is missing when the clock wants it, **wait** — do not skip.
+decoded. While you stand, we prefetch **depth-1** neighbors (this
+pose’s left / right / forward strips + dest HQs, and matching Z) at
+low priority — one tap ahead. Starting a walk/turn promotes **that
+strip + the dest pose’s depth-1 neighborhood** so a chained tap does
+not wait on a cold PNG. A shared decode gate (max 8 inflight) keeps
+CST/PRP sprite loads from starving the film; the current plate is
+always high priority. If a PNG is missing when the clock wants it,
+**wait** — do not skip. Entering a building drops the last Z plane so
+town occlusion is never held onto a shop still.
 Textures are `ImageBitmap`s; the GPU cache evicts after 256 stills
 (~138 MB RGBA) and will not drop the retained current/next strip.
 That is not the film: `TOWN.SET` is ~60 MB of 8-bit deltas; the PNG
@@ -117,10 +119,11 @@ strip, Dust `keyrepeat` fires if the key is still down. Play mode
 uses the same walker/prefetch as the sandbox.
 
 Locally, Vite serves extract files at `/extract/…` →
-`../../../dfextract/out/…` with `Cache-Control: no-store` so a re-dump
-shows up on reload (no `?v=` cache-buster). Hosted Pages builds prefix
-the same relative paths with `VITE_EXTRACT_BASE` (CloudFront). See
-`extract.ts`.
+`../../../dfextract/out/…` with `Cache-Control: no-cache` + ETag so a
+re-dump shows up on reload (no `?v=` cache-buster). The client fetch
+uses `no-cache` in dev and the HTTP cache when hosted. Hosted Pages
+builds prefix the same relative paths with `VITE_EXTRACT_BASE`
+(CloudFront). See `extract.ts`.
 
 ---
 
@@ -276,7 +279,7 @@ do not swap (except you entered court at night).
 |---|---|
 | `types.ts` | Dirs, spawn, frame counts, `framesToPlay` |
 | `graph.ts` | Load SET JSON, `hqFrame` / `holdFrame` / spawn |
-| `extract.ts` | `/extract` locally, `VITE_EXTRACT_BASE` when hosted |
+| `extract.ts` | `/extract` locally, `VITE_EXTRACT_BASE` when hosted; hosted PNG fetches use the HTTP cache |
 | `walker.ts` | Input → filmed transition |
 | `playback.ts` | One-frame-per-tick strip clock (no catch-up) |
 | `stillsView.ts` | Ortho blit + texture cache (priority decode gate) |

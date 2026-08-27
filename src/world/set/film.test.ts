@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { neighborStillUrls, poseHqUrl, transitionStillUrls } from "./film";
+import { IDLE_NEIGHBOR_DEPTH, neighborStillUrls, poseHqUrl, transitionStillUrls } from "./film";
 import { buildSetGraph } from "./graph";
 import type { SceneRecord, TransitionRecord } from "./types";
 import { transitionForInput } from "./walker";
@@ -49,6 +49,13 @@ describe("filmstrip URLs", () => {
     expect(urls).toContain("/extract/SET/_TOWN/FRAMES/10_0.png");
     expect(urls).toContain("/extract/SET/_TOWN/FRAMES/10_5.png");
     expect(urls).toContain("/extract/SET/_TOWN/FRAMES/20_0.png");
+    expect(urls).not.toContain("/extract/SET/_TOWN/FRAMES/40_0.png");
+  });
+
+  it("idle prefetch is one tap ahead, not the dest's next turn", () => {
+    expect(IDLE_NEIGHBOR_DEPTH).toBe(1);
+    const urls = neighborStillUrls(graph, pose, "_TOWN", IDLE_NEIGHBOR_DEPTH);
+    expect(urls).toContain("/extract/SET/_TOWN/FRAMES/10_0.png");
     expect(urls).not.toContain("/extract/SET/_TOWN/FRAMES/40_0.png");
   });
 

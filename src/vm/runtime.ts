@@ -23,6 +23,8 @@ export interface OpcodeHost {
   lookup?(name: string, ctx: VM): Proc | undefined;
   /** Procs in inheritance order (scene → set, actor → cast). `passcode` tries the next. */
   lookupChain?(name: string, ctx: VM): Proc[];
+  /** Load per-object scripts the first time `sendtoactor` / `inObject` names them. */
+  ensureObject?(object: string, name: string): Promise<void>;
   log?(message: string): void;
 }
 
@@ -320,6 +322,9 @@ export class VM {
   }
 
   async inObject<T>(object: string, me: string, fn: () => Promise<T>): Promise<T> {
+    if (me) {
+      await this.host.ensureObject?.(object, me);
+    }
     const prevObject = this.object;
     const prevMe = this.me;
     const prevTarget = this.target;

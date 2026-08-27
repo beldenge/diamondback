@@ -37,6 +37,7 @@ describe("SET Z vs actor", () => {
     expect(liveZPlaneForStill("z/a.png", cache, last)![0]).toBe(4);
     cache.set("z/missing.png", null);
     expect(liveZPlaneForStill("z/missing.png", cache, last)).toBeNull();
+    expect(liveZPlaneForStill("", cache, last)).toBe(last);
   });
 
   it("draws on the ground and sky, not through a closer fence", () => {

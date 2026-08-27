@@ -8,6 +8,7 @@ import type { SceneRecord, TransitionRecord } from "../world/set/types";
 import { cameraFromPose, worldToStill } from "./facing";
 import { STARTING_BOARD } from "./checkers";
 import {
+  actorTemplateFolder,
   dirWord,
   DustHost,
   libraryStem,
@@ -104,6 +105,145 @@ function mockExtractDisk(): () => void {
     globalThis.fetch = orig;
   };
 }
+
+describe("actor script folders", () => {
+  const extra = ["horse1", "chicken1", "bird1", "dog"];
+  const target = ["birdtarg", "chicken1targ", "pigtarg"];
+
+  it("uses the listed folder when the name matches", () => {
+    expect(actorTemplateFolder("horse1", extra)).toBe("horse1");
+    expect(actorTemplateFolder("DOG", extra)).toBe("dog");
+  });
+
+  it("maps numeric clones onto the *1 folder or unnumbered base", () => {
+    expect(actorTemplateFolder("horse2", extra)).toBe("horse1");
+    expect(actorTemplateFolder("chicken3", extra)).toBe("chicken1");
+    expect(actorTemplateFolder("birdtarg2", target)).toBe("birdtarg");
+  });
+
+  it("does not invent a template for unknown names", () => {
+    expect(actorTemplateFolder("leroy", extra)).toBeUndefined();
+  });
+});
+
+describe("lazy cast scripts", () => {
+  it("openCast does not fetch catalog.json or every actor Script.json", async () => {
+    if (!existsSync(resolve("dfextract/out/CST/_GANG/Cast.json"))) {
+      return;
+    }
+    const got: string[] = [];
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const decoded = decodeURIComponent(String(input));
+      const marker = "/extract/";
+      const at = decoded.indexOf(marker);
+      if (at < 0) {
+        return orig(input);
+      }
+      const rel = decoded.slice(at + marker.length).split("?")[0];
+      got.push(rel);
+      const disk = resolve("dfextract/out", rel);
+      if (!existsSync(disk)) {
+        return { ok: false, status: 404, json: async () => ({}), text: async () => "" } as Response;
+      }
+      if (rel.toLowerCase().endsWith(".png") || rel.toLowerCase().endsWith(".wav")) {
+        return { ok: true, json: async () => ({}), text: async () => "" } as Response;
+      }
+      const text = readFileSync(disk, "utf8");
+      return { ok: true, json: async () => JSON.parse(text), text: async () => text } as Response;
+    }) as typeof fetch;
+    try {
+      const host = new DustHost({} as PuppetUi);
+      const intern = host as unknown as { openCast(name: string): Promise<void> };
+      await intern.openCast("gang.cst");
+      expect(got.some((rel) => rel.toLowerCase() === "catalog.json")).toBe(false);
+      expect(got.filter((rel) => /\/Script\.json$/i.test(rel))).toEqual([]);
+      expect(got.some((rel) => rel === "CST/_GANG/Cast.json")).toBe(true);
+      expect(got.some((rel) => rel === "CST/_GANG/sprites.json")).toBe(true);
+      expect(host.actors.size).toBe(0);
+
+      await intern.openCast("gang.cst");
+      expect(got.filter((rel) => rel === "CST/_GANG/Cast.json")).toHaveLength(1);
+
+      const vm = new VM(host);
+      await vm.inObject("actor", "leroy", async () => {
+        expect(host.index.lookup(["actor:leroy"], "setupactor")).toBeDefined();
+        return 0;
+      });
+      expect(got.some((rel) => rel === "CST/_GANG/Leroy/Script.json")).toBe(true);
+      expect(got.filter((rel) => /\/Script\.json$/i.test(rel))).toEqual(["CST/_GANG/Leroy/Script.json"]);
+      expect(host.actors.has("leroy")).toBe(true);
+
+      await intern.openCast("extra.cst");
+      const beforeHorse = got.filter((rel) => /\/Script\.json$/i.test(rel)).length;
+      await vm.inObject("actor", "horse2", async () => 0);
+      expect(got.some((rel) => rel === "CST/_EXTRA/horse1/Script.json")).toBe(true);
+      expect(got.filter((rel) => /\/Script\.json$/i.test(rel)).length).toBe(beforeHorse + 1);
+      expect(host.index.lookup(["actor:horse2"], "setupactor")).toBeDefined();
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
+
+  it("sendtoactor loads nothing if the VM omits ensureObject (PlayGame wrapper bug)", async () => {
+    if (!existsSync(resolve("dfextract/out/CST/_GANG/Cast.json"))) {
+      return;
+    }
+    const restore = mockExtractDisk();
+    try {
+      const host = new DustHost({} as PuppetUi);
+      const intern = host as unknown as { openCast(name: string): Promise<void> };
+      await intern.openCast("gang.cst");
+      const broken = new VM({
+        call: (name, args, ctx) => host.call(name, args, ctx),
+        lookup: (name, ctx) => host.lookup(name, ctx),
+        lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+      });
+      await broken.inObject("actor", "leroy", async () => 0);
+      expect(host.index.lookup(["actor:leroy"], "setupactor")).toBeUndefined();
+      expect(host.actors.has("leroy")).toBe(false);
+
+      const vm = new VM(host);
+      await vm.inObject("actor", "leroy", async () => 0);
+      expect(host.index.lookup(["actor:leroy"], "setupactor")).toBeDefined();
+      expect(host.actors.has("leroy")).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  it("does not GET interior chicken.json", async () => {
+    if (!existsSync(resolve("dfextract/out/SET/_CHIN/scenes.json"))) {
+      return;
+    }
+    const got: string[] = [];
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const decoded = decodeURIComponent(String(input));
+      const marker = "/extract/";
+      const at = decoded.indexOf(marker);
+      if (at < 0) {
+        return orig(input);
+      }
+      const rel = decoded.slice(at + marker.length).split("?")[0];
+      got.push(rel);
+      const disk = resolve("dfextract/out", rel);
+      if (!existsSync(disk)) {
+        return { ok: false, status: 404, json: async () => ({}), text: async () => "" } as Response;
+      }
+      const text = readFileSync(disk, "utf8");
+      return { ok: true, json: async () => JSON.parse(text), text: async () => text } as Response;
+    }) as typeof fetch;
+    try {
+      const host = new DustHost({} as PuppetUi);
+      const intern = host as unknown as { openSet(name: string): Promise<void> };
+      await intern.openSet("chin.set");
+      expect(got.some((rel) => /chicken\.json$/i.test(rel))).toBe(false);
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
+});
 
 describe("script dump probes", () => {
   it("openStage(new.flt) and HOUSE/INVEN shops do not GET missing dumps", async () => {

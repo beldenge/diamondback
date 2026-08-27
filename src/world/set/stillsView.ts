@@ -8,6 +8,7 @@ import {
   SRGBColorSpace,
   Texture,
 } from "three";
+import { pngFetchCache } from "./extract";
 import { mediaGate, type MediaPriority } from "./media";
 import { STILL_HEIGHT, STILL_WIDTH } from "./types";
 
@@ -229,7 +230,7 @@ function stillTexture(image: TexImageSource, flipY: boolean): Texture {
 export async function rasterizePng(
   url: string,
 ): Promise<{ canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D }> {
-  const res = await fetch(url, { cache: "no-cache" });
+  const res = await fetch(url, { cache: pngFetchCache(import.meta.env.PROD) });
   if (!res.ok) {
     throw new Error(`${url} ${res.status}`);
   }

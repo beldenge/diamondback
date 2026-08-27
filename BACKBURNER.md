@@ -4,7 +4,6 @@
 - When occupying the same tile as oona, if i turn away from her i'm seeing the back of her head...not sure if it's a bug with her placement or with the turning/panning
 - Lag when turning and moving still
 - Only some characters turn to face you, not all
-- Initial loading is super intensive, loading 2000+ assets from cloudfront, sincerely need to optimize this
 
 # Future Concepts
 - Use photogrammetry or other methods to create a 3D model of the town

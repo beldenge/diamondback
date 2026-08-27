@@ -20,9 +20,15 @@ export function poseHqUrl(graph: SetGraph, pose: WalkerPose, folder: string): st
 }
 
 /**
+ * Idle standing prefetch: this pose plus the tap you can start now.
+ * A walk/turn already high-prefetches the dest pose's depth-1 strips,
+ * so depth 2 is not needed for chained input.
+ */
+export const IDLE_NEIGHBOR_DEPTH = 1;
+
+/**
  * Standing HQ plus filmed left / right / forward strips out to `depth`.
- * Depth 1 is the move you can start now; depth 2 is the move after that
- * (so a chained turn/walk does not wait on a cold PNG).
+ * Depth 1 is the move you can start now; depth 2 is the move after that.
  */
 export function neighborStillUrls(
   graph: SetGraph,

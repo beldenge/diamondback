@@ -10,6 +10,14 @@ export function extractBase(): string {
   return "/extract";
 }
 
+/**
+ * Hosted stills/Z/sprites should hit the browser HTTP cache. Local Vite
+ * extract re-dumps must not stick (`no-cache` + ETag 304).
+ */
+export function pngFetchCache(prod: boolean): RequestCache {
+  return prod ? "default" : "no-cache";
+}
+
 /** Path under the extract root, e.g. `SET/_TOWN/scenes.json`. */
 export function extractUrl(rel: string): string {
   const encoded = rel

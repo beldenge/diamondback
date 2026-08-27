@@ -17,7 +17,12 @@ import {
   walkInputKey,
   type WalkInput,
 } from "../world/set/walker";
-import { neighborStillUrls, poseHqUrl, transitionStillUrls } from "../world/set/film";
+import {
+  IDLE_NEIGHBOR_DEPTH,
+  neighborStillUrls,
+  poseHqUrl,
+  transitionStillUrls,
+} from "../world/set/film";
 import { mediaGate, type MediaPriority } from "../world/set/media";
 import {
   createStillAnim,
@@ -229,6 +234,7 @@ export class PlayGame implements WorldView {
   private readonly pickNames: string[] = [""];
   private readonly spriteBits = new Map<string, SpriteBits>();
   private readonly spriteLoading = new Map<string, Promise<SpriteBits | null>>();
+  private readonly spriteMiss = new Set<string>();
   private readonly lastActorDraw = new Map<
     string,
     {
@@ -383,12 +389,9 @@ export class PlayGame implements WorldView {
       this.lastDayClock = clock === 3 ? 2 : clock;
     }
     this.host.view = this;
-    this.vm = new VM({
-      call: (name, args, ctx) => this.host.call(name, args, ctx),
-      lookup: (name, ctx) => this.host.lookup(name, ctx),
-      lookupChain: (name, ctx) => this.host.lookupChain(name, ctx),
-      log: (message) => this.log(message),
-    });
+    // The host *is* the OpcodeHost. A { call, lookup } wrapper drops
+    // `ensureObject`, so sendtoactor never loads Leroy/dog Script.json.
+    this.vm = new VM(this.host);
     this.layoutStage();
     this.visible = true;
 
@@ -576,6 +579,7 @@ export class PlayGame implements WorldView {
       { world: this.world, x: this.pose.x, y: this.pose.y, facing: this.pose.facing },
       { world, x: pose.x, y: pose.y, facing: pose.facing },
     );
+    const prevFolder = this.stillsFolder();
     this.world = world;
     this.graph = graph;
     this.pose = pose;
@@ -583,6 +587,9 @@ export class PlayGame implements WorldView {
     this.host.currentDir = pose.facing;
     if (same) {
       return;
+    }
+    if (this.stillsFolder() !== prevFolder) {
+      this.resetOcclusion();
     }
     await this.showHold();
     this.preloadNeighbors();
@@ -1682,7 +1689,7 @@ export class PlayGame implements WorldView {
     if (!this.graph) {
       return;
     }
-    const urls = neighborStillUrls(this.graph, this.pose, this.stillsFolder(), 2);
+    const urls = neighborStillUrls(this.graph, this.pose, this.stillsFolder(), IDLE_NEIGHBOR_DEPTH);
     this.view.preload(urls, "low");
     this.preloadZ(urls, "low");
   }
@@ -1740,6 +1747,7 @@ export class PlayGame implements WorldView {
     this.busy = true;
     this.view.hideOverlay();
     try {
+      const prevFolder = this.stillsFolder();
       if (door.go.kind === "town") {
         const folder = this.isNight() ? "_NITE" : "_TOWN";
         const graph = await this.graphFor(folder, WORLD_TOWN);
@@ -1766,6 +1774,9 @@ export class PlayGame implements WorldView {
       this.openDoor = null;
       this.host.currentSet = this.world;
       this.host.currentScene = this.host.sceneNameForPose(this.graph, this.pose.x, this.pose.y);
+      if (this.stillsFolder() !== prevFolder) {
+        this.resetOcclusion();
+      }
       await this.showHold();
       this.preloadNeighbors();
     } finally {
@@ -2086,6 +2097,9 @@ export class PlayGame implements WorldView {
     if (hit) {
       return Promise.resolve(hit);
     }
+    if (this.spriteMiss.has(url)) {
+      return Promise.resolve(null);
+    }
     const pending = this.spriteLoading.get(url);
     if (pending) {
       if (priority === "high") {
@@ -2104,12 +2118,23 @@ export class PlayGame implements WorldView {
         this.layoutActors();
         return bits;
       })
-      .catch(() => null)
+      .catch(() => {
+        this.spriteMiss.add(url);
+        return null;
+      })
       .finally(() => {
         this.spriteLoading.delete(url);
       });
     this.spriteLoading.set(url, job);
     return job;
+  }
+
+  /** Drop town Z when entering a shop (and the reverse). Never hold last across SETs. */
+  private resetOcclusion(): void {
+    this.zCache.clear();
+    this.zLoading.clear();
+    this.zPlane = null;
+    this.zWant = "";
   }
 
   private liveZPlane(): Uint8Array | null {
@@ -2123,7 +2148,7 @@ export class PlayGame implements WorldView {
   private warmActorPlates(actor: { standSprites: { path: string }[]; spriteRoot: string }): void {
     for (const plate of actor.standSprites) {
       const url = extractUrl(`${actor.spriteRoot}/${plate.path}`);
-      if (!this.spriteBits.has(url) && !this.spriteLoading.has(url)) {
+      if (!this.spriteBits.has(url) && !this.spriteLoading.has(url) && !this.spriteMiss.has(url)) {
         void this.loadSpriteBits(url, "low");
       }
     }
@@ -2135,7 +2160,7 @@ export class PlayGame implements WorldView {
   ): void {
     for (const frame of frames) {
       const url = extractUrl(`${prop.spriteRoot}/${frame.path}`);
-      if (!this.spriteBits.has(url) && !this.spriteLoading.has(url)) {
+      if (!this.spriteBits.has(url) && !this.spriteLoading.has(url) && !this.spriteMiss.has(url)) {
         void this.loadSpriteBits(url, "low");
       }
     }

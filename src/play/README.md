@@ -40,7 +40,13 @@ Play mode runs extracted `boot()` then stage `advanceday()`. That is
 Day 1 night (`clock = 3`, `$5`, `nite.set`, script scene `g15` =
 filmed **O7** north). Do not hand-place Leroy or unlock doors — CST
 `initactors`, PRP `initprops`, and SET scene `lock*` procs are the
-gates.
+gates. `opencastfile` loads `Cast.json` + `sprites.json` only;
+`Actor/Script.json` is fetched the first time `sendtoactor` names that
+person (`horse2` uses `horse1`). The play VM must be `new VM(host)` so
+`ensureObject` runs — a `{ call, lookup }` wrapper skips Leroy and the
+dog. `boot()` opening gang/extra/HOUSE again is a no-op on the network.
+Town stills prefetch one tap ahead (`IDLE_NEIGHBOR_DEPTH`); a walk
+already high-prefetches dest depth-1.
 
 Town **script** names are column-letter + row (`scene g12` = filmed L7
 jail). SET Pascal names in `scenes.json` are the transpose (`Scene L7`).
@@ -372,7 +378,9 @@ gila) blit one SET plane farther than computed — walk is plane 4, same
 bucket as the painted machine. Crows keep computed Z. Filmstrip plates
 each have their own Z PNG; dropping the plane while the next file
 decoded (`zKey !== zWant` → null) painted every sprite through walls
-on motion frames. Cache per still URL and hold the last plane.
+on motion frames. Cache per still URL and hold the last plane. A SET
+hop (street → shop) must drop that last plane so town Z is not held
+onto chin / sallower.
 
 **Gun loan.** EXIT only hides `gunhand` and `gototown`. It does **not**
 `dumpinven`. Leroy `beforetarget` `addinven ("gun")` and sets
