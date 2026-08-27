@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseScript, type ScriptFile } from "../vm/ast";
 import { VM } from "../vm/runtime";
-import { actorSprite, calcDeg, cameraWorldPoint, visibleOctant } from "./facing";
+import { actorSprite, calcDeg, cameraWorldPoint, dirToDeg, visibleOctant } from "./facing";
 import { DustHost } from "./host";
 import type { PuppetUi } from "./ui";
 
@@ -116,8 +116,8 @@ describe("Leroy idle from CST scripts", () => {
     if (leroy.turning) {
       expect(leroy.degTarget).toBe(want);
     }
-    expect(visibleOctant(want, 128)).not.toBe(
-      visibleOctant(calcDeg(leroy, cameraWorldPoint({ x: 6, y: 14, facing: "N" })), 128),
+    expect(visibleOctant(want, dirToDeg("N"))).not.toBe(
+      visibleOctant(calcDeg(leroy, cameraWorldPoint({ x: 6, y: 14, facing: "N" })), dirToDeg("N")),
     );
   });
 });
@@ -139,8 +139,8 @@ describe("approach walk", () => {
     leroy.y = 12 * 256 + 128;
     leroy.route = [{ x: 6 * 256 + 128, y: 10 * 256 + 128, z: 0 }];
     host.startWalk(leroy, 6 * 256 + 128, 11 * 256 + 128, 0);
-    expect(leroy.deg).toBe(128);
-    expect(visibleOctant(leroy.deg, 128)).toBe(4);
+    expect(leroy.deg).toBe(dirToDeg("N"));
+    expect(visibleOctant(leroy.deg, dirToDeg("N"))).toBe(4);
   });
 
   it("faces the camera when walking to playerxyz", () => {
@@ -159,8 +159,8 @@ describe("approach walk", () => {
     leroy.y = 3536;
     host.startWalk(leroy, 1664, 3712, 0);
     expect(leroy.pose).toBe("walk");
-    expect(leroy.deg).toBe(0);
-    expect(visibleOctant(leroy.deg, 128)).toBe(0);
+    expect(leroy.deg).toBe(dirToDeg("S"));
+    expect(visibleOctant(leroy.deg, dirToDeg("N"))).toBe(0);
   });
 });
 

@@ -2,17 +2,25 @@ import { TILE_SPAN } from "../world/set/path";
 import { STILL_HEIGHT, STILL_WIDTH, type Dir } from "../world/set/types";
 import type { ActorState } from "./host";
 
-/** Dust `actordeg` / `currentdeg`: 256 units per turn, 0 = south, 64 = east. */
-export const DEG_SOUTH = 0;
-export const DEG_EAST = 64;
-export const DEG_NORTH = 128;
-export const DEG_WEST = 192;
+/**
+ * Dust `actordeg` / `currentdeg` / `calcdeg` / look-deg: 256 units per
+ * turn. DF.EXE `0x411d50` is `atan2(dy, dx)` with +x east, +y south —
+ * **0 = east**, 64 = south, 128 = west, 192 = north. Walk-table look-deg
+ * stores the same numbers (N=`0xC0`, S=`0x40`, E=`0`, W=`0x80`).
+ *
+ * CST frame +0x28 **0** is the character’s front (relative wanted 0),
+ * not world east.
+ */
+export const DEG_EAST = 0;
+export const DEG_SOUTH = 64;
+export const DEG_WEST = 128;
+export const DEG_NORTH = 192;
 
 export const DIR_DEG: Record<Dir, number> = {
-  S: DEG_SOUTH,
   E: DEG_EAST,
-  N: DEG_NORTH,
+  S: DEG_SOUTH,
   W: DEG_WEST,
+  N: DEG_NORTH,
 };
 
 export function wrapDeg(deg: number): number {
@@ -23,7 +31,7 @@ export function dirToDeg(facing: Dir): number {
   return DIR_DEG[facing];
 }
 
-/** 0=S, 1=SE, 2=E, 3=NE, 4=N, 5=NW, 6=W, 7=SW — matches CST stand frame order. */
+/** 0=E, 1=SE, 2=S, 3=SW, 4=W, 5=NW, 6=N, 7=NE. */
 export function degToOctant(deg: number): number {
   return wrapDeg(deg + 16) >> 5;
 }
@@ -49,7 +57,7 @@ export function degDelta(from: number, to: number): number {
   return d;
 }
 
-/** Direction from `from` toward `to` (world +x east, +y south). */
+/** Direction from `from` toward `to`. DF.EXE `0x411d20` / `0x411d50`. */
 export function calcDeg(
   from: { x: number; y: number },
   to: { x: number; y: number },
@@ -59,7 +67,7 @@ export function calcDeg(
   if (dx === 0 && dy === 0) {
     return 0;
   }
-  const rad = Math.atan2(dx, dy);
+  const rad = Math.atan2(dy, dx);
   return wrapDeg((rad / (2 * Math.PI)) * 256);
 }
 
@@ -68,7 +76,7 @@ export function calcVect(
   dist: number,
 ): { x: number; y: number } {
   const rad = (wrapDeg(deg) / 256) * 2 * Math.PI;
-  return { x: dist * Math.sin(rad), y: dist * Math.cos(rad) };
+  return { x: dist * Math.cos(rad), y: dist * Math.sin(rad) };
 }
 
 /** Player feet: tile center (`tile * 256 + 128`), same as `playerxyz`. */
@@ -115,22 +123,20 @@ export function angularDistance(a: number, b: number): number {
 }
 
 /**
- * Relative facing the CST picker wants.
+ * Relative facing the CST picker wants. DF.EXE `0x4151e0`:
+ * `actordeg − calcdeg(actor, lens)` (`0x411d20` to the SET+24 lens at
+ * `0x460976`). Look-deg cancels; frame deg 0 is the front.
  *
- * Camera-to-actor on the view axis is `look + 128` (from the actor back
- * to the lens). Frame deg 0 is the front. CST +0x28 **32** is the west
- * ¾ plate (head screen-left); world `actordeg 32` is SE, which from the
- * south is the **east** ¾ (head screen-right, plate 224). Subtract
- * actordeg from the camera-relative heading so those two 32s are not
- * treated as the same way. Use the view axis, not XY `calcdeg` to the
- * 64-unit setback — that sitting *beside* a near dog flipped the ¾.
+ * `atan2(dx, dy)` (0=south) to the setback flipped the street dog’s ¾.
+ * EXE `calcdeg` is `atan2(dy, dx)` (0=east). Town.dog `actordeg 32` at
+ * L7 N then wants ~231 → plate **224** (east ¾), not 32.
  */
 export function spriteWantedDeg(
   actorDeg: number,
-  _actor: { x: number; y: number },
+  actor: { x: number; y: number },
   camera: ViewCamera,
 ): number {
-  return wrapDeg(wrapDeg(camera.deg + 128) - actorDeg);
+  return wrapDeg(actorDeg - calcDeg(actor, drawLensPoint(camera)));
 }
 
 interface CstFrame {
@@ -410,7 +416,7 @@ export function worldSpriteHitsPoint(
   );
 }
 
-/** World-space camera: tile center + `actordeg` (0=S). */
+/** World-space camera: tile center + look-deg (0=E). */
 export interface ViewCamera {
   x: number;
   y: number;
@@ -597,7 +603,7 @@ export function worldToStillFilmstrip(
 /**
  * CST sprite for the current pose. DF.EXE `0x4154c0` matches the +0x2e
  * pose id, then picks the closest authored frame deg — not `octant % n`.
- * The dog is 7 plates at 16° around south; `% 7` wrapped the street
+ * The dog is 7 plates at 16° around the front; `% 7` wrapped the street
  * `actordeg 32` view back to the head-on plate.
  */
 export function actorSprite(

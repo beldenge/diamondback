@@ -13,6 +13,7 @@ import {
   SET_SPAWN,
   setFolderFromWorld,
   setNamesEqual,
+  zUrlFromStill,
 } from "./graph";
 import {
   applyTransition,
@@ -227,6 +228,9 @@ describe("extracted interior graphs", () => {
     expect(setFolderFromWorld("sallower")).toBe("_SALLOWER");
     expect(setNamesEqual("sallower", "_SALLOWER")).toBe(true);
     expect(setNamesEqual("sallower", "sallower.set")).toBe(true);
+    expect(zUrlFromStill("/extract/SET/_SALLOWER/FRAMES/172_5.png")).toBe(
+      "/extract/SET/_SALLOWER/FRAMES/z/172_5.png",
+    );
   });
 });
 

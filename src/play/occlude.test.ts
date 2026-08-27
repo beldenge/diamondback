@@ -16,6 +16,7 @@ import {
   spriteBitsFromImageData,
   spriteOverZ,
   liveZPlaneForStill,
+  stillZPairReady,
   wallOverlayBlitZ,
   actorLayerStamp,
   occlusionStamp,
@@ -58,6 +59,13 @@ describe("SET Z vs actor", () => {
     expect(
       actorLayerStamp([{ ...draw, x: 201 }], occlusionStamp("z/b.png", last, false)),
     ).not.toBe(hold);
+  });
+
+  it("does not show a still until its Z is known (or known missing)", () => {
+    expect(stillZPairReady(true, false)).toBe(false);
+    expect(stillZPairReady(false, true)).toBe(false);
+    expect(stillZPairReady(true, true)).toBe(true);
+    expect(stillZPairReady(false, false)).toBe(false);
   });
 
   it("holds the last SET Z while the next filmstrip plane decodes", () => {

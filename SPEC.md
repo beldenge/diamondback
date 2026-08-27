@@ -8,6 +8,7 @@
 - We won't upscale visuals or audio at this time.
 - This will not be released commercially.
 - Interpret extracted DreamFactory **tokens** at runtime (TypeScript VM). Do not hand-port 541 scripts into JSON graphs. Do not port `DF.EXE` C.
+- **Never edit generated extract/decompile output.** `dfextract/out/` and `dustdecompile/out/` are produced by those Python tools. If a dumped script, still, sprite, or JSON is wrong, fix the generator and re-run. If the dump is faithful and the remake looks wrong, fix `src/`. Do not patch `out/**` (including `Script.txt` / `Script.json` literals) to paper over a playback bug.
 - `https://diamondback.town` is a title chooser. **Dust: Resurrected** (`/?mode=resurrected`) is the VM story. **Dust: Unlocked** (`/?mode=unlocked`) is the same PlayGame / VM with a sandbox policy (empty of story casts, all doors, minigame NPCs, farm animals except the dog). **The Picture Show** (`/?mode=movies`) is extracted full-screen reels. Chooser cards switch in-page (no document reload).
 - Do not build save/load in the first VM slice (format is `*.rtd`, still unknown).
 
@@ -59,7 +60,8 @@ Original boot defaults (from extracted `_BOOTFILE`): `day = 1`, `clock = 2`, `ph
   [`dfextract/README.md`](dfextract/README.md).
   After `python cli.py`, assets land in `dfextract/out/`
   (`PUP/`, `SET/`, `CST/`, `SND/`, `FLT/`, `PRP/`, `MOV/`, `BOOT/`).
-  What each file is: [`dfextract/docs/output-catalog.md`](dfextract/docs/output-catalog.md).
+  That tree is **generated**. Do not hand-edit it; change `dfextract/` and
+  re-extract. What each file is: [`dfextract/docs/output-catalog.md`](dfextract/docs/output-catalog.md).
   What a remake agent still has to invent (opcode meaning, plugins,
   file graph): [`dfextract/docs/reconstruction-gaps.md`](dfextract/docs/reconstruction-gaps.md).
 - **Engine decompile (current):** `dustdecompile/` — PE/NE inventory, `DF.EXE` opcode table, plugin surface. Isolated from `src/`. Does not run in the browser. Pipeline: [`dustdecompile/docs/pipeline.md`](dustdecompile/docs/pipeline.md).
@@ -99,7 +101,7 @@ Default run (`/`) is the title chooser. Modes:
 |---|---|---|
 | **Dust: Resurrected** | `/?mode=resurrected` | VM game (Day 1 night so far). `&intro=1` plays openings in-game |
 | **Dust: Unlocked** | `/?mode=unlocked` | Same engine as Resurrected; no story casts, all doors, minigame NPCs, farm animals (not the dog) |
-| **The Picture Show** | `/?mode=movies` | Browser reel player (`timeline.json` + PNG/WAV). Opening is selected first. Not inspect MOVs |
+| **The Picture Show** | `/?mode=movies` | Browser reel player (`timeline.json` + PNG/WAV). Opening is selected first. Coming attractions is CD `INFO/` ads. Not inspect MOVs |
 
 - `npm test` — unit tests (time, SET graph / HQ lookup, doors)
 - `npm run dev` — http://localhost:5173 (needs `dfextract/out/SET/_TOWN` + `_NITE`)
@@ -121,6 +123,9 @@ Default run (`/`) is the title chooser. Modes:
 
 | Date | Decision |
 |---|---|
+| 2026-08-27 | Default `python cli.py` includes SET Z planes (`FRAMES/z/`). Play needs them for occlusion; `--video` stays opt-in. `--z` alone still rewrites depth without color stills. |
+| 2026-08-27 | Standing stills (`showHold`, dest HQ, SET hop) must not `view.show` color before Z is known. `view.ensure` + `showCached`. Keep last `zPlane` across folder reset until the new pair binds. Needs `FRAMES/z/` (default dump); a cached Z miss paints through the bar. |
+| 2026-08-27 | Picture Show **Coming attractions** group lists CD `INFO/` attract reels (`MAIN` catalog, Dust screens, Jump Raven / Skull Cracker / Lunicus / Titanic previews and stills, Skull Cracker action + Coming Halloween). Same `GALLERY_REELS` player; not inspectables. |
 | 2026-08-26 | One `?mode=` URL per title: `resurrected`, `unlocked`, `movies`. Dropped aliases `mode=play`, `mode=gallery`, and the `/play` path. Unknown `mode` is the chooser. |
 | 2026-08-25 | Checkers table is `CHECKERS.FLT` still 3, a full opaque 512×384 painting. `playagame` `setvisible (false)` hides the store SET; Dust BitBlts that still. Not skip-through to the shop. Play hides the world while the board is up and blits the still onto an opaque canvas. |
 | 2026-08-26 | Checkers overlay must keep the last FLT blit and piece imgs across `forceupdate` / `updatescreen`. Reloading the still (`fillRect` black) every paint flickered the whole screen; `closeshopfile` painting an empty board dropped Bolivar’s men after a move. |
@@ -184,7 +189,7 @@ Default run (`/`) is the title chooser. Modes:
 | 2026-08-20 | Hosted town sandbox: GitHub Pages (https://diamondback.town) for JS; S3 + CloudFront (`d3en1dc3mw7cky.cloudfront.net`) for an allowlisted extract. `VITE_EXTRACT_BASE` is a repository Actions variable. CI does not upload stills. Public unlisted URL is an explicit override of “do not publish extract output” for this subset only. |
 | 2026-08-20 | Full game uses a TypeScript Dust-script VM (extracted tokens), not hand-ported JSON. (Superseded 2026-08-24: diamondback.town is the chooser; Unlocked is the sandbox.) |
 | 2026-08-20 | Extract holes closed this pass: PUP `animLogic` in `texts.csv`; script `*.json` AST (Dust names); `out/catalog.json`; SET Z-plane decode (`--z`); `DF.EXE` cursors/menu/strings via `dustdecompile --rsrc`; save filter is `*.rtd`. |
-| 2026-08-21 | Play mode uses Dust’s 512×384 stage: SET stills 512×264 on top, `FLT/_NEW/frame_3.png` HUD below (not an overlay). CST `actordeg` 0=south, 8 stand / 64 walk frames. Talk runs `walktopuppet`. PUP layers composite from `FRAMES/sprites.json`; jaw cycles while speech plays. Sprite `pos_x`/`pos_y` dumped. |
+| 2026-08-21 | Play mode uses Dust’s 512×384 stage: SET stills 512×264 on top, `FLT/_NEW/frame_3.png` HUD below (not an overlay). CST `actordeg` 256-circle, 8 stand / 64 walk frames. Talk runs `walktopuppet`. PUP layers composite from `FRAMES/sprites.json`; jaw cycles while speech plays. Sprite `pos_x`/`pos_y` dumped. |
 | 2026-08-21 | Play speech is Web Audio + `decodePcmWav` (8-bit 11025 Hz). Firefox/Windows ~10s after first `AudioContext.resume()` before output; visemes are wall-clock, not the audio playhead. `<audio>` does not play these WAVs (`currentTime` stays 0). Notes: [`src/play/README.md`](src/play/README.md). |
 | 2026-08-21 | Play puppets are generic: all 11 PUP face tables including hands, skip missing parts, per-PUP `sprites.json` / visemes / `scripts.json`. |
 | 2026-08-21 | CST foot blobs are contact shadows (GANG index 131 maroon → translucent black). Not studio dirt. Skip unused/black (Help robe index 0); body pixels of the matte stay opaque. |
@@ -202,7 +207,7 @@ Default run (`/`) is the title chooser. Modes:
 | 2026-08-22 | HUD portrait is HOUSE `avatar` via NEW.FLT `mainpanel` `noface` / `makeface` (container 2). Do not freeze `nitefaces/00`. FLT extract writes `{proc}_{container}` so later `openflat` containers do not clobber mainpanel. PRP `timing.json` is setInfo +0x2e (hattip/glance). Hide the portrait with the dashboard during puppet UI (`#play-hud-face` is not inside `#play-hud`; `display:block` must not override `[hidden]`). |
 | 2026-08-24 | `openstagefile` runs the current flat’s `openflat`. `initall` `stoploop ("flat", "all")` then `opensetfile` re-arms mainpanel if that loop is gone. `#play-hud-face` z-index sits above `#actor-layer`. Do not drain `makeloop` on the rAF tick during `boot()`; `stoploop` clears due callbacks. |
 | 2026-08-22 | Idle `hasattention` fakes `mousedown` after `(seconds*60)/framerate` frames. Play must not overlap that `walktopuppet` with a second tick `runQueued` — he walked up and froze. `scriptBusy` owns the VM like click `talking`. |
-| 2026-08-22 | CST blit is DF.EXE `0x4154c0`: match setInfo +8 pose, then closest +0x28 deg (`0x411f20`). Do not `octant % n`. Dog street is 7×16° plates and `actordeg 32` (SE). Plate **32** is the west ¾; from the south SE is plate **224**. Wanted is `(look+128) − actordeg` so those 32s are not treated as the same way. |
+| 2026-08-22 | CST blit is DF.EXE `0x4154c0`: match setInfo +8 pose, then closest +0x28 deg (`0x411f20`). Do not `octant % n`. Dog street is 7×16° plates and `actordeg 32` (SE). Plate **32** is the west ¾; from the south SE is plate **224**. |
 | 2026-08-22 | **Supersedes** earlier 08-22 rows that freeze pans, screen-lerp 1/z, or keep 1/z Y/Z. Locked book: [`src/play/README.md`](src/play/README.md) § World → still. Sprite Z is EXE `>> 6` (1/z Z hid the N7 E jug). Screenshots: `N7_east_original.png` / `N7_east_ours.png` / `N7_east_ours_next.png`. |
 | 2026-08-22 | CST and PRP share DF.EXE `0x40dcd0` for **X**. Engine Y is the same function; play does not use it for placement. |
 | 2026-08-23 | Play hover runs object `setcursor` (G14 `pointinrules` → `touch` finger). Drop remake 22%/48% still click-to-walk (stole the sign; Dust chrome was outside 0–512). Touch/pen swipe is the mobile walk/turn. Keyboard unchanged. |
@@ -217,7 +222,8 @@ Default run (`/`) is the title chooser. Modes:
 | 2026-08-23 | Inner saloon double doors (`sallower` D1 W / C1 E) play UNILIB `swingdoor`. `opentrackfile ("saloon1.snd")` must not route that clip into `_SALOON1`. |
 | 2026-08-23 | PRP trans sprites are not capped at 256×256 / 20 KB. That skip dropped interior door overlays (`salout` 232×252). HOUSE unused-black is the SET-palette miss — recolor from the sibling SET. |
 | 2026-08-23 | HOUSE world overlays (doors, `gamblers`, `blackjack`, `table1`, …) recolor from SET palettes whenever HOUSE unused-black ≥ 0.5. Do not add a one-off map per prop. Local extract PNGs must revalidate (`no-cache` + ETag); `force-cache` plus a 1-day max-age kept table silhouettes after that recolor. |
-| 2026-08-23 | Isao at the saloon piano faces **south** (`actordeg 0`) into the keys. The (2,3) S still is an upright with the keyboard toward the lens; dump `64` and the west `192` patch are both profiles (perpendicular). South aisle sees his back (wanted 128). |
+| 2026-08-23 | Isao at the saloon piano dump heading is `actordeg 0`. That is **east** on DF.EXE’s circle (`0x411d50` `atan2(dy, dx)`), not south. |
+| 2026-08-27 | `actordeg` / `calcdeg` / look-deg are **0 = east** (64=S, 128=W, 192=N), matching DF.EXE `0x411d50` and the walk-table look-deg stores. CST pick wanted is `actordeg − calcdeg(actor, lens)` (`0x4151e0`). `0`=south was a 90° error on hardcoded headings (Trotter/Oona at the bar). |
 | 2026-08-23 | Talking-head handoff: do not unhide the puppet canvas until the new sheet paints. A late blit of the previous face was flashing on `openpuppetfile`. |
 | 2026-08-24 | Boot pre-sets O7 N then `opensetfile` `setPose`s the same cell. Skipping `showHold` then left the still quad white (HUD + sprites, no town) until a move. Skip only when a plate is already on screen. |
 | 2026-08-24 | Interior door overlays blit at sprite Z **1**. Hotspot-wall pin (Z=4) kept only the top of `salout` when the lower still was Z=3. Actor layer sits above the HUD bar (`pointer-events: none`) so a 120px overlap cannot hide the leaf. |

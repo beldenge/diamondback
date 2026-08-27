@@ -1172,7 +1172,7 @@ export class DustHost implements OpcodeHost {
         if (args.length) {
           return num(args[0]);
         }
-        return this.view ? dirToDeg(this.view.pose.facing) : 128;
+        return this.view ? dirToDeg(this.view.pose.facing) : dirToDeg("N");
       case "calcdeg":
         return calcDeg(asPoint(args[0]), asPoint(args[1]));
       case "calcvectx":

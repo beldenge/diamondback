@@ -330,7 +330,7 @@ def decode_indexed_image(
 
     Trailing Z-scanlines are parsed when ``decode_z`` is true. Dust
     offsets are from the start of the Z table (first offset is
-    ``height * 2``). Writing Z PNGs is a separate ``--z`` flag.
+    ``height * 2``). Writing Z PNGs is the default ``z`` extract kind.
     """
     if len(container) < 6:
         raise ImageError("indexed image smaller than header")

@@ -35,8 +35,11 @@ DEFAULT_OUT = HERE / "out"
 
 # Dust file kinds we care about. Titanic-only suffixes are not listed.
 DUST_TYPES = ("boot", "cst", "flt", "mov", "prp", "pup", "set", "snd")
-CONTENT_KINDS = ("scripts", "audio", "frames")
-OPTIONAL_KINDS = ("video", "z")
+# Default dump: everything play needs. `--video` stays opt-in (ffmpeg).
+# SET Z planes are required for sprite occlusion; skipping them paints
+# people through walls and counters.
+CONTENT_KINDS = ("scripts", "audio", "frames", "z")
+OPTIONAL_KINDS = ("video",)
 ALL_KINDS = CONTENT_KINDS + OPTIONAL_KINDS
 
 SUFFIX_TO_TYPE = {
@@ -171,7 +174,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Extract Dust: A Tale of the Wired West assets. "
-            "Default is scripts, audio, and frames. "
+            "Default is scripts, audio, frames, and SET Z planes. "
             "--video is opt-in (ffmpeg) and not part of the default dump."
         )
     )
@@ -191,8 +194,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--scripts",
         action="store_true",
-        help="Extract scripts (and PUP dialogue tables). If any of "
-        "--scripts/--audio/--frames is set, only those kinds run.",
+        help="Extract scripts (and PUP dialogue tables). If any kind "
+        "flag is set, only those kinds run.",
     )
     parser.add_argument(
         "--audio",
@@ -214,9 +217,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--z",
         action="store_true",
-        help="Write SET still Z-buffer PNGs under FRAMES/z/. Opt-in: a "
-        "plain `python cli.py` does not write depth planes. Alone this "
-        "does not rewrite color frames; pass --frames --z to do both.",
+        help="Write SET still Z-buffer PNGs under FRAMES/z/ (on by "
+        "default; play needs them). Alone this does not rewrite color "
+        "frames; pass --frames --z to do both.",
     )
     parser.add_argument(
         "--type",
@@ -433,7 +436,7 @@ def _worker_count(n_files: int, kinds: tuple[str, ...], jobs: int) -> int:
         return 1
     if jobs > 0:
         return min(jobs, n_files)
-    if "frames" not in kinds and "audio" not in kinds and "video" not in kinds:
+    if "frames" not in kinds and "audio" not in kinds and "video" not in kinds and "z" not in kinds:
         return 1
     cpus = os.cpu_count() or 1
     return max(1, min(8, cpus, n_files))

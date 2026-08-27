@@ -201,16 +201,15 @@ Optional Z-buffer after the color image: `height` × `u16` scanline
 offsets, then runs of `(count, depth)`. **Offsets are from the start
 of the Z table** (first offset is `height * 2`, i.e. just past the
 table). DFET-style `data_start + offset` overshoots Dust stills.
-`decode_indexed_image(..., decode_z=True)` parses that. Default extract
-does not write Z PNGs; `python cli.py --type set --z` writes
-`FRAMES/z/*.png` (8-bit grayscale) **without** rewriting color stills.
-Pass `--frames --z` to do both. Dust Z is 1–24 (24 = sky; 0 unused).
-South-gate road is 3 at your feet … 7 up the street. Play compares
-that plane to the actor’s `3/persp` depth so a closer fence hides the
-body. TOWN/NITE stills have a real plane (dozens of depth values,
-never zero on sampled HQ frames). TARGET too (gallery 4, near cactus 3,
-sky 24 on the 10,11 S HQ). Play needs `python cli.py --type set --z`
-on that SET or the pig/chicken paint through the machine.
+`decode_indexed_image(..., decode_z=True)` parses that. A default
+`python cli.py` writes `FRAMES/z/*.png` (8-bit grayscale) next to the
+color stills. `--z` without `--frames` writes depth only. Dust Z is
+1–24 (24 = sky; 0 unused). South-gate road is 3 at your feet … 7 up
+the street. Play compares that plane to the actor’s EXE sprite Z so a
+closer fence hides the body. TOWN/NITE stills have a real plane
+(dozens of depth values, never zero on sampled HQ frames). TARGET too
+(gallery 4, near cactus 3, sky 24 on the 10,11 S HQ). Skip Z and the
+pig/chicken paint through the machine.
 
 **Previous frame.** DFET keeps one decode buffer and never clears it.
 Skip spans (mode 2 and row param 10) therefore leave the last still’s

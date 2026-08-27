@@ -110,7 +110,7 @@ i32 frameCount                    @ 0x72
 record[frameCount]                @ 0x76   # 44 bytes each
   i32 frame container             @ 0
   i16 pose                        @ 8    # 0-based; matches +0x2e table minus 1
-  i16 deg                         @ 0x28 # 0–255, 0=south. DF.EXE 0x4154c0
+  i16 deg                         @ 0x28 # 0–255, 0=front (relative wanted). DF.EXE 0x4154c0
   i16 field                       @ 0x2a # 114 on GANG/EXTRA
 ```
 

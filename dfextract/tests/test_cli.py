@@ -27,9 +27,10 @@ class TestCliDefaults(unittest.TestCase):
     def test_no_flags_means_all_kinds_and_types(self) -> None:
         args = parse_args([])
         self.assertEqual(selected_kinds(args), CONTENT_KINDS)
+        self.assertIn("z", CONTENT_KINDS)
         self.assertNotIn("video", CONTENT_KINDS)
         self.assertNotIn("video", selected_kinds(args))
-        self.assertNotIn("z", selected_kinds(args))
+        self.assertIn("z", selected_kinds(args))
         self.assertEqual(selected_types(args), DUST_TYPES)
         self.assertEqual(args.jobs, 0)
         self.assertFalse(args.catalog)
@@ -50,6 +51,7 @@ class TestCliDefaults(unittest.TestCase):
         self.assertEqual(_worker_count(1, ("frames",), 0), 1)
         self.assertEqual(_worker_count(411, ("frames",), 1), 1)
         self.assertGreater(_worker_count(411, ("frames",), 0), 1)
+        self.assertGreater(_worker_count(35, ("z",), 0), 1)
 
     def test_any_kind_flag_restricts_kinds(self) -> None:
         args = parse_args(["--scripts"])

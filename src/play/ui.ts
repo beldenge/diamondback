@@ -18,7 +18,7 @@ export interface SpritePlace {
   index?: number;
   /** CST frame record +8: 0-based pose in this `actorpose` strip. */
   pose?: number;
-  /** CST frame record +0x28: authored facing on the 256-circle (0=south). */
+  /** CST frame record +0x28: authored facing on the 256-circle (0=front). */
   deg?: number;
 }
 

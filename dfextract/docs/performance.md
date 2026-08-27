@@ -168,9 +168,9 @@ tweak should feel instant.”
 8. **Correctness stills, not speed:** Yunni-box (`BOXOPEN` /
    `BOXCLOSE`) and the thin right-edge stripe. Re-dump after any
    decode change. Do not inpaint skip-coded holes.
-9. **Z PNG previews** (`python cli.py --type set --z`) for occlusion.
-   Decode is required; writing is opt-in and does not rewrite color
-   stills. Play fetches `FRAMES/z/` next to the HQ still.
+9. **Z PNG previews** (default dump) for occlusion. Decode is required.
+   `--z` without `--frames` writes depth without rewriting color stills.
+   Play fetches `FRAMES/z/` next to the HQ still.
 
 Threading the decoder will not help (GIL). Threading Pillow after
 paletted PNG is ~1.5 ms and not worth a pool.

@@ -1,7 +1,8 @@
 /**
  * Decode gates. Color stills (`stillGate`) must not share a pool with
  * Z/sprites: one 8+8 pool ran 16 `Image.decode`s on the main thread and
- * froze the film. Bits stay on a small pool; hold-last Z covers the wait.
+ * froze the film. Bits stay on a small pool. Do not advance the color
+ * still until that plate’s Z is known (cached plane or cached miss).
  *
  * Dust played a strip from RAM; CD seeks were the hitch. We never skip
  * a plate. High jobs (current strip, then dest depth-1) start before

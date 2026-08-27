@@ -185,8 +185,8 @@ export function paintFarToNear<T extends { forward: number }>(items: T[]): T[] {
 }
 
 /**
- * SET Z identity for the actor overlay. `hold` is last-plane while the
- * matching `FRAMES/z` decodes — never skip a blit across that swap.
+ * SET Z identity for the actor overlay. Do not skip a blit across a
+ * still/Z pair swap. Color and Z must be the same plate.
  */
 export function occlusionStamp(
   zWant: string,
@@ -378,6 +378,16 @@ export function zPlaneFromImageData(image: ImageData): Uint8Array {
     z[i] = src[i * 4];
   }
   return z;
+}
+
+/**
+ * Color still and SET Z must swap together. `zKnown` is `cache.has(zUrl)`
+ * (a cached `null` means that still has no Z — show the color). Showing
+ * dest HQ / the next film plate while Z is still the previous plate draws
+ * people through walls (saloon bars, town facades).
+ */
+export function stillZPairReady(colorCached: boolean, zKnown: boolean): boolean {
+  return colorCached && zKnown;
 }
 
 /**

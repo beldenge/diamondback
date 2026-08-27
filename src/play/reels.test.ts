@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_REEL, GALLERY_REELS, galleryReel, reelFromSearch } from "./reels";
+import {
+  DEFAULT_REEL,
+  GALLERY_REELS,
+  galleryGroups,
+  galleryReel,
+  reelFromSearch,
+} from "./reels";
 
 describe("picture-show reels", () => {
   it("defaults to the opening movie", () => {
@@ -29,5 +35,35 @@ describe("picture-show reels", () => {
     expect(ids.has("gun")).toBe(false);
     expect(ids.has("salup")).toBe(false);
     expect(ids.has("dog1")).toBe(false);
+  });
+
+  it("lists the CD INFO attract reels as coming attractions", () => {
+    const ids = new Set(GALLERY_REELS.map((reel) => reel.id));
+    for (const id of [
+      "main",
+      "duss",
+      "jrpre",
+      "jrss",
+      "scpre",
+      "scss",
+      "coming",
+      "action",
+      "lupre",
+      "luss",
+      "tipre",
+      "tiss",
+    ]) {
+      expect(ids.has(id)).toBe(true);
+      expect(galleryReel(id)?.group).toBe("Coming attractions");
+    }
+    expect(reelFromSearch("?mode=movies&reel=lupre")).toBe("lupre");
+    expect(galleryGroups().map((entry) => entry.group)).toEqual([
+      "Opening",
+      "Days",
+      "Endings",
+      "Deaths",
+      "Town",
+      "Coming attractions",
+    ]);
   });
 });

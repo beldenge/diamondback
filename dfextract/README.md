@@ -13,6 +13,10 @@ isolated from the remake game code.
 **Extracted-file map** (what lives under `out/`):
 [`docs/output-catalog.md`](docs/output-catalog.md).
 
+`out/` is **generated**. Never hand-edit dumped scripts, JSON, PNG, or WAV.
+If the dump is wrong, fix this package and re-run `python cli.py`. If the
+dump is faithful and the remake looks wrong, fix `src/` — not `out/`.
+
 **Remake / agent gaps** (what the dump does not explain):
 [`docs/reconstruction-gaps.md`](docs/reconstruction-gaps.md).
 
@@ -110,16 +114,17 @@ A venv is optional. `python -m pip install -r requirements.txt` into
 your user site-packages also works (Pillow for extract, pygame-ce for
 `movplay.py`; still `import pygame`).
 
-No flags means **scripts + audio + frames** for all types, from the Dust
-tree above. **`--video` is opt-in** (ffmpeg; not in a default run).
-Output is `out/` (created if needed).
+No flags means **scripts + audio + frames + SET Z planes** for all
+types, from the Dust tree above. Play needs the Z dump (sprites
+occlude against `FRAMES/z/`). **`--video` is opt-in** (ffmpeg; not in
+a default run). Output is `out/` (created if needed).
 
 ### 4. What a successful run looks like
 
 The first line is on the order of:
 
 ```
-Extracting scripts, audio, frames from 411 file(s) [boot, cst, flt, mov, prp, pup, set, snd]
+Extracting scripts, audio, frames, z from 411 file(s) [boot, cst, flt, mov, prp, pup, set, snd]
 Output: …\dfextract\out
 ```
 
@@ -201,7 +206,7 @@ python cli.py path\to\DUSTCD -o D:\tmp\dust-out
 | Argument | Effect |
 |---|---|
 | *(none)* | All types, all content kinds, from `sources/dust.dbgl` |
-| `--scripts` / `--audio` / `--frames` / `--video` / `--z` | Only those kinds (any one of them turns the others off). `--video` is opt-in (ffmpeg) and muxes MOV stills to `movie.mp4`. `--z` is opt-in and writes SET depth PNGs under `FRAMES/z/` **without** rewriting color stills (`--frames --z` does both). `--scripts` also writes a JSON token AST next to each `.txt` (Dust names) and `animLogic` on PUP `texts.csv`. |
+| `--scripts` / `--audio` / `--frames` / `--video` / `--z` | Only those kinds (any one of them turns the others off). Default dump is scripts + audio + frames + SET Z (`FRAMES/z/`; play needs it). `--video` is opt-in (ffmpeg) and muxes MOV stills to `movie.mp4`. `--z` alone writes depth PNGs **without** rewriting color stills. `--scripts` also writes a JSON token AST next to each `.txt` (Dust names) and `animLogic` on PUP `texts.csv`. |
 | `--catalog` | Alone: rebuild `out/catalog.json` from an existing dump (file graph, line ids, globals). A normal extract always rewrites it. |
 | `--type pup,set,flt,prp,mov,cst,snd,boot` | Only those file types |
 | paths | Only these files or directories |
@@ -258,7 +263,7 @@ More detail: [`docs/reproducing.md`](docs/reproducing.md).
 - [x] `BOOTFILE` scripts
 - [x] `.CST` scripts and actor sprites
 - [x] `.SND` audio (Dust v1 ADPCM)
-- [x] `.SET` scene grid, waypoints, transitions, scripts; SET/MOV still codec
+- [x] `.SET` scene grid, waypoints, transitions, scripts; SET/MOV still codec; default dump writes `FRAMES/z/`
 - [x] `.FLT` puzzle scripts and stills
 - [x] `.PRP` prop scripts and **named** sprites (`Bone/small`, …)
 - [x] `.MOV` Dust v1 stills / cutscene frames / audio

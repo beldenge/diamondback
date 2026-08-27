@@ -1,4 +1,9 @@
-/** Full-screen playmovie reels for the picture show. Not INVEN inspectables or stairs. */
+/** Full-screen playmovie reels for the picture show.
+
+Not INVEN inspectables or stairs. Coming attractions is the CD `INFO/`
+attract pack (Jump Raven, Lunicus, Skull Cracker, Titanic, plus the
+kiosk catalog and Dust screens).
+*/
 
 export interface GalleryReel {
   id: string;
@@ -36,6 +41,18 @@ export const GALLERY_REELS: readonly GalleryReel[] = [
   { id: "kiddie", title: "The Kid", group: "Deaths" },
   { id: "skeleton", title: "The skeleton", group: "Town" },
   { id: "openfoun", title: "The fountain", group: "Town" },
+  { id: "main", title: "Catalog", group: "Coming attractions" },
+  { id: "duss", title: "Dust (screens)", group: "Coming attractions" },
+  { id: "jrpre", title: "Jump Raven", group: "Coming attractions" },
+  { id: "jrss", title: "Jump Raven (screens)", group: "Coming attractions" },
+  { id: "scpre", title: "Skull Cracker", group: "Coming attractions" },
+  { id: "scss", title: "Skull Cracker (screens)", group: "Coming attractions" },
+  { id: "coming", title: "Coming Halloween", group: "Coming attractions" },
+  { id: "action", title: "Skull Cracker (action)", group: "Coming attractions" },
+  { id: "lupre", title: "Lunicus", group: "Coming attractions" },
+  { id: "luss", title: "Lunicus (screens)", group: "Coming attractions" },
+  { id: "tipre", title: "Titanic", group: "Coming attractions" },
+  { id: "tiss", title: "Titanic (screens)", group: "Coming attractions" },
 ];
 
 export function galleryReel(id: string): GalleryReel | undefined {

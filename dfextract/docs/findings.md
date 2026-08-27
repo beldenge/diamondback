@@ -95,9 +95,9 @@ WAV, ~30,000 PNG after SET/MOV, and all playable SET / FLT / PRP / MOV.
    that. A faint right-edge artifact can still appear on some stills.
 2. **`MOVIES/ZUNUSED/`** (11 files) are not `LPPALPPA`. Skipped.
 3. **Z-buffers** trail SET stills. Decode with `decode_z=True` (offsets
-   from the Z table start). Default extract does not write them;
-   `python cli.py --type set --z` writes `FRAMES/z/*.png` without
-   rewriting color stills. Play uses them to occlude CST sprites.
+   from the Z table start). Default extract writes `FRAMES/z/*.png`.
+   `--z` without `--frames` writes depth without rewriting color
+   stills. Play uses them to occlude CST sprites.
 4. **Pretty-print opcode table** is still Titanic 4.0. JSON ASTs use
    Dust names. Re-audit from `DF.EXE` if you see `cmd_NNNN`.
 5. Old un-namespaced folders (`out/_JENIX`, …) and old flat
@@ -122,8 +122,8 @@ Extracted game assets are Cyberflix data, not GPL.
 ## Suggested next work (not extraction)
 
 - JSON AST of scripts: done (`*.json` next to each `.txt`).
-- Z-buffer decode: done (`--z` writes `FRAMES/z/`). Default dump skips
-  the extra PNGs.
+- Z-buffer decode: done. Default dump writes `FRAMES/z/` (play needs
+  it). `--z` alone rewrites depth without color stills.
 - Still-codec leftover: Yunni-box and the thin right-edge stripe. Re-dump
   after any decode change. Do not inpaint skip-coded holes.
 - Ignore or separately catalog `ZUNUSED`.

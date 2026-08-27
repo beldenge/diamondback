@@ -5,6 +5,9 @@
 (install Python 3.11+, confirm `sources/dust.dbgl/`, venv, `cli.py`).
 This page is the inventory, flags, tests, and expected scale.
 
+`out/` is generated. Do not hand-edit it. Fix `dfextract/` and re-run
+`cli.py`, or fix remake playback in `src/`.
+
 ## What you need
 
 - Windows, macOS, or Linux
@@ -48,9 +51,10 @@ pip install -r requirements.txt
 python cli.py
 ```
 
-No flags means **scripts + audio + frames** (all types) from the Dust
-tree above. **`--video` is opt-in** (ffmpeg) and is not in a default
-run. Output defaults to `out/` next to `cli.py`.
+No flags means **scripts + audio + frames + SET Z** (all types) from
+the Dust tree above. Play needs `FRAMES/z/`. **`--video` is opt-in**
+(ffmpeg) and is not in a default run. Output defaults to `out/` next
+to `cli.py`.
 
 Flags only **narrow** the run:
 
@@ -65,8 +69,8 @@ python cli.py path\to\DUSTCD -o D:\tmp\dust-out
 
 | Argument | Effect |
 |---|---|
-| *(none)* | All types, scripts + audio + frames. **No** `movie.mp4`. |
-| `--scripts` / `--audio` / `--frames` / `--video` | Only those kinds (any one of them turns the others off). `--video` is opt-in and needs `ffmpeg`. |
+| *(none)* | All types, scripts + audio + frames + SET Z. **No** `movie.mp4`. |
+| `--scripts` / `--audio` / `--frames` / `--video` / `--z` | Only those kinds (any one of them turns the others off). `--video` is opt-in and needs `ffmpeg`. `--z` alone writes depth without rewriting color stills. |
 | `--type pup,set,flt,prp,mov,cst,snd,boot` | Only those suffixes |
 | paths | Only these files or directories |
 | `-o DIR` | Output root |
@@ -142,14 +146,14 @@ These assume the Dust CD tree is present. Checks include:
 
 ## Expected scale of a full run
 
-A complete `python cli.py` (scripts + audio + frames) produces roughly:
+A complete `python cli.py` (scripts + audio + frames + SET Z) produces roughly:
 
 | Artifact | Count (this repo, 2026-08-20) |
 |---|---|
 | Script `.txt` | ~655 |
 | Dialogue CSV | 78 (one per PUP that has lines, plus leftovers) |
 | WAV | ~4,300 (PUP speech + SND + MOV clips) |
-| PNG | ~33,000 (SET + MOV + sprites) |
+| PNG | ~33,000 color (SET + MOV + sprites) plus ~15,000 SET `FRAMES/z/` depth planes |
 | SET JSON | 105 (`scenes` / `waypoints` / `transitions` × 35) |
 | `movie.mp4` | **0** unless you pass `--video` (**247** then: all `LPPALPPA` MOVs) |
 

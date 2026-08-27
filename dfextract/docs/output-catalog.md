@@ -4,6 +4,10 @@ Where extracted Dust assets live, what each file **is**, and how to
 find the thing you want. Root is `../out/` after
 `python cli.py`.
 
+This tree is **generated**. Never patch files here to make the remake
+look right. If a decode is wrong, change `dfextract/` and re-extract.
+If the dump matches Dust and the remake does not, change `src/`.
+
 Canonical layout:
 
 ```
@@ -122,7 +126,7 @@ No scripts. Folder stem matches the `.SND` file (`TOWN.SND` → `_TOWN`).
 | `Boot Script.txt` | Set-level script (cursor defaults, etc.) if present |
 | `<Scene name>.txt` | Per-tile script **only if** that container actually holds a `code` script (blocked tiles are often empty) |
 | `FRAMES/<frame0>_<offset>.png` | 512×264 walk/turn still. One file per strip slot (`0`…`5`). Container IDs can overlap two strips, so we do **not** share `frame_<id>.png`. On walks, slot `5` is the **from**-pose HQ; the remake plays `0`–`4` then looks up the dest HQ separately ([`src/world/set/README.md`](../../src/world/set/README.md)). |
-| `FRAMES/z/<frame0>_<offset>.png` | **`--z` only.** 8-bit grayscale depth plane for sprite occlusion. `--z` without `--frames` does not rewrite color stills. |
+| `FRAMES/z/<frame0>_<offset>.png` | 8-bit grayscale depth plane for sprite occlusion (default dump). `--z` without `--frames` writes these without rewriting color stills. |
 
 Important sets: `_TOWN` and `_NITE` (same 225-cell / 15×15 outdoor grid,
 day/night; 52 walkable tiles), interiors `_APOTH`, `_BANK`, `_STORE`,

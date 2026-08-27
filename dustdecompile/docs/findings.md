@@ -542,7 +542,7 @@ made a full still look like a residual (black holes, posterized grain).
 ### dfextract mux
 
 `dfextract/mov.py` `parse_reel_timeline` + `_collect_reel`. `--video` is
-**opt-in** (default `python cli.py` is scripts/audio/frames only). With
+**opt-in** (default `python cli.py` is scripts/audio/frames/z; no mp4). With
 `--video` it encodes **every** Dust v1 MOV that has stills — not just
 `is_reel_movie` `playmovie` stems — at 60 fps with duplicated holds,
 `timeline.json` (`channel` `A1`… / `B`), scene palettes, and the
@@ -579,7 +579,7 @@ Capstone on `.text` (not Ghidra). Addresses are VAs, image base
 | `0x415213` | World path calls `0x40dcd0`. Then `bx = forward - actor+0x4c - setback + 128`; clamp `< 0` to 0; skip if `> 0x600` (6×256) or scale divisor `< 0x20`. `sar bx, 6` is the 24-level sprite Z (patent US5729669). O7 N Leroy lens-forward 240, zclip 32: `(240-32-64+128)>>6 = 4`. |
 | `0x415271` | Dest size: `actorscale * setInfo+0x2a / 1000`, then `idiv` by **lens-forward** (`[esp+0x12]` is the `ax` from `0x40dcd0`; skip if `< 32`). Dest Mac Rect at out+0x10: top/left = projected hotspot minus scaled header hotspot. Clip `0x40ab50`. GANG +0x2a = **114**; INVEN jug = **96**. |
 | `0x427fa0` / `0x4280d0` | PRP draw / per-prop helper. Clone of CST (`prop+0x4e` zclip, `prop+0x2c` scale). Record stride **0xa4**. Same `0x40dcd0`. |
-| `0x411d50` / `0x411d20` | `calcdeg` / atan2 on the 256-circle (0=S, 64=E, 128=N, 192=W). CST helper mixes that with look-deg for the sprite octant. `0xC0` here is **west**, not focal 192. |
+| `0x411d50` / `0x411d20` | `calcdeg` / `atan2(dy, dx)` on the 256-circle (**0=E**, 64=S, 128=W, 192=N). +x east, +y south. CST `0x4151e0` wanted is `actordeg −` this bearing to the draw lens. Walk-table look-deg uses the same numbers (N=`0xC0`). `0xC0` is **north**, not west. |
 | `0x423e59` | ColorPalette 8.8 → GDI. `mov dx,[esi+2]` R, `mov ax,[esi+4]` G, `mov cx,[esi+6]` B; `sar dx,8` / `sar ax,8`. Unused slot is `0xFFFF`; arithmetic shift keeps `0xFF` in the low byte (**white**). No unused→black and no unused→transparent. DFET’s `(0,0,0)` for `0xFFFF` was an extract bug (INVEN HUD black spots). Codec skip is the trans-sprite “don’t write” run, not pal 0. |
 
 SET container 0 (every Dust map we dumped):
@@ -614,8 +614,8 @@ stills as `frame0 + index`.
 into that slot because the engine *reads* `[0x46094c]` as setback, every
 SET has 64 there, and 64 + focal 310 + 256-tiles puts O7 N Leroy at
 still-x **354** (original midline **353**). Walk-table look-deg writes
-(`0x40de2f` stores `0xC0` on facing-1 = 0) are **not** reconciled with
-`0x40eae0`’s 1=N; do not treat those stores as proven north=west.
+(`0x40de2f` stores `0xC0` on facing-1 = N) are **0 = east** on the same
+circle as `0x411d50` (`0xC0` = north). SET facing codes stay 1=N.
 Turn jump table at `0x40e128` steps `index*16` but the per-facing start
 deg is not mapped to shortest-path ±64.
 
@@ -662,7 +662,7 @@ BFS on camera tiles, or one CST cycle per 256-unit tile.
 | `0x410b80` | One job tick. Turn while record+4 ≥ 0 (`0x412100`, circle `0xFF`, min step 1). Then `acc +=` SET-actor speed word; lerp along the path (`0x411f50`) or the 3D beeline (`isqrt` `0x40b160`). |
 | `0x438210` | `timeGetTime`; `*3/50` → 60 Hz **counter**. |
 | `0x40e1d2` | Frame loop: draw CST (`0x415040`), then wait until the counter advanced by **`framerate`**. Boot `framerate (3)` → **20 Hz** game frames, not 60 Hz pumps. PRP+CST together are `0x40e720` (§7a). |
-| `0x4154c0` | CST sprite pick on that draw. `actor+0x24` indexes **that pose’s** setInfo **+0x2e** (length **+0x70**). GANG 8-pose walk: 16 slots `[1,1,2,2,…,8,8]`. EXTRA pig/chicken walk: `[1,1,2,2]`. Stand is length 1. For each 44-byte frame, +8 must match that 0-based pose id; then `0x411f20` circular distance to wanted deg vs frame **+0x28**. Keep the smallest (exact 0 stops). `0x4151e0` subtracts look-deg then `calcdeg` so look cancels on-axis. Play wanted is `(look+128) − actordeg`: CST plate **32** is the west ¾, world `actordeg 32` is SE (south view = plate **224**). Dog street: 7 plates at 16° (`0,16,32,48,208,224,240`). |
+| `0x4154c0` | CST sprite pick on that draw. `actor+0x24` indexes **that pose’s** setInfo **+0x2e** (length **+0x70**). GANG 8-pose walk: 16 slots `[1,1,2,2,…,8,8]`. EXTRA pig/chicken walk: `[1,1,2,2]`. Stand is length 1. For each 44-byte frame, +8 must match that 0-based pose id; then `0x411f20` circular distance to wanted deg vs frame **+0x28**. Keep the smallest (exact 0 stops). `0x4151e0` wanted is `actordeg − calcdeg(actor, lens)` (`0x411d20`, 0=east); look-deg cancels. CST plate **32** is the west ¾; world `actordeg 32` is SE (L7 N → plate **224**). Dog street: 7 plates at 16° (`0,16,32,48,208,224,240`). |
 
 `stdactor` copies `stdspeed` / `stdturn` of `actorset(who)`: town **3 / 7**, hotlower and sallower **4 / 8**, else **5 / 10** (GANG `Cast.txt`). Mine extra `stdspeed` is **4**. That many world units / deg-units per **20 Hz** game frame. Scripts wait with `while iswalk { forceupdate }`.
 

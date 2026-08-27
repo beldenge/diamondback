@@ -3,7 +3,8 @@
 How the remake plays Dust’s filmed town. Extract layout lives in
 [`dfextract/docs/`](../../../dfextract/docs/); this file is the
 **playback** book we filled in while getting Diamondback’s streets to
-match the original stills.
+match the original stills. Do not patch `dfextract/out/SET/**`; if a
+still or graph is wrong, fix `dfextract/` and re-extract, or this walker.
 
 Dust: Unlocked (`/?mode=unlocked`) and Dust: Resurrected share this
 stills walker inside `PlayGame`. Unlocked is a sandbox policy on that

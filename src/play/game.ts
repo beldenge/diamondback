@@ -54,7 +54,6 @@ import {
   poseLabel,
   sceneByName,
   WORLD_TOWN,
-  zUrl,
   zUrlFromStill,
 } from "../world/set/graph";
 import { pngImageData, StillsView } from "../world/set/stillsView";
@@ -86,6 +85,7 @@ import {
   paintFarToNear,
   actorLayerStamp,
   occlusionStamp,
+  stillZPairReady,
   spriteBitsFromImageData,
   wallOverlayBlitZ,
   propStillScale,
@@ -1584,32 +1584,26 @@ export class PlayGame implements WorldView {
     this.view.preload(nextMoves, "high");
     const anim = createStillAnim(motion);
     this.anim = anim;
-    if (this.view.showCached(motion[0]!)) {
-      anim.ready = true;
-    } else {
-      void this.view.show(motion[0]!).then(() => {
-        if (this.anim === anim) {
-          anim.ready = true;
-          anim.elapsed = 0;
-        }
-      });
-    }
     this.timer.reset();
     this.needsRender = true;
     this.preloadZ(motion, "high");
     this.preloadZ(nextMoves, "low");
     this.trimZCache([...motion, ...nextMoves]);
-    this.bindZ(zUrlFromStill(motion[0]!));
+    if (this.showPairedStill(motion[0]!)) {
+      anim.ready = true;
+    } else {
+      this.warmStillPair(motion[0]!);
+    }
   }
 
   private driveAnim(anim: StillAnim, dt: number): void {
     const url = anim.urls[anim.index];
-    if (!this.view.cached(url)) {
-      void this.view.show(url);
+    if (!this.stillPairReady(url)) {
+      this.warmStillPair(url);
       return;
     }
     if (!anim.ready) {
-      this.view.showCached(url);
+      this.showPairedStill(url);
       anim.ready = true;
       anim.elapsed = 0;
       return;
@@ -1617,14 +1611,9 @@ export class PlayGame implements WorldView {
     const step = tickStillAnim(anim, dt, STILL_FRAME_SEC);
     if (step.frameChanged) {
       const next = anim.urls[anim.index];
-      this.bindZ(zUrlFromStill(next));
-      if (!this.view.showCached(next)) {
+      if (!this.showPairedStill(next)) {
         anim.ready = false;
-        void this.view.show(next).then(() => {
-          if (this.anim === anim) {
-            anim.ready = true;
-          }
-        });
+        this.warmStillPair(next);
       }
     }
     if (step.done) {
@@ -1667,8 +1656,7 @@ export class PlayGame implements WorldView {
     }
     const folder = this.stillsFolder();
     const still = frameUrl(folder, frame.frame0, frame.offset);
-    if (this.view.showCached(still)) {
-      this.bindZ(zUrl(folder, frame.frame0, frame.offset));
+    if (this.showPairedStill(still)) {
       this.needsRender = true;
       this.layoutActors();
       return;
@@ -1677,8 +1665,15 @@ export class PlayGame implements WorldView {
       this.layoutActors();
       return;
     }
-    this.bindZ(zUrl(folder, frame.frame0, frame.offset));
-    void this.view.show(still).then(() => {
+    this.warmStillPair(still);
+    void Promise.all([
+      this.view.ensure(still, "high"),
+      this.ensureZ(zUrlFromStill(still), "high"),
+    ]).then(() => {
+      if (this.anim || !this.stillPairReady(still)) {
+        return;
+      }
+      this.showPairedStill(still);
       this.needsRender = true;
       this.layoutActors();
     });
@@ -1736,12 +1731,15 @@ export class PlayGame implements WorldView {
     }
     const folder = this.stillsFolder();
     const still = frameUrl(folder, frame.frame0, frame.offset);
-    const z = zUrl(folder, frame.frame0, frame.offset);
-    this.bindZ(z);
-    await Promise.all([this.view.show(still), this.ensureZ(z, "high")]);
+    this.warmStillPair(still);
+    await Promise.all([
+      this.view.ensure(still, "high"),
+      this.ensureZ(zUrlFromStill(still), "high"),
+    ]);
     if (gen !== this.hqGen) {
       return;
     }
+    this.showPairedStill(still);
     this.needsRender = true;
     this.layoutActors();
     this.syncHud();
@@ -2189,11 +2187,35 @@ export class PlayGame implements WorldView {
     return job;
   }
 
-  /** Drop town Z when entering a shop (and the reverse). Never hold last across SETs. */
+  /** Color still + matching `FRAMES/z` (cached `null` = no plane). */
+  private stillPairReady(stillUrl: string): boolean {
+    return stillZPairReady(this.view.cached(stillUrl), this.zCache.has(zUrlFromStill(stillUrl)));
+  }
+
+  private warmStillPair(stillUrl: string): void {
+    this.view.preload([stillUrl], "high");
+    this.view.prefer([stillUrl]);
+    void this.ensureZ(zUrlFromStill(stillUrl), "high");
+  }
+
+  /** Swap color and Z together. Hold the previous pair until both are known. */
+  private showPairedStill(stillUrl: string): boolean {
+    if (!this.stillPairReady(stillUrl)) {
+      this.warmStillPair(stillUrl);
+      return false;
+    }
+    this.bindZ(zUrlFromStill(stillUrl));
+    return this.view.showCached(stillUrl);
+  }
+
+  /**
+   * Drop cached planes when the SET folder changes. Keep the last live
+   * plane so the still still on screen occludes until the new color+Z
+   * pair binds. Nulling it here drew every sprite through that still.
+   */
   private resetOcclusion(): void {
     this.zCache.clear();
     this.zLoading.clear();
-    this.zPlane = null;
     this.zWant = "";
   }
 

@@ -89,6 +89,14 @@ export class StillsView {
     return true;
   }
 
+  /**
+   * Decode without painting. Color stills must sit in cache until the
+   * matching `FRAMES/z` is known, then `showCached`.
+   */
+  async ensure(url: string, priority: MediaPriority = "high"): Promise<void> {
+    await this.load(url, priority);
+  }
+
   async show(url: string): Promise<void> {
     this.apply(url, await this.load(url, "high"));
   }

@@ -30,7 +30,8 @@ Or from this directory:
 python cli.py
 ```
 
-Output lands in `out/` (gitignored):
+Output lands in `out/` (gitignored). That tree is **generated**. Do not
+hand-edit it; change this package and re-run.
 
 ```
 out/inventory.json

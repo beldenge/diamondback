@@ -865,7 +865,7 @@ describe("interior scene lookup", () => {
 });
 
 describe("saloon piano player", () => {
-  it("seats Isao facing south into the keys, not an east/west profile", () => {
+  it("leaves Isao's extracted rest heading unpatched", () => {
     const disk = resolve("dfextract/out/CST/_GANG/Isao/Script.json");
     if (!existsSync(disk)) {
       return;

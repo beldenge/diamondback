@@ -53,6 +53,7 @@ class TestReelClassification(unittest.TestCase):
 
     def test_video_flag_is_opt_in(self) -> None:
         self.assertEqual(selected_kinds(parse_args([])), CONTENT_KINDS)
+        self.assertIn("z", selected_kinds(parse_args([])))
         self.assertNotIn("video", selected_kinds(parse_args([])))
         self.assertEqual(selected_kinds(parse_args(["--video"])), ("video",))
         self.assertEqual(

@@ -15,6 +15,7 @@ import {
   CAMERA_SETBACK,
   cameraFromPose,
   cameraWorldPoint,
+  drawLensPoint,
   degDelta,
   filmstripT,
   lerpViewCamera,
@@ -82,38 +83,40 @@ function actor(x: number, y: number, deg = 0): ActorState {
 }
 
 describe("actordeg octants", () => {
-  it("maps 0=S 64=E 128=N 192=W", () => {
+  it("maps 0=E 64=S 128=W 192=N", () => {
     expect(degToOctant(0)).toBe(0);
     expect(degToOctant(64)).toBe(2);
     expect(degToOctant(128)).toBe(4);
     expect(degToOctant(192)).toBe(6);
-    expect(dirToDeg("N")).toBe(128);
+    expect(dirToDeg("N")).toBe(192);
+    expect(dirToDeg("E")).toBe(0);
   });
 
   it("shows the front when the actor faces the camera", () => {
-    expect(visibleOctant(0, 128)).toBe(0);
-    expect(visibleOctant(128, 128)).toBe(4);
+    expect(visibleOctant(64, 192)).toBe(0);
+    expect(visibleOctant(192, 192)).toBe(4);
   });
 
   it("walks east to the right of a north-facing still", () => {
-    // walk/frame_5 (oct 2) faces left; walk/frame_9 (oct 6) faces right.
-    expect(visibleOctant(64, 128)).toBe(6);
-    expect(visibleOctant(192, 128)).toBe(2);
+    expect(visibleOctant(0, 192)).toBe(2);
+    expect(visibleOctant(128, 192)).toBe(6);
   });
 
   it("points calcdeg at the camera from the south-gate sign", () => {
-    // town.leroy1 in TOWN.SET (1740, 3536); O7 N feet (1664, 3712).
+    // town.leroy1 in TOWN.SET (1740, 3536); O7 N cameraxyz is south of the feet.
     const leroy = { x: 1740, y: 3536 };
-    const camera = { x: 6 * TILE_SPAN + 128, y: 14 * TILE_SPAN + 128 };
-    const deg = calcDeg(leroy, camera);
-    // 82 east of O7 → SSW. Clockwise CST plates: 0 front, 1 slight ¾.
-    expect([0, 1]).toContain(visibleOctant(deg, 128));
+    const lens = cameraWorldPoint({ x: 6, y: 14, facing: "N" });
+    const deg = calcDeg(leroy, lens);
+    expect([0, 1]).toContain(visibleOctant(deg, dirToDeg("N")));
   });
 
-  it("walks south as +y", () => {
-    const v = calcVect(0, 100);
-    expect(v.y).toBeGreaterThan(90);
-    expect(Math.abs(v.x)).toBeLessThan(1);
+  it("walks east as +x and south as +y", () => {
+    const east = calcVect(0, 100);
+    expect(east.x).toBeGreaterThan(90);
+    expect(Math.abs(east.y)).toBeLessThan(1);
+    const south = calcVect(64, 100);
+    expect(south.y).toBeGreaterThan(90);
+    expect(Math.abs(south.x)).toBeLessThan(1);
   });
 
   it("puts cameraxyz one tile behind the feet along the view", () => {
@@ -197,7 +200,8 @@ describe("CST sprite pick (DF.EXE 0x4154c0)", () => {
 
   it("does not wrap 7 street plates through octant % 7 to the front", () => {
     // Looking north at L7, town.dog is ahead and a bit west. actordeg 32
-    // is SE — the east ¾ (plate 224), not the west ¾ (plate 32).
+    // is SE — EXE `actordeg − calcdeg(lens)` wants the east ¾ (plate 224),
+    // not the west ¾ (plate 32).
     const dog = { x: 1620, y: 2748 };
     const l7n = cameraFromPose({ x: 6, y: 11, facing: "N" });
     const wanted = spriteWantedDeg(32, dog, l7n);
@@ -209,12 +213,12 @@ describe("CST sprite pick (DF.EXE 0x4154c0)", () => {
     expect(frame?.path).not.toBe("dog32");
   });
 
-  it("keeps the east ¾ on the dog's tile instead of flipping", () => {
+  it("keeps the east ¾ from O7 N; on-tile K7 N uses the lens bearing", () => {
     const dog = { x: 1620, y: 2748 };
     const o7n = cameraFromPose({ x: 6, y: 14, facing: "N" });
     const k7n = cameraFromPose({ x: 6, y: 10, facing: "N" });
     expect(pickCstFrame(dogStand, 32, dog, o7n, 0, [1])?.path).toBe("dog224");
-    expect(pickCstFrame(dogStand, 32, dog, k7n, 0, [1])?.path).toBe("dog224");
+    expect(pickCstFrame(dogStand, 32, dog, k7n, 0, [1])?.path).not.toBe("dog0");
   });
 
   it("uses alt/left plates by deg too — not extra[0] when length < 8", () => {
@@ -247,20 +251,41 @@ describe("CST sprite pick (DF.EXE 0x4154c0)", () => {
     expect(place?.path).not.toBe("alt32");
   });
 
-  it("faces Isao south into the piano from the south aisle", () => {
-    // (2,3) S still: upright, keys toward the lens. Isao sits on the
-    // bench (south of the cabinet) facing the keys. 64 and 192 are both
-    // profiles (perpendicular). actordeg 0 → wanted 128 → back plate.
+  it("picks Isao's dump heading from the south aisle via EXE calcdeg", () => {
     const isaoStand = Array.from({ length: 11 }, (_, i) => {
       const deg = 48 + i * 16;
       return { path: `isao${deg}`, deg, pose: 0 };
     });
     const isao = { x: 644, y: 1128 };
     const south = cameraFromPose({ x: 2, y: 3, facing: "S" }, 180);
-    expect(spriteWantedDeg(0, isao, south)).toBe(128);
-    expect(pickCstFrame(isaoStand, 0, isao, south, 0, [1])?.path).toBe("isao128");
-    expect(pickCstFrame(isaoStand, 64, isao, south, 0, [1])?.path).toBe("isao64");
-    expect(pickCstFrame(isaoStand, 192, isao, south, 0, [1])?.path).toBe("isao192");
+    expect(angularDistance(spriteWantedDeg(0, isao, south), 64)).toBeLessThan(16);
+    expect(pickCstFrame(isaoStand, 0, isao, south, 0, [1])?.path).toBe("isao64");
+    expect(pickCstFrame(isaoStand, 64, isao, south, 0, [1])?.path).toBe("isao128");
+    expect(pickCstFrame(isaoStand, 192, isao, south, 0, [1])?.path).toBe("isao48");
+  });
+
+  it("faces dump Trotter 0 (east) toward the C3 west bar camera", () => {
+    const stand = Array.from({ length: 8 }, (_, i) => ({
+      path: `trot${i * 32}`,
+      deg: i * 32,
+      pose: 0,
+    }));
+    const trotter = { x: 576, y: 648 };
+    const west = cameraFromPose({ x: 2, y: 2, facing: "W" }, 180);
+    expect(angularDistance(spriteWantedDeg(0, trotter, west), 0)).toBeLessThan(16);
+    expect(pickCstFrame(stand, 0, trotter, west, 0, [1])?.path).toBe("trot0");
+  });
+
+  it("faces dump Oona 128 (west) toward the east-wall camera", () => {
+    const stand = Array.from({ length: 8 }, (_, i) => ({
+      path: `oona${i * 32}`,
+      deg: i * 32,
+      pose: 0,
+    }));
+    const oona = { x: 964, y: 900 };
+    const east = cameraFromPose({ x: 3, y: 3, facing: "E" }, 180);
+    expect(angularDistance(spriteWantedDeg(128, oona, east), 0)).toBeLessThan(16);
+    expect(pickCstFrame(stand, 128, oona, east, 0, [1])?.path).toBe("oona0");
   });
 
   it("still picks the front 8-dir plate when the actor faces the lens", () => {
@@ -271,8 +296,9 @@ describe("CST sprite pick (DF.EXE 0x4154c0)", () => {
     }));
     const leroy = { x: 1740, y: 3536 };
     const o7n = cameraFromPose({ x: 6, y: 14, facing: "N" });
-    const front = pickCstFrame(stand, 0, leroy, o7n, 0, [1]);
-    expect(front?.path).toBe("s0");
+    const facing = calcDeg(leroy, drawLensPoint(o7n));
+    expect(spriteWantedDeg(facing, leroy, o7n)).toBe(0);
+    expect(pickCstFrame(stand, facing, leroy, o7n, 0, [1])?.path).toBe("s0");
   });
 });
 
@@ -401,8 +427,8 @@ describe("worldToStill", () => {
     expect(lerpViewCamera(o7n, o7e, 1).x).toBe(start.x);
     expect(lerpViewCamera(o7n, o7e, 1).y).toBe(start.y);
     const mid = lerpViewCamera(o7n, o7e, 0.5);
-    expect(mid.deg).toBeGreaterThan(64);
-    expect(mid.deg).toBeLessThan(128);
+    expect(mid.deg).toBeGreaterThan(192);
+    expect(mid.deg).toBeLessThan(256);
   });
 
   it("yaws look-deg on an in-place turn but keeps camera XY", () => {

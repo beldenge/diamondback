@@ -3,7 +3,8 @@
 How the remake runs Day 1 night: original HUD under the stills, CST actors,
 PUP talking-heads, world props, night FX, and spot-movies, all driven by
 extracted DreamFactory scripts (boot → `advanceday` → SET/CST/PRP). Extract formats live in
-[`dfextract/docs/`](../../dfextract/docs/). This file is the **playback**
+[`dfextract/docs/`](../../dfextract/docs/). **Never edit `dfextract/out/`**
+— it is generated; fix `dfextract/` or this playback code. This file is the **playback**
 book so we do not re-debug speech, visemes (per-PUP idle tracks), the
 Firefox audio delay, world→still (X, Y, scale, Z, pans), interior
 spawn/Z, HOUSE door overlays, EXAMINE pointer, dest-rect hits, the
@@ -48,8 +49,8 @@ dog. `boot()` opening gang/extra/HOUSE again is a no-op on the network.
 Town stills prefetch one tap ahead (`IDLE_NEIGHBOR_DEPTH`, motion
 only); a walk already high-prefetches dest depth-1 motion. Standing HQ
 is idle-only. The actor overlay reuses one
-512×264 `ImageData` and skips `putImageData` when nothing moved (Z
-hold-last still forces a blit when the matching plane arrives).
+512×264 `ImageData` and skips `putImageData` when nothing moved (a new
+still/Z pair still forces a blit).
 
 Town **script** names are column-letter + row (`scene g12` = filmed L7
 jail). SET Pascal names in `scenes.json` are the transpose (`Scene L7`).
@@ -84,7 +85,7 @@ town **62**). Hardcoding 62 puts Help in the air behind the counter.
 
 Help **behind the counter** is SET Z, not a second Y. The counter is in
 the still; sprite pixels draw only when `spriteZ ≤ stillZ`. Interior
-SETs need `FRAMES/z/` (`python cli.py --type set --z` that SET). No Z
+SETs need `FRAMES/z/` (included in a default `python cli.py`). No Z
 plane → Help paints on top of the counter. `stdactor` sets chin
 `actorscale` 5800 and `actorzclip` 32 — do not invent a shop Y.
 TARGET is the same class of still-occlusion (gallery / cactuses):
@@ -322,7 +323,7 @@ Extracted `target.set` + `target.flt` + `target.cst` + `target.prp`, same
 VM as town / SALGAMES. Unlocked seeds the day-2|3 livestock because
 `initactors` skips them on `day = 1`. Do not write a second range engine.
 
-**Extract.** `python cli.py --type set --z` on TARGET (gallery / cactus
+**Extract.** Default dump writes TARGET `FRAMES/z/` (gallery / cactus
 depth). CST plates use the sibling SET ColorPalette for used slots, pal
 0 **black** (VGA still index 0). Unused-white made `birdtarg` blank;
 bottles and plates already had real SET colors. Town EXTRA birds stay on
@@ -419,7 +420,9 @@ Leroy), `occlude.test.ts` (range Z + filmstrip hold),
 | SET pal unused-white on TARGET pal 0 | Crows blank. Pal 0 is VGA still black. |
 | `pausewalk ("all")` freezing TARGET walks / `initbird` at `birdstar1` | Invisible crows. Pause other-set actors only; seed on-camera stars; keep `flight`. |
 | Take the gun on EXIT | Original walks out still holding it. `dumpinven` is Leroy `aftertarget`. |
-| Drop filmstrip Z while the next PNG decodes | People and items through walls on every turn/walk plate. Color still waits; Z must too (cache + hold last). |
+| Drop filmstrip Z while the next PNG decodes | People and items through walls on every turn/walk plate. Color still waits; Z must too. |
+| Show dest HQ / next plate when color is cached but Z is not | HQ color with last-motion Z (or null) draws Trotter/Oona through the bar. `stillZPairReady`: swap color and Z together. Hold-last Z on a *new* still is the mismatch. |
+| `view.show` / `warmStillPair` painting color while Z loads | `show` applies the texture as soon as the PNG decodes. Standing `showHold` (door hop, `setPose`, N) and uncached dest HQ did that — saloon bar with `zPlane` null. `view.ensure` + `showCached` after both are known. Do not `zPlane = null` on SET hop until the new pair binds. |
 | Leftover `scene k11` on TARGET 225-grid | Hourglass / stand at the street cell. Always stand interiors. |
 | Wait `while iswalk` after Unlocked Leroy Yes | Hourglass, never `gotointerior`. Sandbox skips that return-walk. |
 
@@ -484,13 +487,14 @@ still has forward > 0.
 | Skip PRP trans sprites over 256×256 / 20 KB | No `salout` PNG; click-to-exit in the saloon has sound but no open-door overlay. |
 | Colorize HOUSE world overlays with HOUSE.PRP unused-black | Silhouette doors and card tables. Dust 8-bit-blits those onto the SET; extract recolors any sprite whose HOUSE unused-black ratio is ≥ 0.5. |
 | `force-cache` + 1-day PNG `max-age` | Re-extracted gamblers/blackjack/table1 stay black until the browser cache dies. Extract PNGs revalidate (`no-cache` + ETag). |
-| Isao `actordeg 64` / **192** at `sallower.isao` | Both are profiles (perpendicular to the keys). (2,3) S still is an upright with the keyboard toward the lens; rest heading is **0** (south) into the keys so the south aisle sees his back (wanted 128). Idle sways 236–20 through south. |
+| Treat `actordeg` 0 as south | DF.EXE `calcdeg` / look-deg are **0 = east**. Dump Trotter `0` at `sal.trotter1` then faces the C3 W camera (front). Dump Oona `128` at `sallower.oona` faces the east-wall camera. `0`=south showed both as profiles (perpendicular to the bar / wall). Isao dump `0` is east too; idle sways 236–20 through east. |
+| Patch `dfextract/out/**` (Trotter/Oona `Script.json` `actordeg`) | Re-extract wipes it. The dump is faithful; the compass was wrong. Fix `src/play/facing.ts` (or `dfextract/` if the decoder is wrong). Never hand-edit generated scripts, stills, or sprites. |
 | Hardcode camZ **62** in every SET | Help floats behind the counter. Interior **door overlays** (salout z=174) sit at that SET’s +26 (sallower **180**); town 62 throws them off the top of the still. Use `cameraZOf(world)`. |
 | Filter props with exact `prop.set === currentSet` | `sallower` vs `_SALLOWER` hid the exit overlay after a catalog hop. Same SET, different spellings. |
 | Actor Z-slack on HOUSE door overlays | Door sprites replace the still wall. `GROUND_Z_SLACK` 1 left them behind the doorway. Pinning to hotspot Z=4 still dropped the lower leaf on floor Z=3 / a stale street plane — only the lintel stayed open. Wall overlays blit at Z=1. |
 | INVEN field 96 on HOUSE door overlays | `salout` 232×252 is authored 1:1 (hotspot → y=11..263). PRP dest with default 1450 × 96 / (1000 × 156) is ~0.89 and leaves a strip of closed door above the HUD. Door +0x2a is **160**; 1450×160 is ~1.49×. **Only the HOUSE `door` prop** blits at scale 1. Bar drinks (`buildrand*`, z=147 vs camZ 180) kept getting that 1:1 blit and looked huge — they use script `propscale` 800–1100. |
 | Open door on every still / close sound every pan | HOUSE `door` is a still replacement for the pose `setupprop` opened. World-projecting it onto C1 E paints the leaf on the inner doors; `initprop` on every pan replays close. Bind to `openedAt`; close **once** when leaving that still. Book: [HOUSE door overlays](#house-door-overlays). |
-| Skip interior `FRAMES/z/` | Help paints in front of the counter. Draw when `spriteZ ≤ stillZ`. `python cli.py --type set --z`. |
+| Skip interior `FRAMES/z/` | Help paints in front of the counter. Draw when `spriteZ ≤ stillZ`. Default dump writes Z. |
 | 24 fps strip / dest HQ as a 6th timed plate / queue a tap | Walks at ~2/sec. DF.EXE is 5 plates at 20 Hz then idle (`0x40dd90` / `0x40d920`). Taps during the strip are dropped. Do not await dest HQ or Z before the next step. |
 | `createImageData` + `putImageData` every rAF | Firefox GC `TOO_MUCH_MALLOC` (~5 ms) plus a constant `putImageData` floor on 240 Hz panels. Reuse one 512×264 `ImageData`; skip the blit when the stamp matches. Do not skip across Z hold-last → live. Decode gate leaves 2 slots free of low prefetch so the current plate can start; do not abort in-flight `Image.decode`. |
 | Scene `closescene` on in-place pans | `doorclose1` on every A2 turn. Those hooks are **tile** steps (`isTileStep`). Overlay close on a turn is `closeDoorIfLeftOpening`, not `closescene`. |
@@ -593,17 +597,20 @@ must not override `[hidden]`.
 
 ## Town CST
 
-CST `actordeg` / `currentdeg`: **256 units per turn, 0 = south**. DF.EXE
+CST `actordeg` / `currentdeg` / `calcdeg`: **256 units per turn, 0 = east**
+(64 = south, 128 = west, 192 = north). DF.EXE `0x411d50` is
+`atan2(dy, dx)` with +x east, +y south. Walk-table look-deg stores the
+same numbers (N=`0xC0`, S=`0x40`, E=`0`, W=`0x80`). SET facing 1=N maps
+onto that circle as 192.
+
 `0x4154c0` does **not** index `octant % n`. Each 44-byte setInfo frame
 stores pose at **+8** and facing deg at **+0x28**. Draw walks that
 pose’s table (`+0x2e` / `+0x70`), then copies the frame whose deg is
-closest on the circle (`0x411f20`). Wanted deg is
-`(look + 128) − actordeg` on the view axis (from the actor back to the
-lens, minus facing). Frame deg 0 is the front. CST plate **32** is the
-west ¾ (head screen-left); world `actordeg 32` is SE, so from the south
-that is the **east** ¾ (plate **224**). Matching the two 32s mirrored
-the street dog. Do not use XY `calcdeg` to the 64-unit setback — that
-sitting beside a near dog flipped the ¾.
+closest on the circle (`0x411f20`). Wanted deg is `0x4151e0`:
+`actordeg − calcdeg(actor, lens)` to the SET+24 draw lens. Look-deg
+cancels. Frame deg 0 is the **front** (relative). Town.dog `actordeg 32`
+(SE) at L7 N wants ~231 → plate **224** (east ¾). `atan2(dx, dy)`
+(0=south) to the setback flipped that ¾ to plate 32.
 
 Most GANG/EXTRA strips are 8 dirs at 32°. The **dog** is 7 plates at
 **16°** around south (`0,16,32,48,208,224,240`) — `setupactor("street")`
@@ -727,11 +734,12 @@ sixth timed plate, not prefetched on the walk. Walk: lerp feet `index*64` (`t = 
 look-deg `index*16`, **reproject** with the table above every plate.
 Draw sprites **after** the still advances. If the next PNG is not
 ready, hold the previous plate’s camera. Facing codes **1=N 2=S 3=E 4=W**.
-Each plate has its own `FRAMES/z/`. Dropping that plane while the next
-Z PNG decoded (`zKey !== zWant` → null) painted actors through walls
-on every motion frame — town turns as well as the range. Cache Z per
-still URL and hold the last plane until the matching one is ready. See
-[TARGET shooting range](#target-shooting-range).
+Each plate has its own `FRAMES/z/`. Advancing the **color** still while
+Z is still the previous plate (or null) paints people through walls —
+saloon bars especially, because dest HQ is often already decoded from
+idle prefetch while its Z is still on `bitsGate`. Hold the previous
+color+Z pair until the next plate’s Z is known (`cache.has`, including
+a cached miss). See [TARGET shooting range](#target-shooting-range).
 
 **Oracle A — O7 N Leroy** (`town.leroy1` = 1740, 3536, `actorscale` 1100):
 
@@ -826,8 +834,8 @@ Clothing pixels are forced opaque. Only the (0,0,0,~120) foot blob
 (0,0,0); canvas premultiply punching it to a<255 used to keep the coat
 see-through. Do not treat every translucent black pixel as a matte.
 From O8 N the picket fence is Z=3, so a far body does not show through
-it; gaps (Z≥5) can still leak slivers. `python cli.py --type set --z`
-writes `FRAMES/z/` without rewriting color stills. Multiply dest size
+it; gaps (Z≥5) can still leak slivers. Default dump writes `FRAMES/z/`.
+`--z` without `--frames` rewrites depth only. Multiply dest size
 by still CSS height / 264 so resize does not change size relative to
 the street.
 
