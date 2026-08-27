@@ -8,6 +8,12 @@ const NEIGHBOR_INPUTS: readonly WalkInput[] = ["left", "right", "forward"];
 export function transitionStillUrls(tr: SetTransition, folder: string): string[] {
   const urls: string[] = [];
   const count = framesToPlay(tr);
+  if (tr.reverse) {
+    for (let i = count - 1; i >= 0; i -= 1) {
+      urls.push(frameUrl(folder, tr.frame0, i));
+    }
+    return urls;
+  }
   for (let i = 0; i < count; i += 1) {
     urls.push(frameUrl(folder, tr.frame0, i));
   }

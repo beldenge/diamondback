@@ -4,6 +4,7 @@ import {
   AVATAR_SLOT,
   avatarFlatAction,
   boardStillNeedsBlit,
+  keepBoardItems,
   examineHandName,
   flatItemKey,
   HAND_SLOT,
@@ -148,6 +149,12 @@ describe("puzzle board overlay", () => {
     expect(boardStillNeedsBlit("", url)).toBe(true);
     expect(boardStillNeedsBlit(url, url)).toBe(false);
     expect(boardStillNeedsBlit(url, "/extract/FLT/_SALGAMES/frame_3.png")).toBe(true);
+  });
+
+  it("drops avatar satchel icons when a book board opens", () => {
+    expect(keepBoardItems(false, 0, 7)).toBe(false);
+    expect(keepBoardItems(true, 0, 7)).toBe(true);
+    expect(keepBoardItems(true, 1, 7)).toBe(false);
   });
 
   it("keeps piece identity so a drag can move one img without wiping the rest", () => {

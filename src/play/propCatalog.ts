@@ -123,6 +123,11 @@ export function stageScriptRels(stem: string): string[] {
   if (stem === "checkers") {
     files.push(`${folder}/playcheckers.json`);
   }
+  if (stem === "sundial") {
+    files.push(`${folder}/offerobject _what_.json`);
+  }
+  // Flute `script_8`–`12.json` (but 1–5) were never dumped. Stage
+  // `mousedown` switches on `target` = `but 1`. Do not probe them.
   return files;
 }
 
@@ -130,7 +135,11 @@ const PUZZLE_SHOP_DUMP: Readonly<Record<string, string>> = {
   checkers: "automove_1.json",
   credits: "openshop_1.json",
   flute: "setcursor_1.json",
+  hub: "setcursor _arg__1.json",
+  snake: "setcursor _arg__1.json",
+  sundial: "setcursor _arg__1.json",
   target: "openshop_1.json",
+  tumble: "setcursor _arg__1.json",
 };
 
 export function puzzleShopScriptRels(stem: string): string[] {

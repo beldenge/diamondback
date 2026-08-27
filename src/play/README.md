@@ -11,15 +11,20 @@ spawn/Z, HOUSE door overlays, EXAMINE pointer, dest-rect hits, the
 map `cross`, the script pump that runs FLT minigames (`mousedown`
 press, `makeloop` / `pauseloop`, `forceupdate` vs idle `runQueued`,
 60 Hz `delay` / fades, `findword` / `putword` holes, params vs
-globals), store checkers, or the TARGET shooting range.
+globals), store checkers, the TARGET shooting range, or the Unlocked underground cave.
 
 Dust: Unlocked (`/?mode=unlocked`) is the **same** PlayGame / VM with
 `host.sandbox`. It is not `src/core/game.ts` (retired). Stills playback
 is still [`src/world/set/README.md`](../world/set/README.md). Policy:
-[`sandbox.ts`](sandbox.ts). The title chooser is `/`.
+[`sandbox.ts`](sandbox.ts). The title chooser is `/`. Underground Yunni
+(fountain → hub → sundial → season rooms) is the same extracted cave,
+with only the fountain story gate faked: [Unlocked underground](#unlocked-underground-yunni).
 
 Unlocked still runs extracted `boot()` (keydown, HUD, shops) but
 replaces stage `advanceday` so Day 1 night story casts never spawn.
+`skipBootBlack` must no-op boot `clut ("black")` the same as
+`blackscreen` — extracted `postmovie` never runs, so a real cut stuck
+the fade plate.
 `debugging = true` makes SET `lock*` return false. After every
 `opensetfile` / `openscene`, story extras are hidden and stair
 talk flags are seeded (`oonaphase` 3, `mwifephase` 1) so saloon and
@@ -28,10 +33,30 @@ range, Bolivar at the store. Farm animals stay (pigs, cows, chickens,
 birds); the dog does not. Afternoon pig is seeded because EXTRA only
 places it at night. Do not `addinven ("gun")` at spawn. Range play
 (HUD, gunhand, scores, EXIT, casts, Z, palettes): [TARGET shooting
-range](#target-shooting-range). INVEN world `small` pickups (jug, bone,
-…) are hidden; HOUSE doors, tables, and tumbleweeds stay. Saloon
+range](#target-shooting-range). Underground cave: [Unlocked
+underground](#unlocked-underground-yunni). INVEN world `small` pickups (jug, bone,
+…) are hidden; HOUSE doors, tables, tumbleweeds, and hub/cave INVEN stay. Saloon
 `openset` still places `blackjack` / `gamblers` when `clock > 1`
 (default afternoon). `N` swaps town/nite without advancing `day`.
+After boot `addinven ("helpbut")`, Unlocked `addinven`s the Yunni kit
+(`mask`, `flute`, `blade`, `tbird`) and every satchel reader
+(`history` → `hist.flt`, `pages` → `pages.flt`, `yunnibook` last so it
+is held). Postcards stay in the mayor's study. Mrs Mayor's diary is a mayroom armchair
+hotspot (`diary.flt`), not INVEN — mansion door `lockmayor` is open
+(`debugging`), stairs skip `mwifephase = 0`, bedroom `lockroom` is
+false. Click B2 south (`pointinarm`) → `armopen.mov` → `diary.flt`.
+HOUSE `diarybord` is the FLT chrome (codec-skip hole so page clicks turn;
+frame closes). Same overlay path as `yunnibord` / `histbord` /
+`pagebord`. Do not give `yunnibord` the whole sprite — its `mousedown`
+closes except the TOC tab; page turns are stage `mousedown` (left/right
+of 256). The hole bbox is the dumped PNG (yunni ~43,24–470,352), not a
+HUD `y < 256` (that closed the lower page). Those `*bord` PNGs expand
+from the companion FLT palette (`yunnibord` wood matches `yunnopen.mov`
+`(41,0,0)`); chroma-max over town SETs inverted the leather. Do not set
+`day = 4` for that grant —
+story `initprops` would, Unlocked does not. Avatar-flat `moveyoself`
+still runs as day 4 so those icons have extracted panel xy (day 1
+`error()`s).
 
 ---
 
@@ -127,6 +152,15 @@ props via `moveyoself` on the avatar flat (`panel`, or `hilite` for
 HUD `handitem`). EXAMINE is `sendtoprop (handitem, infoyoself ())` →
 `invenmovie` / `playmovie` on the **first** pointer (`mousedown` /
 `trackbut`, not a leftover `click`). HUD buttons win over item sprites.
+Yunni / history `infoyoself` `blackscreen` and never `blacktoscreen`;
+`#play-fade` is z-index 65 over `#play-flat` 60, so a reader board uses
+class `reader` (z-index 80) and lifts the plate. Match `flats.json`
+stage names (`YunniBook`, `TORN`, `DBhist`) as well as the disk stem.
+HIST is 50 named flats — extractor cap 32 skipped `flats.json`.
+`countflats` / `flattoindex` are 1-based into that list. Opening that
+board from the avatar satchel must not keep INVEN icons (checkers empty
+`forceupdate` is the only leftover-piece keep). Close returns
+`gotoflat ("avatar")`.
 Boot `addinven ("helpbut")` is not an inspect target — empty hand falls
 back to the first owned prop. Inspect MOVs wait on the still whose
 command stream has type-2 slot 0 last 2 (`timeline.wait`), then play
@@ -354,6 +388,90 @@ Dell’s AI. Win → `setupactor ("tko")` / knife `runaway`; lose →
 
 **Extract.** `FLT/_FIGHT/openflat_2.json` is the fight proc (not
 `setcursor`). PRP `setcursor _arg__54.json` is Dell.
+
+## Unlocked underground (Yunni)
+
+Same extracted SET/FLT/PRP/CST as story. Unlocked only fakes the
+**fountain story lock** (`day = 4` night + `tstone` in the box). Do not
+set `day = 4`. Do not skip the hub or the sundial. Resurrected later
+drops the fountain override once story can put `tstone` in the box.
+
+**Fountain.** Court / nitecour Scene C5 north `pointinpool` calls
+`fountain()`. Extracted `fountain()` inspects (`fountain.mov` /
+`nitefoun.mov`) unless that story gate. Unlocked `lookup` replaces it
+with `openfoun.mov` then `gotospecial ("hub.set", "scene d5", "west")`
+(the table; north is the side chamber),
+then nitecour’s `opentrackfile ("mine.snd")` / `playtheme ("mine")`.
+`playBed` must drop in-flight town loops (`bedGen`). `soundloop` (saw /
+saloon) starts after decode — bump `loopGen` and `voices.stopAllLooping`
+so those nodes cannot attach after `haltsound`. Fountain also
+`stoploop ("scene", "all")` so `dayfxs` cannot re-arm in the cave.
+`skipBootBlack` is off after boot, so the fade around the movie runs.
+
+**Shaman.** Extracted. `seeshaman()` is true only after at least one of
+`minepuzzle` / `snakepuzzle` / `tbirdpuzzle` / `flutepuzzle` is `"done"`
+and `phase <= 1`. He walks a random seasonal star → `star2` (then
+`endwalk` hides him) when you come *out* of a dark corridor. Unlocked
+keeps him (`SANDBOX_CAVE_ACTORS`). `realdist` is world distance so his
+touch/talk radius works.
+
+**Hub.** Plus-shaped `hub.set`. Spawn D5 **west** at the table. Turn
+`+5` is the *from* facing HQ — using W→N `125_5` as D5 *north* made
+pose N while the still was W, so a 90° turn looked like 180°. Hub only
+films clockwise turns; left plays that strip reversed. `HUB.PRP`
+instances season props; `propstar` skeletons are world waypoints
+(`screen = false`). Corridor ends (D1 N mine, D7 S tbird, A4 W snake,
+G4 E flute) `gotoblack` / `stillblack` / `comefromblack`. Darkness is
+`mixclut` onto the stage fade plate, not `screentoblack`. `blackout`
+starts `3 + random (3)` in `openset`.
+
+**Yunni book.** Story sleep on day 3 needs `yunnibook` already in the
+satchel; the fountain is day 4 night, so the book is the sundial decoder
+(season + moon + time of day in `yunni.flt`). Unlocked stays `day = 1`
+and does not spawn Oona’s bed copy (`day = 2` / `clock = 3`). Boot
+`addinven`s it with the other cave tools and the other satchel readers
+(`history`, `pages`). EXAMINE (`infoyoself`) plays
+`yunnopen.mov` then `yunni.flt`. The sundial itself never checks
+inventory.
+
+**Sundial.** Table still is D5 west (dead-end HQ = W→N `+5`). Extract
+`mousedown` required north (side chamber). Unlocked skips that facing
+gate; `pointinsundial` is still y 142–190. Hub skeleton/season props
+have no `mousedown` and must not eat that click. Overlay is `sundial.flt` +
+`sundial.prp`, same FLT board as SALGAMES. Dials share shop `mousedown`
+(`target` is the prop). Exit combos (`FLT/_SUNDIAL/offerobject _what_.json`):
+
+| large, med, small | `nextroom` |
+|---|---|
+| 4, 8, 12 | mine |
+| 8, 12, 4 | snake |
+| 12, 4, 8 | tbird |
+| 0, 0, 8 | flute |
+| 12, 4, 12 | chest (`phase` 1\|2) |
+| else | hub |
+
+Wrong combo still `gotohub`; then the next dark-corridor `uparrow`
+turns you around. A matching combo `gotointerior`s that SET.
+
+**Mine.** `openset` assigns mask `eyes` but never `propvisible`. Story
+already `addinven`ed it. Unlocked sets `handitem = "mask"` *before*
+`openset` (skeleton `initxyz` chases only then) and shows the compass
+HUD (`256,132`). Keep the skeleton. `calcmaskdir` / `changeall` are SET
+procs. No maze shortcut.
+
+**Flute / snake / tbird.** Each arm is a real SET. Unlocked starts with
+`flute` / `blade` / `tbird` in the satchel (story `initprops` only
+grants them on day 3/4). Click the still hotspot → FLT overlay
+(`flute.flt`, `snake.flt` stage name `puzzle`, `tumble.flt`). Snake `shopwarm ("puzzle")` aliases `snake.prp` so
+`sendtoshop ("puzzle", mangle)` hits the shop. Flute `but 1`–`5` dumps
+(`script_8`–`12.json`) do not exist; stage `mousedown` switches on
+`target` = `but 1` (`sendtobutton` keeps `me` qualified). `pausecricket`
+is `pauseball`.
+
+**Yunnibox.** No `PRP/_YUNNIBOX`. Mission PADRE Scene A3 opens
+`yunnibox.flt` (put `tstone` in the box). Hub chest is INVEN
+`setupprop ("hub")` after the sundial chest combo; keep that world
+`small` (town pickups stay hidden).
 
 ## TARGET shooting range
 
@@ -1082,4 +1200,5 @@ can stall the same device. Cue the bed and start it on a later user click
 - Sprite hotspots: [`dfextract/docs/images.md`](../../dfextract/docs/images.md)
 - HOUSE door overlays (all buildings): this file, [HOUSE door overlays](#house-door-overlays)
 - TARGET shooting range (FLT HUD, gunhand, EXIT, casts, Z, palettes): this file, [TARGET shooting range](#target-shooting-range)
+- Unlocked underground Yunni (fountain, hub, sundial, mine/snake/flute/tbird): this file, [Unlocked underground](#unlocked-underground-yunni)
 - PUP viseme tracks (per-character `idle 1`–`4`): this file, [PUP viseme tracks](#pup-viseme-tracks)

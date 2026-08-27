@@ -265,6 +265,19 @@ export function boardStillNeedsBlit(drawnUrl: string, nextUrl: string): boolean 
   return nextUrl !== "" && drawnUrl !== nextUrl;
 }
 
+/**
+ * Checkers `forceupdate` often paints the board with no piece list.
+ * Keep the last pieces only while already on a board. Opening a book
+ * from the avatar satchel must not keep those INVEN icons.
+ */
+export function keepBoardItems(
+  wasBoard: boolean,
+  nextCount: number,
+  currentCount: number,
+): boolean {
+  return wasBoard && nextCount === 0 && currentCount > 0;
+}
+
 export function flatItemKey(item: FlatItem, index: number): string {
   return item.name || `${item.url}#${index}`;
 }
@@ -352,9 +365,16 @@ export class FlatOverlay {
   }
 
   /** SALGAMES.FLT / CHECKERS.FLT: full 512×384 still + screen-space props. */
-  showBoard(url: string, items: FlatItem[] = [], labels: { text: string; x: number; y: number; size?: number }[] = []): void {
+  showBoard(
+    url: string,
+    items: FlatItem[] = [],
+    labels: { text: string; x: number; y: number; size?: number }[] = [],
+    reader = false,
+  ): void {
+    const wasBoard = this.kind === "board";
     this.kind = "board";
     this.root.classList.add("board");
+    this.root.classList.toggle("reader", reader);
     this.root.hidden = false;
     this.cash.hidden = true;
     this.cash.textContent = "";
@@ -362,7 +382,7 @@ export class FlatOverlay {
       this.boardUrl = url;
       this.img.src = url;
     }
-    if (items.length === 0 && this.boardItems.length > 0) {
+    if (keepBoardItems(wasBoard, items.length, this.boardItems.length)) {
       this.setLabels(labels);
       return;
     }
@@ -433,7 +453,7 @@ export class FlatOverlay {
   close(): void {
     const wasBoard = this.kind === "board";
     this.kind = null;
-    this.root.classList.remove("board");
+    this.root.classList.remove("board", "reader");
     this.boardUrl = "";
     this.setItems([]);
     this.setLabels([]);

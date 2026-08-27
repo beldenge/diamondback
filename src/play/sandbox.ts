@@ -4,6 +4,11 @@ import { isClockSlot, isNight, type ClockSlot } from "../core/time";
 /** World actors Unlocked keeps so minigames have an opponent. */
 export const SANDBOX_ACTORS = new Set(["leroy", "bolivar"]);
 
+/** Hub shaman + mine skeleton. Story extras stay hidden. */
+export const SANDBOX_CAVE_ACTORS = new Set(["skeleton", "shaman"]);
+
+const SANDBOX_UNDERGROUND_SET = /^(hub|mine|flute|snake|tbird)$/;
+
 /** Town livestock Unlocked keeps. Not the dog (lunge movie / Help beat). */
 const SANDBOX_FARM_ACTOR = /^(pig|cow|chicken|bird)\d*$/;
 
@@ -53,6 +58,45 @@ export const SANDBOX_STORY_FLAGS: Readonly<Record<string, number>> = {
   mwifephase: 1,
 };
 
+/**
+ * Story `initprops` only `addinven`s these on later days. Unlocked stays
+ * on `day = 1`, so grant them at boot. Cave tools first; every satchel
+ * reader (`history` / `pages` / `yunnibook`) after that. `yunnibook`
+ * last so it is the held HUD item (EXAMINE opens `yunni.flt`). No gun —
+ * Leroy still loans that at the range. `tstone` is not needed: Unlocked
+ * fakes the fountain. Postcards stay in the mayor's study. Mrs Mayor's
+ * diary is a mayroom hotspot, not INVEN.
+ */
+export const SANDBOX_INVEN_SEEDS: readonly string[] = [
+  "mask",
+  "flute",
+  "blade",
+  "tbird",
+  "history",
+  "pages",
+  "yunnibook",
+];
+
+/**
+ * Yunni / history / pages `moveyoself` has no `day = 1` branch (`error()`).
+ * Day 4 is the extracted board that places those plus flute / blade /
+ * tbird / mask. Do not set story `day = 4` — only the avatar-flat layout
+ * uses this.
+ */
+export const SANDBOX_INVEN_LAYOUT_DAY = 4;
+
+export function sandboxInventoryToSeed(
+  props: Iterable<{ name: string; owner: string }>,
+): string[] {
+  const owned = new Set<string>();
+  for (const prop of props) {
+    if (prop.owner.toLowerCase() === "stranger") {
+      owned.add(prop.name.toLowerCase());
+    }
+  }
+  return SANDBOX_INVEN_SEEDS.filter((name) => !owned.has(name));
+}
+
 export function applySandboxStoryFlags(
   globals: { set(name: string, value: number): void },
   globalNames: { add(name: string): void },
@@ -70,6 +114,9 @@ export function sandboxKeepActor(actor: { name: string; cast: string }): boolean
     return false;
   }
   if (cast === "target" || name.endsWith("targ")) {
+    return true;
+  }
+  if (SANDBOX_CAVE_ACTORS.has(name)) {
     return true;
   }
   if (SANDBOX_FARM_ACTOR.test(name)) {
@@ -112,10 +159,11 @@ export function sandboxRangeAnimalsToSeed(
 
 /**
  * Ground pickups are INVEN `small` (jug, bone, flowers, …). HOUSE doors,
- * saloon tables, tumbleweeds, and the held HUD item stay.
+ * saloon tables, tumbleweeds, the held HUD item, and hub/cave INVEN
+ * (chest, mask) stay.
  */
 export function sandboxKeepWorldProp(
-  prop: { name: string; shop: string; view: string },
+  prop: { name: string; shop: string; view: string; set?: string },
   handitem: string,
 ): boolean {
   const name = prop.name.toLowerCase();
@@ -123,7 +171,52 @@ export function sandboxKeepWorldProp(
   if (name === held || name === "gunhand" || name === "helpbut") {
     return true;
   }
+  if (SANDBOX_UNDERGROUND_SET.test((prop.set ?? "").toLowerCase())) {
+    return true;
+  }
   return !(prop.shop.toLowerCase() === "inven" && prop.view.toLowerCase() === "small");
+}
+
+export function sandboxIsMineSet(set: string): boolean {
+  return set.replace(/\.set$/i, "").toLowerCase() === "mine";
+}
+
+/**
+ * Skeleton `initxyz` only chases when `handitem = "mask"`. Unlocked
+ * `addinven`s the mask at boot, but the player may be holding the book.
+ * Set `handitem` *before* mine `openset`.
+ */
+export function sandboxEquipMineMask(
+  set: string,
+  globals: { set(name: string, value: string | number): void },
+  globalNames?: { add(name: string): void },
+): boolean {
+  if (!sandboxIsMineSet(set)) {
+    return false;
+  }
+  globals.set("handitem", "mask");
+  globalNames?.add("handitem");
+  return true;
+}
+
+/**
+ * Mine `openset` assigns the mask (`eyes`) but never `propvisible`.
+ * Show the compass HUD overlay. Equip `handitem` first so the skeleton
+ * chase runs.
+ */
+export function sandboxShowMineMask(set: string, mask: { view: string; visible: boolean; screen: boolean; x: number; y: number; owner: string }): boolean {
+  if (!sandboxIsMineSet(set)) {
+    return false;
+  }
+  mask.owner = "stranger";
+  mask.view = "eyes";
+  mask.visible = true;
+  mask.screen = true;
+  if (mask.x === 0 && mask.y === 0) {
+    mask.x = 256;
+    mask.y = 132;
+  }
+  return true;
 }
 
 export function hideSandboxGroundPickups(
@@ -131,6 +224,7 @@ export function hideSandboxGroundPickups(
     name: string;
     shop: string;
     view: string;
+    set?: string;
     visible: boolean;
   }>,
   handitem: string,
@@ -270,6 +364,133 @@ export function sandboxLeroyRangeTalk(puppet: string, object: string, me: string
     return false;
   }
   return object === "puppet" && me.toLowerCase() === "day1";
+}
+
+/**
+ * Court `fountain()` only opens `hub.set` on day-4 night with `tstone`
+ * in the box. Unlocked keeps `day = 1`; this is the same click, without
+ * that story gate. Day-court `gotospecial` hub D5 **west** (table;
+ * north is the side chamber) plus nitecour's `mine.snd` bed.
+ */
+export function sandboxFountainOpensHub(set: string): boolean {
+  const name = set.replace(/\.set$/i, "").toLowerCase();
+  return name === "court" || name === "nitecour";
+}
+
+export function sandboxFountainProc(): Proc {
+  const lit = (value: string): { type: "str"; value: string } => ({ type: "str", value });
+  const n = (value: number): { type: "num"; value: number } => ({ type: "num", value });
+  return {
+    name: "fountain",
+    params: [],
+    body: [
+      {
+        type: "call",
+        call: {
+          type: "call",
+          name: "screentoblack",
+          args: [lit("set"), n(10)],
+        },
+      },
+      { type: "call", call: { type: "call", name: "blackscreen", args: [] } },
+      {
+        type: "call",
+        call: { type: "call", name: "playmovie", args: [lit("openfoun.mov")] },
+      },
+      { type: "call", call: { type: "call", name: "blackscreen", args: [] } },
+      {
+        type: "call",
+        call: {
+          type: "call",
+          name: "sendtostage",
+          args: [
+            {
+              type: "call",
+              name: "gotospecial",
+              args: [lit("hub.set"), lit("scene d5"), lit("west")],
+            },
+          ],
+        },
+      },
+      {
+        type: "call",
+        call: {
+          type: "call",
+          name: "stoploop",
+          args: [lit("scene"), lit("all")],
+        },
+      },
+      { type: "call", call: { type: "call", name: "haltsound", args: [] } },
+      { type: "call", call: { type: "call", name: "halttheme", args: [] } },
+      {
+        type: "call",
+        call: { type: "call", name: "opentrackfile", args: [lit("mine.snd")] },
+      },
+      {
+        type: "call",
+        call: { type: "call", name: "playtheme", args: [lit("mine")] },
+      },
+      { type: "exitcode" },
+    ],
+  };
+}
+
+/** Tiles around the blocked hub center. Table still faces that center. */
+const HUB_SUNDIAL_SCENES = new Set(["scene d5", "scene d3", "scene c4", "scene e4"]);
+
+export function sandboxHubSundialScene(scene: string): boolean {
+  return HUB_SUNDIAL_SCENES.has(scene.trim().toLowerCase());
+}
+
+/**
+ * Extract D5 requires `currentview () = "north"`, but the table still is
+ * D5 west. Skip the facing check; `pointinsundial` is still the dump rect.
+ */
+export function sandboxHubSundialSetcursor(): Proc {
+  return {
+    name: "setcursor",
+    params: ["arg"],
+    body: [
+      {
+        type: "if",
+        cond: {
+          type: "call",
+          name: "pointinsundial",
+          args: [{ type: "var", name: "arg" }],
+        },
+        then: [
+          {
+            type: "call",
+            call: { type: "call", name: "cursor", args: [{ type: "str", value: "touch" }] },
+          },
+          { type: "exitcode" },
+        ],
+      },
+      { type: "passcode" },
+    ],
+  };
+}
+
+export function sandboxHubSundialMousedown(): Proc {
+  return {
+    name: "mousedown",
+    params: ["arg"],
+    body: [
+      {
+        type: "if",
+        cond: {
+          type: "call",
+          name: "pointinsundial",
+          args: [{ type: "var", name: "arg" }],
+        },
+        then: [
+          { type: "call", call: { type: "call", name: "dosundial", args: [] } },
+          { type: "exitcode" },
+        ],
+      },
+      { type: "passcode" },
+    ],
+  };
 }
 
 /**

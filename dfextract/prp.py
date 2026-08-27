@@ -95,6 +95,17 @@ HOUSE_GROUP_SET = {
     "table1": "SALLOWER",
 }
 
+# Reader chrome 8-bit-blits onto the companion FLT still, not a town SET.
+# `_colorize_trans` chroma-max over every DATA SET ties on TOWN and
+# inverts the leather (`yunnibord` (88,80,62) vs `yunnopen.mov` (41,0,0)).
+HOUSE_GROUP_FLT = {
+    "yunnibord": "YUNNI",
+    "histbord": "HIST",
+    "pagebord": "PAGES",
+    "diarybord": "DIARY",
+    "curebord": "CURE",
+}
+
 # HOUSE unused-black above this → 8-bit SET blit, not a HUD sprite.
 HOUSE_BLACK_RATIO = 0.5
 
@@ -287,6 +298,39 @@ def _companion_flt_palette(prp_path: Path) -> Palette | None:
     return None
 
 
+def _flt_palettes_near(prp_path: Path) -> dict[str, Palette]:
+    """Load *.FLT ColorPalettes next to the PRP and in sibling folders.
+
+    HOUSE.PRP lives in DATA/; YUNNI.FLT / HIST.FLT / PAGES.FLT are in
+    INVEN/, CURE.FLT in DRUGS/, DIARY.FLT in DATA/.
+    """
+    cache: dict[str, Palette] = {}
+    folders: list[Path] = []
+    parent = prp_path.parent
+    if parent.is_dir():
+        folders.append(parent)
+        grand = parent.parent
+        if grand.is_dir():
+            folders.extend(sorted(path for path in grand.iterdir() if path.is_dir()))
+    seen: set[str] = set()
+    for folder in folders:
+        try:
+            marker = str(folder.resolve())
+        except OSError:
+            marker = str(folder)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        for path in sorted(folder.glob("*.FLT")):
+            try:
+                pal = _palette_from_header(path)
+            except (OSError, struct.error, ImageError):
+                continue
+            if pal is not None:
+                cache.setdefault(path.stem.upper(), pal)
+    return cache
+
+
 def _black_ratio(indices: bytes, palette: Palette) -> float:
     n = 0
     black = 0
@@ -395,13 +439,13 @@ def _write_frames(df: DFFile, out_dir: Path) -> int:
     palette = find_palette(df.containers[0].data, unused_rgb=unused)
     if palette is None:
         return 0
-    set_by_stem = (
-        _sibling_set_palettes(df.path) if df.path.stem.upper() == "HOUSE" else {}
-    )
+    house = df.path.stem.upper() == "HOUSE"
+    set_by_stem = _sibling_set_palettes(df.path) if house else {}
     set_pals = list(set_by_stem.values())
     flt_pal = _companion_flt_palette(df.path)
     if flt_pal is not None:
         set_pals = [flt_pal, *set_pals]
+    flt_by_stem = _flt_palettes_near(df.path) if house else {}
     catalog = parse_prp_catalog(df)
     written = 0
     named: set[int] = set()
@@ -414,12 +458,21 @@ def _write_frames(df: DFFile, out_dir: Path) -> int:
             / item.state
             / f"{item.index_in_state:02d}_c{item.container}.png"
         )
-        stem = DOOR_VIEW_SET.get(item.state.lower()) or HOUSE_GROUP_SET.get(
-            item.group.lower()
-        )
-        preferred = set_by_stem.get(stem) if stem else flt_pal
+        flt_stem = HOUSE_GROUP_FLT.get(item.group.lower())
+        companion = flt_by_stem.get(flt_stem) if flt_stem else None
+        if companion is not None:
+            # Lock to the FLT pal. HOUSE unused-black + SET chroma-max
+            # inverts reader leather (TOWN.SET wins the tie).
+            frame_pal, preferred, extras = companion, None, []
+        else:
+            stem = DOOR_VIEW_SET.get(item.state.lower()) or HOUSE_GROUP_SET.get(
+                item.group.lower()
+            )
+            frame_pal = palette
+            preferred = set_by_stem.get(stem) if stem else flt_pal
+            extras = set_pals
         meta = _write_one_frame(
-            df, item.container, dest, palette, preferred, set_pals
+            df, item.container, dest, frame_pal, preferred, extras
         )
         if meta is not None:
             written += 1

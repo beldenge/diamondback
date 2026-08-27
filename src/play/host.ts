@@ -69,7 +69,10 @@ import {
   flatPropItem,
   hitFlatButton,
   isPuzzleStage,
+  isReaderBorderProp,
+  isReaderStage,
   pointHitsFlatItem,
+  pointHitsReaderBorder,
   pointInMacRect,
   putWord,
   shopFileOf,
@@ -106,8 +109,16 @@ import {
   hideRangeCastOffSet,
   hideSandboxGroundPickups,
   hideSandboxStoryActors,
+  sandboxEquipMineMask,
+  sandboxFountainOpensHub,
+  sandboxFountainProc,
+  sandboxHubSundialMousedown,
+  sandboxHubSundialScene,
+  sandboxHubSundialSetcursor,
+  sandboxShowMineMask,
   sandboxLeroyRangeRunyoself,
   sandboxLeroyRangeTalk,
+  sandboxInventoryToSeed,
   sandboxRangeAnimalsToSeed,
   sandboxSkipRangeWalkWait,
   sandboxTownAnimalsToSeed,
@@ -226,10 +237,14 @@ export interface WorldView {
   fadeToBlack?(ticks: number): Promise<void>;
   fadeFromBlack?(ticks: number): Promise<void>;
   cutToBlack?(): void;
+  /** Dust `mixclut` amount 0–255 as a full-stage fade (hub darkness). */
+  setFadeOpacity?(opacity: number): void;
   /** SALGAMES / other FLT boards covering the 512×384 stage. */
   showPuzzle?(board: PuzzleBoard | null): void;
   /** TARGET.FLT `drawstring` scores on the range HUD (not a puzzle flat). */
   showHudLabels?(labels: PuzzleLabel[]): void;
+  /** NEW.FLT `gotoflat ("avatar")` after a reader closes. */
+  showHudFlat?(name: string): void;
   setWorldVisible?(on: boolean): void;
 }
 
@@ -384,8 +399,10 @@ export class DustHost implements OpcodeHost {
   private trackFolder = "_UNILIB";
   private readonly trackStack: string[] = [];
   private bedStop: (() => void) | null = null;
+  private bedGen = 0;
   private pendingBed: string | null = null;
   private loopSounds = new Map<string, () => void>();
+  private loopGen = 0;
   private soundVolumes = new Map<string, number>();
   private shopSprites = new Map<string, Record<string, Record<string, SpritePlace[]>>>();
   private readonly missingScripts = new Set<string>();
@@ -410,6 +427,8 @@ export class DustHost implements OpcodeHost {
   currentStageName = "new";
   private worldVisible = true;
   private puzzleShop = "";
+  /** `shopwarm ("puzzle")` after `openshopfile ("snake.prp")`. */
+  private readonly shopAliases = new Map<string, string>();
   /** Group names created by `openshopfile` (not `propinstance` clones). */
   private readonly puzzleGroups = new Map<string, Set<string>>();
   private readonly stageStills = new Map<string, string>();
@@ -430,6 +449,14 @@ export class DustHost implements OpcodeHost {
     if (range) {
       return range;
     }
+    const fountain = this.sandboxFountain(name);
+    if (fountain) {
+      return fountain;
+    }
+    const sundial = this.sandboxHubSundial(name);
+    if (sundial) {
+      return sundial;
+    }
     return this.index.lookup(this.lookupKeys(ctx), name);
   }
 
@@ -440,6 +467,14 @@ export class DustHost implements OpcodeHost {
     const range = this.sandboxLeroyRange(name, ctx);
     if (range) {
       return [range];
+    }
+    const fountain = this.sandboxFountain(name);
+    if (fountain) {
+      return [fountain];
+    }
+    const sundial = this.sandboxHubSundial(name);
+    if (sundial) {
+      return [sundial, ...this.index.lookupAll(this.lookupKeys(ctx), name)];
     }
     return this.index.lookupAll(this.lookupKeys(ctx), name);
   }
@@ -458,6 +493,31 @@ export class DustHost implements OpcodeHost {
       return undefined;
     }
     return sandboxLeroyRangeRunyoself();
+  }
+
+  private sandboxFountain(name: string): Proc | undefined {
+    if (
+      !this.sandbox ||
+      name.toLowerCase() !== "fountain" ||
+      !sandboxFountainOpensHub(this.currentSet)
+    ) {
+      return undefined;
+    }
+    return sandboxFountainProc();
+  }
+
+  private sandboxHubSundial(name: string): Proc | undefined {
+    if (!this.sandbox || this.currentSet !== "hub" || !sandboxHubSundialScene(this.currentScene)) {
+      return undefined;
+    }
+    const op = name.toLowerCase();
+    if (op === "setcursor") {
+      return sandboxHubSundialSetcursor();
+    }
+    if (op === "mousedown") {
+      return sandboxHubSundialMousedown();
+    }
+    return undefined;
   }
 
   async ensureObject(object: string, name: string): Promise<void> {
@@ -526,12 +586,28 @@ export class DustHost implements OpcodeHost {
       case "puppetgrab":
       case "keyaborts":
       case "menuvisible":
-      case "clut":
       case "visualeffect":
         if (isPuzzleStage(this.currentStageName)) {
           this.syncPuzzleView();
         }
         return 0;
+      case "clut": {
+        const which = str(args[0]).toLowerCase();
+        if (which === "black") {
+          // Boot `clut ("black")` around skipped intros. Same skip as
+          // `blackscreen`. Unlocked never runs extracted `postmovie`
+          // (`blacktoscreen`) so a real cut here stuck on a black plate.
+          if (!this.skipBootBlack) {
+            this.view?.cutToBlack?.();
+          }
+        } else if (which === "set" || which === "current" || which === "stage") {
+          this.view?.setFadeOpacity?.(0);
+        }
+        if (isPuzzleStage(this.currentStageName)) {
+          this.syncPuzzleView();
+        }
+        return 0;
+      }
       case "plain":
       case "showcursor":
       case "flushevents":
@@ -589,6 +665,7 @@ export class DustHost implements OpcodeHost {
         }
         return 0;
       }
+      case "pausecricket":
       case "pauseball": {
         const who = str(args[0] ?? "all").toLowerCase();
         const paused = args.length < 2 ? true : truthyArg(args[1]);
@@ -597,7 +674,14 @@ export class DustHost implements OpcodeHost {
         }
         return 0;
       }
-      case "mixclut":
+      case "mixclut": {
+        const from = str(args[0]).toLowerCase();
+        const to = str(args[1]).toLowerCase();
+        const amount = Math.min(1, Math.max(0, num(args[4]) / 255));
+        const opacity = to === "black" ? amount : from === "black" ? 1 - amount : amount;
+        this.view?.setFadeOpacity?.(opacity);
+        return 0;
+      }
       case "notedialog":
         return 0;
       case "message":
@@ -735,6 +819,17 @@ export class DustHost implements OpcodeHost {
         const actor = this.namedActor(str(args[0] ?? ctx.me));
         return this.spriteDist(actor);
       }
+      case "realdist": {
+        // World feet-to-feet. `actordist` is 32000 off-still; shaman
+        // `realdist (me) < hotdist ()` is the talk/touch radius.
+        const who = str(args[0] ?? ctx.me ?? ctx.target).toLowerCase();
+        const obj = this.actors.get(who) ?? this.namedProp(who);
+        if (!this.view) {
+          return 32000;
+        }
+        const p = playerWorldPoint(this.view.pose);
+        return Math.hypot(obj.x - p.x, obj.y - p.y);
+      }
       case "propscript": {
         const who = str(args[0] || ctx.me || ctx.target);
         const hook = ctx.frame()?.procName ?? "";
@@ -834,13 +929,20 @@ export class DustHost implements OpcodeHost {
         }
         return this.currentTheme;
       case "currentsound":
+        if (this.currentSoundName !== "none") {
+          await sleep(16);
+        }
         return this.currentSoundName;
-      case "voicesound":
+      case "voicesound": {
         // Mixer start, not a wait. Awaiting fetch held `initprop` before
         // `propvisible (false)` so a pan-away door replayed close and
-        // kept the overlay up.
-        void this.playVoice(str(args[0]));
+        // kept the overlay up. Set `currentVoice` first so
+        // `while currentvoice () = name` (hub shaman) does not skip.
+        const clip = str(args[0]);
+        this.currentVoice = clip;
+        void this.playVoice(clip);
         return 0;
+      }
       case "singlesound":
       case "dualsound":
       case "multiplesound":
@@ -915,7 +1017,7 @@ export class DustHost implements OpcodeHost {
       case "sounddone":
         return this.currentSoundName === "none" ? 1 : 0;
       case "shopwarm":
-        await this.openShop(str(args[0]));
+        await this.shopWarm(str(args[0]));
         return 0;
       case "countsounds":
         return countSounds(this.trackFolder);
@@ -959,8 +1061,12 @@ export class DustHost implements OpcodeHost {
       case "closestagefile":
         this.closeStage();
         return 0;
-      case "opensetfile":
-        await this.openSet(str(args[0]));
+      case "opensetfile": {
+        const file = str(args[0]);
+        if (this.sandbox) {
+          sandboxEquipMineMask(file, ctx.globals, ctx.globalNames);
+        }
+        await this.openSet(file);
         {
           const hook = this.index.lookup(["set"], "openset");
           if (hook) {
@@ -972,6 +1078,7 @@ export class DustHost implements OpcodeHost {
         await this.rearmHudFlat(ctx);
         if (this.sandbox) {
           this.settleSandboxWorld(ctx);
+          sandboxShowMineMask(this.currentSet, this.namedProp("mask"));
           // Town livestock is seeded after `initall`'s `initactors` (that
           // loop putdowns everyone). TARGET `opencast` already ran here.
           if (this.currentSet === "target") {
@@ -979,6 +1086,7 @@ export class DustHost implements OpcodeHost {
           }
         }
         return 0;
+      }
       case "advanceday":
         if (this.sandbox) {
           await this.sandboxAdvanceDay(ctx);
@@ -1015,6 +1123,15 @@ export class DustHost implements OpcodeHost {
           return this.currentFlatName;
         }
         return this.currentFlatName;
+      case "countflats":
+        return this.stageFlatNames.length;
+      case "flattoindex": {
+        const want = str(args[0]).toLowerCase();
+        const at = this.stageFlatNames.findIndex((name) => name === want);
+        return at < 0 ? 0 : at + 1;
+      }
+      case "indextoflat":
+        return this.stageFlatNames[Math.trunc(num(args[0])) - 1] ?? "";
       case "gotoflat":
         await this.activateFlat(
           ctx,
@@ -1608,6 +1725,11 @@ export class DustHost implements OpcodeHost {
     this.syncPuzzleView();
     await ctx.inObject("flat", dest, () => ctx.evalCall("openflat", []));
     this.syncPuzzleView();
+    if (this.currentStageName.replace(/\.flt$/i, "") === "new") {
+      if (dest === "avatar" || dest === "map") {
+        this.view?.showHudFlat?.(dest);
+      }
+    }
   }
 
   /** After `stoploop ("flat", "all")`, the HUD portrait loop is gone. */
@@ -2264,7 +2386,7 @@ export class DustHost implements OpcodeHost {
     this.puzzleLabels = [];
     this.currentStageName = stem;
     await Promise.all(stageScriptRels(stem).map((rel) => this.addScriptFile("stage", rel)));
-    const flats = await fetchJson<{
+    let flats = await fetchJson<{
       stage?: string;
       flats?: {
         name: string;
@@ -2275,6 +2397,9 @@ export class DustHost implements OpcodeHost {
         hits?: FlatHit[];
       }[];
     }>(extractUrl(`${folder}/flats.json`)).catch(() => null);
+    if (!flats?.flats?.length) {
+      flats = fallbackReaderFlats(stem);
+    }
     if (flats?.stage) {
       const stageName = flats.stage.toLowerCase();
       this.currentStageName =
@@ -2444,16 +2569,38 @@ export class DustHost implements OpcodeHost {
     }
   }
 
+  /**
+   * Snake SET `shopwarm ("puzzle")` after `openshopfile ("snake.prp")`.
+   * The FLT stage is named `puzzle`; `sendtoshop ("puzzle", …)` needs
+   * that key. Fight `shopwarm ("fight.prp")` is just a second open.
+   */
+  private async shopWarm(name: string): Promise<void> {
+    const stem = libraryStem(name);
+    if (this.puzzleShop && this.puzzleShop !== stem && !this.loadedShops.has(stem)) {
+      this.index.copyKey(`shop:${this.puzzleShop}`, `shop:${stem}`);
+      this.shopAliases.set(stem, this.puzzleShop);
+      this.loadedShops.add(stem);
+      return;
+    }
+    await this.openShop(name);
+  }
+
   private closeShop(name: string): void {
     const stem = name.replace(/\.prp$/i, "").toLowerCase();
+    const real = this.shopAliases.get(stem) ?? stem;
     for (const prop of [...this.props.values()]) {
-      if (prop.shop !== stem) {
+      if (prop.shop !== stem && prop.shop !== real) {
         continue;
       }
       prop.visible = false;
     }
-    if (this.puzzleShop === stem) {
+    if (this.puzzleShop === stem || this.puzzleShop === real) {
       this.puzzleShop = "";
+    }
+    for (const [alias, source] of [...this.shopAliases.entries()]) {
+      if (alias === stem || source === stem || alias === real || source === real) {
+        this.shopAliases.delete(alias);
+      }
     }
     // Hide clones; do not delete them. `updatescreen` `propinstance`s
     // the same names again. Deleting dropped the sprite bag so the
@@ -2486,23 +2633,34 @@ export class DustHost implements OpcodeHost {
       this.view?.showPuzzle?.(null);
       return;
     }
-    const stillUrl = this.stageStills.get(this.currentFlatName);
+    const stillUrl =
+      this.stageStills.get(this.currentFlatName) ??
+      this.stageStills.get(this.stageFlatNames[0] ?? "");
     if (!stillUrl) {
       this.view?.showPuzzle?.(null);
       return;
     }
+    const reader = isReaderStage(this.currentStageName) || isReaderStage(stage);
     this.view?.showPuzzle?.({
       stillUrl,
       items: this.puzzleItems(),
       labels: this.puzzleLabels,
+      reader,
     });
+    if (reader) {
+      this.view?.setFadeOpacity?.(0);
+    }
   }
 
   private puzzleItems(): ReturnType<typeof flatPropItem>[] {
     const items: ReturnType<typeof flatPropItem>[] = [];
     const shop = this.puzzleShop;
     const props = [...this.props.values()]
-      .filter((prop) => prop.visible && shop && prop.shop === shop)
+      .filter(
+        (prop) =>
+          prop.visible &&
+          ((shop && prop.shop === shop) || isReaderBorderProp(prop.name)),
+      )
       .sort((a, b) => b.dist - a.dist);
     for (const prop of props) {
       const view = (prop.view || "normal").toLowerCase();
@@ -2736,6 +2894,23 @@ export class DustHost implements OpcodeHost {
     await this.seedSandboxAnimals(ctx);
     await ctx.inObject("actor", "leroy", () => ctx.evalCall("setupactor", [lit("range")]));
     this.view?.refreshActors();
+    // Extracted day-1 `advanceday` ends in `postmovie` → `blacktoscreen`.
+    this.view?.setFadeOpacity?.(0);
+  }
+
+  /**
+   * After boot `addinven ("helpbut")` (and after Unlocked `N` `initall`,
+   * which clears `handitem`). Story `initprops` would have granted these
+   * on day 3/4; Unlocked stays on day 1.
+   */
+  async seedSandboxInventory(ctx: VM): Promise<void> {
+    if (!this.sandbox) {
+      return;
+    }
+    const lit = (value: string) => ({ type: "str" as const, value });
+    for (const name of sandboxInventoryToSeed(this.props.values())) {
+      await ctx.inObject("shop", "inven", () => ctx.evalCall("addinven", [lit(name)]));
+    }
   }
 
   /** N in Unlocked: swap town/nite stills without advancing `day`. */
@@ -2756,6 +2931,7 @@ export class DustHost implements OpcodeHost {
     );
     this.settleSandboxWorld(ctx);
     await this.seedSandboxAnimals(ctx);
+    await this.seedSandboxInventory(ctx);
     await ctx.inObject("actor", "leroy", () => ctx.evalCall("setupactor", [lit("range")]));
     this.view?.refreshActors();
   }
@@ -2972,7 +3148,13 @@ export class DustHost implements OpcodeHost {
     this.currentTheme = name;
     const url = this.soundUrl(name);
     this.stopBed();
+    this.stopLoopSounds();
+    const gen = ++this.bedGen;
     void voices.playFx(url, 0.45, true).then((stop) => {
+      if (gen !== this.bedGen) {
+        stop();
+        return;
+      }
       this.bedStop = stop;
     });
   }
@@ -2984,15 +3166,18 @@ export class DustHost implements OpcodeHost {
   }
 
   private stopBed(): void {
+    this.bedGen += 1;
     this.bedStop?.();
     this.bedStop = null;
   }
 
   private stopLoopSounds(): void {
+    this.loopGen += 1;
     for (const stop of this.loopSounds.values()) {
       stop();
     }
     this.loopSounds.clear();
+    voices.stopAllLooping();
   }
 
   private async playVoice(name: string): Promise<void> {
@@ -3007,8 +3192,13 @@ export class DustHost implements OpcodeHost {
   private async playFx(name: string, loop: boolean): Promise<void> {
     const url = this.soundUrl(name);
     const vol = (this.soundVolumes.get(name.toLowerCase()) ?? 160) / 256;
+    const gen = this.loopGen;
     const stop = await voices.playFx(url, Math.max(0.15, Math.min(1, vol)), loop);
     if (loop) {
+      if (gen !== this.loopGen) {
+        stop();
+        return;
+      }
       this.loopSounds.get(name.toLowerCase())?.();
       this.loopSounds.set(name.toLowerCase(), stop);
     }
@@ -3024,6 +3214,7 @@ export class DustHost implements OpcodeHost {
     if (this.loopSounds.has(key)) {
       return 1;
     }
+    this.loopSounds.set(key, () => undefined);
     void this.playFx(name, true);
     return 1;
   }
@@ -3041,6 +3232,19 @@ export class DustHost implements OpcodeHost {
     const x = prop?.x || 316;
     const y = prop?.y || 320;
     return Math.abs(x - point.x) < 40 && Math.abs(y - point.y) < 40;
+  }
+
+  /** Hub skeletons / season plants have no `mousedown` — they must not eat the sundial still. */
+  private hitHasMousedown(kind: "actor" | "prop", name: string): boolean {
+    const key = name.toLowerCase();
+    if (this.index.lookup([`${kind}:${key}`], "mousedown")) {
+      return true;
+    }
+    if (kind !== "prop") {
+      return false;
+    }
+    const shop = this.props.get(key)?.shop;
+    return Boolean(shop && this.index.lookup([`shop:${shop}`], "mousedown"));
   }
 
   private hitTest(point: Point, handitem = ""): string {
@@ -3089,7 +3293,7 @@ export class DustHost implements OpcodeHost {
       hits.push({ kind: "prop", name: held, forward: -1 });
     }
     hits.sort((a, b) => a.forward - b.forward);
-    const top = hits[0];
+    const top = hits.find((hit) => this.hitHasMousedown(hit.kind, hit.name));
     if (top) {
       this.hitKind = top.kind;
       this.clickAbsorbed = true;
@@ -3117,8 +3321,12 @@ export class DustHost implements OpcodeHost {
     const items = this.puzzleItems();
     const hits: string[] = [];
     for (const item of [...items].reverse()) {
+      const name = item.name.toLowerCase();
+      if (isReaderBorderProp(name) && !pointHitsReaderBorder(name, point.x, point.y)) {
+        continue;
+      }
       if (item.name && pointHitsFlatItem(item, point.x, point.y)) {
-        hits.push(item.name.toLowerCase());
+        hits.push(name);
       }
     }
     // FIGHT fists overlay Dell. Fists have no `mousedown` (only knife
@@ -3204,6 +3412,9 @@ export class DustHost implements OpcodeHost {
   }
 
   private pointHitsProp(prop: PropState, point: Point): boolean {
+    if (isReaderBorderProp(prop.name)) {
+      return pointHitsReaderBorder(prop.name, point.x, point.y);
+    }
     if (this.puzzleShop && prop.shop === this.puzzleShop) {
       const item = this.puzzleItems().find((row) => row.name === prop.name);
       return item ? pointHitsFlatItem(item, point.x, point.y) : false;
@@ -3338,6 +3549,9 @@ export class DustHost implements OpcodeHost {
       prop.y = point.y;
       prop.z = point.z;
     }
+    // Hub skeletons are world `propstar`s. `openPuzzleShop` marked them
+    // screen (sundial/snake overlays); a star is a SET waypoint.
+    prop.screen = false;
     this.view?.refreshActors();
     return star;
   }
@@ -3654,6 +3868,7 @@ export class DustHost implements OpcodeHost {
     }
     this.trackStack.length = 0;
     this.stopBed();
+    this.stopLoopSounds();
     this.currentTheme = "none";
     this.trackFolder = "_UNILIB";
   }
@@ -3799,6 +4014,31 @@ export function resolveFlatName(
 /** Dust `sendtocast ("target.cst")` / `sendtoshop ("credits.prp")`. */
 export function libraryStem(name: string): string {
   return name.replace(/\.(cst|set|prp|flt|pup|snd)$/i, "").toLowerCase();
+}
+
+/**
+ * HIST.FLT dumps 50 page stills (`frame_3` … `frame_150`) but older
+ * extracts skipped `flats.json` (parser cap 32). Build the same table
+ * the extractor now writes so `gotoflat ("flat 1")` has a still.
+ */
+export function fallbackReaderFlats(stem: string): {
+  stage: string;
+  flats: { name: string; still: number; stillFile: string; hits: FlatHit[] }[];
+} | null {
+  if (stem.toLowerCase() !== "hist") {
+    return null;
+  }
+  const flats = [];
+  for (let i = 0; i < 50; i += 1) {
+    const still = (i + 1) * 3;
+    flats.push({
+      name: `Flat ${i}`,
+      still,
+      stillFile: `frame_${still}.png`,
+      hits: [],
+    });
+  }
+  return { stage: "hist", flats };
 }
 
 export function dirWord(dir: Dir | string): string {

@@ -2,6 +2,7 @@ import { Color, Timer, WebGLRenderer } from "three";
 import { isClockSlot, toggleDayNight, type ClockSlot } from "../core/time";
 import { VM, type Point } from "../vm/runtime";
 import {
+  SANDBOX_INVEN_LAYOUT_DAY,
   sandboxClockFromSearch,
   sandboxGraphFolder,
 } from "./sandbox";
@@ -116,7 +117,7 @@ import { playStageRect, STAGE_HEIGHT, STAGE_WIDTH } from "./stage";
 import { parseScriptScene } from "./sceneName";
 import { PLAY_HUD_CHROME, RANGE_HUD_CHROME, PuppetUi } from "./ui";
 import { boardMouseGate, idlePumpAllowed, mouseDispatchPoint, worldInputBlocked, worldMouseGate } from "./lock";
-import type { PuzzleBoard, PuzzleLabel } from "./puzzle";
+import { type PuzzleBoard, type PuzzleLabel } from "./puzzle";
 import {
   movieClipsStarting,
   movieFrameWaitsForClick,
@@ -436,11 +437,28 @@ export class PlayGame implements WorldView {
       if (this.flats.board) {
         this.flats.close();
       }
+      this.setWorldVisible(true);
       return;
     }
     // `playagame` `setvisible (false)` then BitBlts the FLT still.
     this.setWorldVisible(false);
-    this.flats.showBoard(board.stillUrl, board.items, board.labels);
+    this.flats.showBoard(board.stillUrl, board.items, board.labels, board.reader);
+    // Yunni / history `infoyoself` `blackscreen` and never `blacktoscreen`.
+    // `#play-fade` is z-index 65 over `#play-flat` 60; lift it and the
+    // `.reader` class puts the board at 80 so a stuck plate cannot cover it.
+    if (board.reader) {
+      this.setFadeOpacity(0);
+    }
+  }
+
+  showHudFlat(name: string): void {
+    if (name === "avatar") {
+      void this.openHudFlat("self");
+      return;
+    }
+    if (name === "map") {
+      void this.openHudFlat("map");
+    }
   }
 
   showHudLabels(labels: PuzzleLabel[]): void {
@@ -615,6 +633,14 @@ export class PlayGame implements WorldView {
     this.fadeGen += 1;
     this.fadeOpacity = 1;
     this.fadeEl.style.opacity = "1";
+  }
+
+  /** Dust `mixclut` blend 0–1 onto the stage fade plate. */
+  setFadeOpacity(opacity: number): void {
+    this.fadeGen += 1;
+    const value = Math.min(1, Math.max(0, opacity));
+    this.fadeOpacity = value;
+    this.fadeEl.style.opacity = String(value);
   }
 
   private async animateFade(target: number, ticks: number): Promise<void> {
@@ -848,6 +874,9 @@ export class PlayGame implements WorldView {
       const boot = this.host.index.lookup(["boot"], "boot");
       if (boot) {
         await this.vm.inObject("boot", "", () => this.vm.runProc(boot));
+      }
+      if (this.host.sandbox) {
+        await this.host.seedSandboxInventory(this.vm);
       }
       this.scriptsReady = true;
       this.layoutActors();
@@ -1172,31 +1201,45 @@ export class PlayGame implements WorldView {
   private async inventoryIcons(): Promise<FlatItem[]> {
     const items: FlatItem[] = [];
     const hand = String(this.vm.globals.get("handitem") ?? "");
-    for (const prop of this.ownedInventory()) {
-      if (this.scriptsReady) {
-        await this.vm.inObject("prop", prop.name, () => this.vm.evalCall("moveyoself", []));
-      }
-      prop.view = inventorySpriteView(prop.name, hand);
-      const raw = (prop.sprites[prop.view] ?? prop.sprites.panel ?? prop.sprites.large)?.[0];
-      if (!raw) {
-        continue;
-      }
-      const url = extractUrl(`${prop.spriteRoot}/${raw.path}`);
-      const bits = this.spriteBits.get(url) ?? (await this.loadSpriteBits(url));
-      if (!bits) {
-        continue;
-      }
-      const place = sizedPlace(raw, bits.w, bits.h);
-      items.push({
-        name: prop.name,
-        url,
-        x: prop.x + place.x - SPRITE_HOTSPOT_X,
-        y: prop.y + place.y - SPRITE_HOTSPOT_Y,
-        w: place.w,
-        h: place.h,
-      });
+    const savedDay = this.host.sandbox ? this.vm.globals.get("day") : undefined;
+    if (this.host.sandbox) {
+      this.vm.globals.set("day", SANDBOX_INVEN_LAYOUT_DAY);
     }
-    return items;
+    try {
+      for (const prop of this.ownedInventory()) {
+        if (this.scriptsReady) {
+          await this.vm.inObject("prop", prop.name, () => this.vm.evalCall("moveyoself", []));
+        }
+        prop.view = inventorySpriteView(prop.name, hand);
+        const raw = (prop.sprites[prop.view] ?? prop.sprites.panel ?? prop.sprites.large)?.[0];
+        if (!raw) {
+          continue;
+        }
+        const url = extractUrl(`${prop.spriteRoot}/${raw.path}`);
+        const bits = this.spriteBits.get(url) ?? (await this.loadSpriteBits(url));
+        if (!bits) {
+          continue;
+        }
+        const place = sizedPlace(raw, bits.w, bits.h);
+        items.push({
+          name: prop.name,
+          url,
+          x: prop.x + place.x - SPRITE_HOTSPOT_X,
+          y: prop.y + place.y - SPRITE_HOTSPOT_Y,
+          w: place.w,
+          h: place.h,
+        });
+      }
+      return items;
+    } finally {
+      if (this.host.sandbox) {
+        if (savedDay === undefined) {
+          this.vm.globals.delete("day");
+        } else {
+          this.vm.globals.set("day", savedDay);
+        }
+      }
+    }
   }
 
   /** INVEN `stdmouse`: panel/hilite click sets `handitem` and the hilite sprite. */
@@ -1221,6 +1264,7 @@ export class PlayGame implements WorldView {
       await this.vm.inObject("prop", hand, () => this.vm.evalCall("infoyoself", []));
     } finally {
       this.talking = false;
+      this.host.paintPuzzle();
     }
   }
 

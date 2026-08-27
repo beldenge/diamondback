@@ -100,7 +100,7 @@ Default run (`/`) is the title chooser. Modes:
 | Name | URL | What |
 |---|---|---|
 | **Dust: Resurrected** | `/?mode=resurrected` | VM game (Day 1 night through hotel sleep). `&intro=1` plays openings in-game |
-| **Dust: Unlocked** | `/?mode=unlocked` | Same engine as Resurrected; no story casts, all doors, minigame NPCs, farm animals (not the dog) |
+| **Dust: Unlocked** | `/?mode=unlocked` | Same engine as Resurrected; no story casts, all doors, minigame NPCs, farm animals (not the dog), extracted underground Yunni cave |
 | **The Picture Show** | `/?mode=movies` | Browser reel player (`timeline.json` + PNG/WAV). Opening is selected first. Coming attractions is CD `INFO/` ads. Not inspect MOVs |
 
 - `npm test` — unit tests (time, SET graph / HQ lookup, doors)
@@ -117,12 +117,16 @@ Default run (`/`) is the title chooser. Modes:
 - Extractor setup: [`dfextract/README.md`](dfextract/README.md). The remake does not run that tool.
 - npm package / repo name: `diamondback`.
 
-**Next:** Dust: Resurrected Day 1 night is the full authored loop: street + hotel/saloon, cards/slots, lodging (`$9` / ring), upstairs playroom, `hotbed.mov` `actionframe` → Day 2 morning, optional phase-8 Dell `FIGHT.FLT`. Unlocked still has checkers / range / tables. Do not inpaint remaining still holes. Day 2 shops and gun/boots gates are the next story slice.
+**Next:** Dust: Resurrected Day 1 night is the full authored loop: street + hotel/saloon, cards/slots, lodging (`$9` / ring), upstairs playroom, `hotbed.mov` `actionframe` → Day 2 morning, optional phase-8 Dell `FIGHT.FLT`. Unlocked also has the extracted underground Yunni cave (fountain `openfoun.mov` → hub → sundial → mine/snake/flute/tbird). Do not inpaint remaining still holes. Day 2 shops and gun/boots gates are the next story slice. Drop the Unlocked fountain override once Resurrected can put `tstone` in the box.
 
 ## 10. Decision Log
 
 | Date | Decision |
 |---|---|
+| 2026-08-27 | Reader `*bord` hittest misses the codec-skip page hole (dumped PNG bbox, not HUD `y < 256` and not whole-sprite `yunnibord`). Inner click is FLT/stage `mousedown` (page turn); frame closes. |
+| 2026-08-27 | HOUSE reader `*bord` dumps from the companion FLT ColorPalette (YUNNI / HIST / PAGES / DIARY / CURE), not chroma-max over every DATA SET. That tie picked TOWN and inverted the leather (`yunnibord` `(88,80,62)` vs `yunnopen.mov` `(41,0,0)`). |
+| 2026-08-27 | Unlocked seeds Yunni INVEN at boot (`mask`, `flute`, `blade`, `tbird`) plus satchel readers (`history`, `pages`, `yunnibook`) via extracted `addinven`, after `helpbut`. No postcards. Diary is mayroom armchair (`diary.flt`); FLT reader chrome is HOUSE `*bord` with a pal-0 page hole so frame clicks close and page clicks turn. Do not set `day = 4`. Avatar-flat layout uses day-4 `moveyoself`. No gun. Traps: [`src/play/README.md`](src/play/README.md) § Unlocked underground. |
+| 2026-08-27 | Unlocked underground is the extracted cave. Fake only court `fountain()` (play `openfoun.mov`, `gotospecial` hub D5 N). Do not set `day = 4`. Do not skip hub darkness or the sundial. Hub `mixclut` is the fade plate. Mine mask: set `handitem` before `openset`, show `eyes` HUD. Snake `shopwarm ("puzzle")` aliases `snake.prp`. Flute buttons: stage `mousedown` + short `target`. Keep skeleton / shaman / hub chest. Traps: [`src/play/README.md`](src/play/README.md) § Unlocked underground. |
 | 2026-08-27 | Day 1 night closes: `actionframe (1)` is true after a finished `playmovie` (sleep / dollar poster). `closetrackfile ("gossip")` pops the voice bank and does not halt the room theme. Dell’s fist fight is extracted `FIGHT.FLT` / `.PRP` (same puzzle overlay as cards); fists overlay must not steal Dell `mousedown`. |
 | 2026-08-27 | Default `python cli.py` includes SET Z planes (`FRAMES/z/`). Play needs them for occlusion; `--video` stays opt-in. `--z` alone still rewrites depth without color stills. |
 | 2026-08-27 | Standing stills (`showHold`, dest HQ, SET hop) must not `view.show` color before Z is known. `view.ensure` + `showCached`. Keep last `zPlane` across folder reset until the new pair binds. Needs `FRAMES/z/` (default dump); a cached Z miss paints through the bar. |

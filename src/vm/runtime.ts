@@ -309,7 +309,12 @@ export class VM {
     if (kind.startsWith("sendtobutton") && args.length >= 3) {
       const flat = str(await this.evalExpr(args[0])).toLowerCase();
       const button = str(await this.evalExpr(args[1])).toLowerCase();
-      return this.inObject("button", `${flat}:${button}`, async () => this.evalExpr(args[2]!));
+      return this.inObject("button", `${flat}:${button}`, async () => {
+        // Flute stage `mousedown` switches on `target` = `but 1`, not
+        // `flat 1:but 1`. Keep `me` as the qualified button key.
+        this.target = button;
+        return this.evalExpr(args[2]!);
+      });
     }
     const name = str(await this.evalExpr(args[0] ?? { type: "str", value: "" }));
     const object = objectForSend(kind);

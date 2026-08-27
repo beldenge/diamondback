@@ -248,6 +248,7 @@ with a smaller walkable subset (shooting-range overlay).
   (`new`), `i32` count, then `count` records of
   `i32 script, i32 still, i32 buttons` + 16-byte Pascal name
   (`mainpanel`, `map`, `avatar`, `score`, `death`). Written as `flats.json`.
+  Count can be >32 (HIST is 50 pages); the parser accepts up to 128.
 - Any later container whose first token is `code` is a script
   (`playcheckers`, `openflat`, `mousedown`, …). Filenames are
   `{firstProc}_{container}.txt` so two `openflat` containers do not
@@ -261,13 +262,18 @@ with a smaller walkable subset (shooting-range overlay).
   indexed still — the puzzle backdrop / HUD
 
 We dump every script and every still that decodes. HIST.FLT produced 50
-frames (diary / history pages). NEW.FLT `mainpanel` (container 2) is
+frames (history book pages). The named-flat table count can exceed 32
+(HIST is 50); parse up to 128 so `flats.json` is written. NEW.FLT
+`mainpanel` (container 2) is
 `noface` / `makeface` / `tiphat` for the HUD portrait.
 
 ## PRP — props
 
 14 files. Same script heuristic as FLT (`initprop` is common). Palette
-via `find_palette`.
+via `find_palette`. HOUSE reader chrome (`yunnibord`, `histbord`,
+`pagebord`, `diarybord`, `curebord`) expands from the companion FLT
+ColorPalette, not HOUSE unused-black and not chroma-max over every SET
+(that tie picked TOWN and inverted the leather).
 
 The object table is the Titanic SHP layout (DFET `DFshp.h`) even though
 Dust is version 1:

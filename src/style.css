@@ -262,6 +262,11 @@ body.play #app {
   touch-action: none;
 }
 
+/* Yunni/history never `blacktoscreen`. Sit above `#play-fade` (65). */
+#play-flat.board.reader {
+  z-index: 80;
+}
+
 #play-flat > img {
   display: block;
   width: 100%;

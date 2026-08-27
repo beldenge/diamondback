@@ -31,6 +31,7 @@ CHECKERS_PRP = DUST / "CHECKERS" / "CHECKERS.PRP"
 SALGAMES_FLT = DUST / "SALGAMES" / "SALGAMES.FLT"
 SALGAMES_PRP = DUST / "SALGAMES" / "SALGAMES.PRP"
 NEW_FLT = DUST / "DATA" / "NEW.FLT"
+HIST_FLT = DUST / "INVEN" / "HIST.FLT"
 NITEFOUN = DUST / "MOVIES" / "NITEFOUN.MOV"
 INTRO = DUST / "MOVIES" / "INTRO.MOV"
 
@@ -461,6 +462,23 @@ class TestRemaining(unittest.TestCase):
             names = [row["name"] for row in payload]
             self.assertIn("handle", names)
             self.assertIn("ah", names)
+
+    def test_hist_flt_dumps_fifty_named_flats(self) -> None:
+        from flt import parse_flt_flats, write_flt_extract
+
+        if not HIST_FLT.exists():
+            self.skipTest("HIST.FLT not present")
+        df = read_df_file(HIST_FLT)
+        payload = parse_flt_flats(df.containers[0].data)
+        self.assertGreaterEqual(len(payload.get("flats", [])), 50)
+        self.assertEqual(payload["flats"][0]["name"], "Flat 0")
+        self.assertEqual(payload["flats"][0]["still"], 3)
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            write_flt_extract(df, dest, write_scripts=True, write_frames=False)
+            dumped = json.loads((dest / "flats.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(dumped["flats"]), 50)
+            self.assertEqual(dumped["flats"][0]["stillFile"], "frame_3.png")
 
     def test_new_flt_keeps_mainpanel_makeface(self) -> None:
         from flt import parse_flt_flats, write_flt_extract

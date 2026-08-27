@@ -30,10 +30,19 @@ export function transitionForInput(
     return findTransition(graph, pose.x, pose.y, pose.facing, next.x, next.y, pose.facing);
   }
   const dest = turnFacing(pose.facing, input);
-  return findTransition(graph, pose.x, pose.y, pose.facing, pose.x, pose.y, dest);
+  const filmed = findTransition(graph, pose.x, pose.y, pose.facing, pose.x, pose.y, dest);
+  if (filmed) {
+    return filmed;
+  }
+  // Hub / many interiors only film clockwise. Left is that strip reversed.
+  const back = findTransition(graph, pose.x, pose.y, dest, pose.x, pose.y, pose.facing);
+  return back ? { ...back, reverse: true } : undefined;
 }
 
 export function applyTransition(tr: SetTransition): WalkerPose {
+  if (tr.reverse) {
+    return { x: tr.xFrom, y: tr.yFrom, facing: tr.dirFrom };
+  }
   return { x: tr.xTo, y: tr.yTo, facing: tr.dirTo };
 }
 

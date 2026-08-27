@@ -108,7 +108,8 @@ def parse_flt_flats(header: bytes) -> dict:
         return {}
     for count_at in range(len(header) - 4, 16, -4):
         count = struct.unpack_from("<i", header, count_at)[0]
-        if count < 1 or count > 32:
+        # HIST.FLT is 50 pages. 32 missed that table (no flats.json).
+        if count < 1 or count > 128:
             continue
         rec = count_at + 4
         if rec + count * 28 != len(header):

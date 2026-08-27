@@ -42,6 +42,8 @@ export interface PuzzleBoard {
   stillUrl: string;
   items: FlatItem[];
   labels: PuzzleLabel[];
+  /** Sit above `#play-fade` — these scripts never `blacktoscreen`. */
+  reader?: boolean;
 }
 
 export function pointInMacRect(
@@ -93,6 +95,70 @@ export function shopFileOf(shop: string): string {
 export function isPuzzleStage(stage: string): boolean {
   const name = stage.toLowerCase().replace(/\.flt$/i, "");
   return name !== "" && name !== "none" && name !== "new" && name !== "target";
+}
+
+/** HOUSE chrome around FLT readers. 512×384, pal 0 in the page hole. */
+export const READER_BORDER_PROPS = ["diarybord", "histbord", "pagebord", "yunnibord"] as const;
+
+export const READER_STAGES: Readonly<Record<string, (typeof READER_BORDER_PROPS)[number]>> = {
+  diary: "diarybord",
+  hist: "histbord",
+  pages: "pagebord",
+  yunni: "yunnibord",
+  // flats.json `stage` is the in-file Pascal name, not the disk stem.
+  yunnibook: "yunnibord",
+  torn: "pagebord",
+  dbhist: "histbord",
+};
+
+export function readerStageName(stage: string): string {
+  return stage.toLowerCase().replace(/\.flt$/i, "");
+}
+
+export function isReaderStage(stage: string): boolean {
+  return readerStageName(stage) in READER_STAGES;
+}
+
+export function readerBorderName(stage: string): string | undefined {
+  return READER_STAGES[readerStageName(stage)];
+}
+
+export function isReaderBorderProp(name: string): boolean {
+  return (READER_BORDER_PROPS as readonly string[]).includes(name.toLowerCase());
+}
+
+/**
+ * Codec-skip page hole on the dumped HOUSE `*bord` PNG (transparent bbox).
+ * Inner click is FLT/stage `mousedown` (left/right page turn). Frame is
+ * the bord (close). Do not treat `yunnibord` as the whole sprite — that
+ * script always `closestagefile` except the TOC tab. A HUD-height hole
+ * (`y < 256`) stole the lower page (hole goes to ~352).
+ */
+export const READER_BORDER_HOLE: Readonly<
+  Record<string, { left: number; top: number; right: number; bottom: number }>
+> = {
+  yunnibord: { left: 43, top: 24, right: 470, bottom: 352 },
+  histbord: { left: 32, top: 24, right: 480, bottom: 367 },
+  pagebord: { left: 171, top: 30, right: 365, bottom: 353 },
+  diarybord: { left: 30, top: 31, right: 478, bottom: 351 },
+};
+
+export function pointHitsReaderBorder(name: string, x: number, y: number): boolean {
+  const key = name.toLowerCase();
+  if (x < 0 || x > 512 || y < 0 || y >= 384) {
+    return false;
+  }
+  const hole = READER_BORDER_HOLE[key];
+  if (
+    hole &&
+    x >= hole.left &&
+    x <= hole.right &&
+    y >= hole.top &&
+    y <= hole.bottom
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /** Screen-space PRP blit: `propxy` is the 512×384 hotspot (same as INVEN). */

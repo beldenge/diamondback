@@ -111,6 +111,32 @@ describe("avatar inventory select and examine", () => {
     expect(examineHandName("helpbut", ["bone", "jug"])).toBe("bone");
     expect(examineHandName("", ["bone"])).toBe("bone");
   });
+
+  it("yunnibook moveyoself has no day-1 slot; day 4 places the panel icon", async () => {
+    const rel = "PRP/_INVEN/initprop_294.json";
+    if (!existsSync(resolve("dfextract/out", rel))) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    for (const proc of loadProcs(rel)) {
+      host.index.add("prop:yunnibook", proc, "yunnibook");
+    }
+    const book = host.namedProp("yunnibook");
+    book.shop = "inven";
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    vm.globals.set("day", 1);
+    await vm.inObject("prop", "yunnibook", () => vm.evalCall("moveyoself", []));
+    expect(book.x).toBe(0);
+    expect(book.y).toBe(0);
+    vm.globals.set("day", 4);
+    await vm.inObject("prop", "yunnibook", () => vm.evalCall("moveyoself", []));
+    expect(book.x).toBe(95);
+    expect(book.y).toBe(320);
+  });
 });
 
 describe("prop script dump names", () => {
@@ -159,6 +185,12 @@ describe("prop script dump names", () => {
       "FLT/_CHECKERS/setcursor _arg_.json",
       "FLT/_CHECKERS/playcheckers.json",
     ]);
+    expect(stageScriptRels("flute")).toEqual(["FLT/_FLUTE/setcursor _arg_.json"]);
+    expect(stageScriptRels("sundial")).toEqual([
+      "FLT/_SUNDIAL/setcursor _arg_.json",
+      "FLT/_SUNDIAL/offerobject _what_.json",
+    ]);
+    expect(stageScriptRels("yunnibox")).toEqual(["FLT/_YUNNIBOX/setcursor _arg_.json"]);
   });
 
   it("loads only dumps extract wrote for FLT stage extras", () => {
@@ -166,7 +198,19 @@ describe("prop script dump names", () => {
     if (!existsSync(resolve(root, "FLT/_NEW/setcursor _arg_.json"))) {
       return;
     }
-    for (const stem of ["new", "target", "checkers", "salgames", "credits", "fight"]) {
+    for (const stem of [
+      "new",
+      "target",
+      "checkers",
+      "salgames",
+      "credits",
+      "fight",
+      "sundial",
+      "flute",
+      "snake",
+      "tumble",
+      "yunnibox",
+    ]) {
       for (const rel of stageScriptRels(stem)) {
         expect(existsSync(resolve(root, rel)), rel).toBe(true);
       }
@@ -181,7 +225,19 @@ describe("prop script dump names", () => {
     expect(puzzleShopScriptRels("checkers")).toEqual(["PRP/_CHECKERS/automove_1.json"]);
     expect(puzzlePropScriptRels("checkers", 2)).toEqual(["PRP/_CHECKERS/setcursor _arg__2.json"]);
     expect(puzzlePropScriptRels("checkers", 14)).toEqual([]);
-    for (const stem of ["checkers", "salgames", "target", "crack", "fight", "flute", "scorp"]) {
+    for (const stem of [
+      "checkers",
+      "salgames",
+      "target",
+      "crack",
+      "fight",
+      "flute",
+      "scorp",
+      "hub",
+      "sundial",
+      "snake",
+      "tumble",
+    ]) {
       for (const rel of puzzleShopScriptRels(stem)) {
         expect(existsSync(resolve(root, rel)), rel).toBe(true);
       }

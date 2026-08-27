@@ -282,6 +282,10 @@ export function findTransition(
  * keyframe on the clockwise (right) turn from this pose instead.
  * Using a turn that *ends* here is wrong — that slot is the other
  * facing’s from-still, which is how G11 sharpened to the wrong wall.
+ *
+ * Hub sundial table is D5 **west** (W→N turn `+5` is the *from* HQ).
+ * Do not use that incoming turn as D5 north — pose would say N while
+ * the still is W, so a 90° turn looks like 180°.
  */
 export function hqFrame(graph: SetGraph, pose: WalkerPose): FrameRef | undefined {
   const outgoing = graph.byFrom.get(tileKey(pose.x, pose.y)) ?? [];

@@ -53,6 +53,8 @@ export interface SetTransition {
   yTo: number;
   dirTo: Dir;
   frame0: number;
+  /** Play the clockwise strip backwards (hub only films right turns). */
+  reverse?: boolean;
 }
 
 export interface WalkerPose {

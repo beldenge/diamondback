@@ -345,6 +345,21 @@ class TestFrames(unittest.TestCase):
                 self.assertGreater(chroma, 50, f"{png.relative_to(dest)} is a silhouette")
                 checked += 1
             self.assertGreater(checked, 20)
+            # Reader *bord indexes the companion FLT, not chroma-max TOWN.
+            bords = (
+                (dest / "FRAMES" / "yunnibord" / "base" / "00_c557.png", (41, 0, 0)),
+                (dest / "FRAMES" / "histbord" / "base" / "00_c197.png", (99, 24, 0)),
+                (dest / "FRAMES" / "diarybord" / "base" / "00_c261.png", (140, 107, 82)),
+                (dest / "FRAMES" / "pagebord" / "base" / "00_c266.png", (132, 41, 8)),
+            )
+            for path, wood in bords:
+                self.assertTrue(path.exists(), path)
+                with Image.open(path) as image:
+                    pixel = image.convert("RGBA").getpixel((0, 0))
+                self.assertEqual(pixel[:3], wood, path.name)
+                with Image.open(path) as image:
+                    hole = image.convert("RGBA").getpixel((256, 192))
+                self.assertEqual(hole[3], 0, f"{path.name} page hole is opaque")
 
     def test_committed_saloon_tables_have_felt(self) -> None:
         """On-disk HOUSE overlays must keep SET chroma (green felt), not cache a silhouette dump."""
@@ -371,6 +386,24 @@ class TestFrames(unittest.TestCase):
             self.assertGreater(chroma, 1000, f"{path.name} is a silhouette")
             if path.parent.parent.name != "table1":
                 self.assertGreater(felt, 200, f"{path.name} has no green felt")
+
+    def test_committed_reader_bords_match_open_movies(self) -> None:
+        """On-disk HOUSE *bord must keep FLT wood, not a TOWN.SET invert."""
+        root = REPO / "dfextract" / "out" / "PRP" / "_HOUSE" / "FRAMES"
+        samples = (
+            (root / "yunnibord" / "base" / "00_c557.png", (41, 0, 0)),
+            (root / "histbord" / "base" / "00_c197.png", (99, 24, 0)),
+            (root / "diarybord" / "base" / "00_c261.png", (140, 107, 82)),
+            (root / "pagebord" / "base" / "00_c266.png", (132, 41, 8)),
+            (root / "curebord" / "untitled" / "00_c527.png", (57, 8, 0)),
+        )
+        if not all(path.exists() for path, _wood in samples):
+            self.skipTest("HOUSE frames not dumped")
+        for path, wood in samples:
+            with Image.open(path) as image:
+                rgba = image.convert("RGBA")
+                self.assertEqual(rgba.getpixel((0, 0))[:3], wood, path.name)
+                self.assertEqual(rgba.getpixel((256, 192))[3], 0, f"{path.name} hole")
 
 
 if __name__ == "__main__":

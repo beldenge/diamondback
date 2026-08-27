@@ -114,6 +114,12 @@ describe("walker", () => {
     expect(transitionForInput(graph, { x: 0, y: 1, facing: "W" }, "forward")).toBeUndefined();
   });
 
+  it("reverses a clockwise strip when left is not filmed", () => {
+    const left = transitionForInput(graph, { x: 0, y: 1, facing: "E" }, "left");
+    expect(left?.reverse).toBe(true);
+    expect(applyTransition(left!)).toEqual({ x: 0, y: 1, facing: "N" });
+  });
+
   it("plays five motion frames for both walks and turns", () => {
     const walk = transitionForInput(graph, { x: 0, y: 1, facing: "E" }, "forward");
     const turn = transitionForInput(graph, { x: 0, y: 1, facing: "E" }, "right");
@@ -264,5 +270,45 @@ describe("extracted TOWN graph", () => {
     expect(hqFrame(graph, { ...g11, facing: "N" })).toEqual({ frame0: 356, offset: 5 });
     expect(hqFrame(graph, { ...g11, facing: "S" })).toEqual({ frame0: 368, offset: 5 });
     expect(hqFrame(graph, { ...g11, facing: "W" })).toEqual({ frame0: 379, offset: 5 });
+  });
+});
+
+describe("extracted HUB graph", () => {
+  const scenesPath = resolve("dfextract/out/SET/_HUB/scenes.json");
+  const transPath = resolve("dfextract/out/SET/_HUB/transitions.json");
+
+  it("stands D5 west on the sundial table; north is the side chamber", () => {
+    if (!existsSync(scenesPath) || !existsSync(transPath)) {
+      return;
+    }
+    const scenes = JSON.parse(readFileSync(scenesPath, "utf8")) as SceneRecord[];
+    const records = JSON.parse(readFileSync(transPath, "utf8")) as TransitionRecord[];
+    const graph = buildSetGraph(scenes, records, SET_SPAWN._HUB);
+    const d5 = sceneByName(graph, "scene d5");
+    expect(d5).toBeTruthy();
+    expect(hqFrame(graph, { x: d5!.x, y: d5!.y, facing: "W" })).toEqual({
+      frame0: 125,
+      offset: 5,
+    });
+    expect(hqFrame(graph, { x: d5!.x, y: d5!.y, facing: "N" })).toEqual({
+      frame0: 181,
+      offset: 5,
+    });
+  });
+
+  it("turns 90° at D5 west: right to north, left to south", () => {
+    if (!existsSync(scenesPath) || !existsSync(transPath)) {
+      return;
+    }
+    const scenes = JSON.parse(readFileSync(scenesPath, "utf8")) as SceneRecord[];
+    const records = JSON.parse(readFileSync(transPath, "utf8")) as TransitionRecord[];
+    const graph = buildSetGraph(scenes, records, SET_SPAWN._HUB);
+    const d5 = sceneByName(graph, "scene d5");
+    expect(d5).toBeTruthy();
+    const pose = { x: d5!.x, y: d5!.y, facing: "W" as const };
+    const right = transitionForInput(graph, pose, "right");
+    const left = transitionForInput(graph, pose, "left");
+    expect(applyTransition(right!)).toEqual({ x: d5!.x, y: d5!.y, facing: "N" });
+    expect(applyTransition(left!)).toEqual({ x: d5!.x, y: d5!.y, facing: "S" });
   });
 });

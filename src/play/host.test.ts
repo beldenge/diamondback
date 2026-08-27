@@ -11,6 +11,7 @@ import {
   actorTemplateFolder,
   dirWord,
   DustHost,
+  fallbackReaderFlats,
   libraryStem,
   puppetClipKey,
   puppetFolder,
@@ -1139,6 +1140,38 @@ describe("fade does not halt theme", () => {
     await host.call("blackscreen", [], vm);
     expect(fades).toEqual(["out30", "in30", "cut"]);
   });
+
+  it("skipBootBlack skips clut black the same as blackscreen", async () => {
+    const host = new DustHost({} as PuppetUi);
+    const fades: string[] = [];
+    host.view = {
+      pose: { x: 6, y: 14, facing: "N" },
+      world: "town",
+      graph: { scenes: new Map(), cameraTiles: new Set(), transitions: [], byFrom: new Map() },
+      walk() {},
+      async setPose() {},
+      log() {},
+      refreshActors() {},
+      cutToBlack() {
+        fades.push("cut");
+      },
+      setFadeOpacity(opacity: number) {
+        fades.push(`fade${opacity}`);
+      },
+    };
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    host.skipBootBlack = true;
+    await host.call("clut", ["black"], vm);
+    await host.call("blackscreen", [], vm);
+    expect(fades).toEqual([]);
+    host.skipBootBlack = false;
+    await host.call("clut", ["black"], vm);
+    expect(fades).toEqual(["cut"]);
+    await host.call("clut", ["set"], vm);
+    expect(fades).toEqual(["cut", "fade0"]);
+  });
 });
 
 describe("pig pen row/col", () => {
@@ -1908,6 +1941,36 @@ describe("saloon SALGAMES scripts", () => {
     expect(await host.call("pluginfx", ["checkmove", "", 2, 0], vm)).toBe("");
   });
 
+  it("sendtobutton three-arg sets target to the short button name", async () => {
+    const host = new DustHost({} as PuppetUi);
+    let target = "";
+    host.index.add(
+      "button:flat 1:but 1",
+      {
+        name: "mousedown",
+        params: ["arg"],
+        body: [{ type: "call", call: { type: "call", name: "recordtarget", args: [] } }],
+      },
+      "test",
+    );
+    const vm = new VM({
+      async call(name, _args, ctx) {
+        if (name === "recordtarget") {
+          target = ctx.target;
+        }
+        return 0;
+      },
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    await vm.evalCall("sendtobutton", [
+      { type: "str", value: "flat 1" },
+      { type: "str", value: "but 1" },
+      { type: "call", name: "mousedown", args: [] },
+    ]);
+    expect(target).toBe("but 1");
+  });
+
   it("sendtobutton three-arg runs the named button mousedown", async () => {
     const host = new DustHost({} as PuppetUi);
     const ran: string[] = [];
@@ -2335,6 +2398,55 @@ describe("range % HIT", () => {
   });
 });
 
+describe("reader FLT flats", () => {
+  it("synthesizes HIST page stills when flats.json is missing", () => {
+    expect(fallbackReaderFlats("yunni")).toBeNull();
+    const hist = fallbackReaderFlats("hist");
+    expect(hist?.flats).toHaveLength(50);
+    expect(hist?.flats[0]).toMatchObject({ name: "Flat 0", stillFile: "frame_3.png" });
+    expect(hist?.flats[1]).toMatchObject({ name: "Flat 1", stillFile: "frame_6.png" });
+  });
+
+  it("countflats / flattoindex are 1-based into the stage list", async () => {
+    const host = new DustHost({} as PuppetUi);
+    const intern = host as unknown as { stageFlatNames: string[] };
+    intern.stageFlatNames = ["flat 0", "flat 1", "flat 2"];
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    expect(await host.call("countflats", [], vm)).toBe(3);
+    expect(await host.call("flattoindex", ["flat 1"], vm)).toBe(2);
+    expect(await host.call("indextoflat", [1], vm)).toBe("flat 0");
+  });
+
+  it("reader page hole is the flat; leather frame is the bord", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.currentStageName = "yunnibook";
+    host.currentFlatName = "flat 0";
+    const bord = host.ensureProp("yunnibord");
+    bord.visible = true;
+    bord.shop = "house";
+    bord.view = "base";
+    bord.sprites = {
+      base: [{ path: "FRAMES/yunnibord/base/00_c557.png", x: 256, y: 192, w: 512, h: 384 }],
+    };
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    expect(await host.call("hittest", [{ kind: "point", x: 256, y: 192, z: 0 }], vm)).toBe(
+      "flat 0",
+    );
+    expect(host.hitKind).toBe("flat");
+    expect(await host.call("hittest", [{ kind: "point", x: 256, y: 300, z: 0 }], vm)).toBe(
+      "flat 0",
+    );
+    expect(await host.call("hittest", [{ kind: "point", x: 10, y: 20, z: 0 }], vm)).toBe(
+      "yunnibord",
+    );
+    expect(host.hitKind).toBe("prop");
+  });
+});
+
 describe("range EXIT", () => {
   it("loads TARGET gototown onto the stage index", () => {
     const rel = "FLT/_TARGET/gototown _dirname_.json";
@@ -2540,6 +2652,29 @@ describe("Day 1 sleep / lodging opcodes", () => {
     expect(vm.unimplemented.has("shopwarm")).toBe(false);
   });
 
+  it("shopwarm aliases snake.prp as puzzle for sendtoshop", async () => {
+    const { host, vm } = dayHost();
+    const intern = host as unknown as { puzzleShop: string; loadedShops: Set<string> };
+    intern.puzzleShop = "snake";
+    intern.loadedShops.add("snake");
+    host.index.add(
+      "shop:snake",
+      { name: "mangle", params: [], body: [] },
+      "snake",
+    );
+    await host.call("shopwarm", ["puzzle"], vm);
+    vm.object = "shop";
+    vm.me = "puzzle";
+    expect(host.lookup("mangle", vm)?.name).toBe("mangle");
+  });
+
+  it("pausecricket is the same pause as pauseball", async () => {
+    const { host, vm } = dayHost();
+    expect(vm.unimplemented.has("pausecricket")).toBe(false);
+    await host.call("pausecricket", ["all", true], vm);
+    expect(vm.unimplemented.has("pausecricket")).toBe(false);
+  });
+
   it("closetrackfile gossip restores the previous bank and keeps the theme", async () => {
     const { host, vm } = dayHost();
     await host.call("opentrackfile", ["saloon1.snd"], vm);
@@ -2629,6 +2764,62 @@ describe("Day 1 sleep / lodging opcodes", () => {
     }
     expect(readFileSync(bed, "utf8")).toMatch(/actionframe \(1\)/);
     expect(readFileSync(dollar, "utf8")).toMatch(/playercash = playercash \+ 4/);
+  });
+
+  it("propstar puts a hub skeleton in world space", async () => {
+    const { host, vm } = dayHost();
+    host.waypoints.set("skeleton1", { name: "skeleton1", x: 800, y: 480 });
+    const prop = host.namedProp("skeleton1");
+    prop.screen = true;
+    await host.call("propstar", ["skeleton1", "skeleton1"], vm);
+    expect(prop.screen).toBe(false);
+    expect(prop.x).toBe(800);
+    expect(prop.y).toBe(480);
+  });
+
+  it("realdist is world distance to the named actor", async () => {
+    const { host, vm } = dayHost();
+    host.view = {
+      pose: { x: 4, y: 3, facing: "N" },
+      world: "_HUB",
+      graph: { scenes: new Map(), cameraTiles: new Set(), transitions: [], byFrom: new Map() },
+      walk() {},
+      async setPose() {},
+      log() {},
+      refreshActors() {},
+    };
+    const shaman = host.namedActor("shaman");
+    shaman.x = 4 * 256 + 128;
+    shaman.y = 3 * 256 + 128;
+    expect(await host.call("realdist", ["shaman"], vm)).toBe(0);
+    shaman.x += 512;
+    expect(await host.call("realdist", ["shaman"], vm)).toBe(512);
+  });
+
+  it("mixclut toward black raises fade opacity", async () => {
+    const { host, vm } = dayHost();
+    let fade = 0;
+    host.view = {
+      pose: { x: 6, y: 14, facing: "N" },
+      world: "town",
+      graph: { scenes: new Map(), cameraTiles: new Set(), transitions: [], byFrom: new Map() },
+      walk() {},
+      async setPose() {},
+      log() {},
+      refreshActors() {},
+      setFadeOpacity(opacity: number) {
+        fade = opacity;
+      },
+    };
+    await host.call("mixclut", ["set", "black", 0, 127, 255], vm);
+    expect(fade).toBe(1);
+    await host.call("mixclut", ["black", "set", 128, 255, 255], vm);
+    expect(fade).toBe(0);
+    await host.call("clut", ["set"], vm);
+    expect(fade).toBe(0);
+    fade = 1;
+    await host.call("clut", ["stage"], vm);
+    expect(fade).toBe(0);
   });
 
   it("loads FIGHT flat punch / quit and Dell mousedown", () => {

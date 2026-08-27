@@ -22,7 +22,12 @@ i16 R, G, B     # 8.8 fixed point; we take the high byte
 DFET wrote unused as `(0,0,0)` — that was the INVEN HUD “black spots”
 (HELP letter counters, gun leather flecks) and inverted SALGAMES card
 faces. Trans sprites follow the EXE (white) except HOUSE world overlays,
-which keep unused→black and recolor from the SET palette. Minigame
+which keep unused→black and recolor from the SET palette. HOUSE
+reader chrome (`yunnibord`, `histbord`, `pagebord`, `diarybord`,
+`curebord`) 8-bit-blits onto the companion FLT still (YUNNI / HIST /
+PAGES / DIARY / CURE), not a town SET. Scoring every DATA SET by
+chroma ties on TOWN and inverts the leather (`yunnibord` dump
+`(88,80,62)` vs `yunnopen.mov` `(41,0,0)`). Minigame
 PRPs (SALGAMES, CHECKERS, …) 8-bit-blit onto a sibling FLT still;
 that FLT ColorPalette expands the indices. Using the PRP palette
 (almost all unused-white) washes card faces to blank.

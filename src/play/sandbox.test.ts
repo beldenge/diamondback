@@ -9,7 +9,16 @@ import {
   hideSandboxGroundPickups,
   hideSandboxStoryActors,
   sandboxKeepWorldProp,
+  sandboxEquipMineMask,
+  sandboxFountainOpensHub,
+  sandboxFountainProc,
+  sandboxHubSundialScene,
+  sandboxIsMineSet,
+  sandboxShowMineMask,
+  SANDBOX_INVEN_LAYOUT_DAY,
+  SANDBOX_INVEN_SEEDS,
   SANDBOX_STORY_FLAGS,
+  sandboxInventoryToSeed,
   sandboxClockFromSearch,
   sandboxGraphFolder,
   sandboxKeepActor,
@@ -63,6 +72,8 @@ describe("sandboxKeepActor", () => {
     expect(sandboxKeepActor({ name: "dog", cast: "extra" })).toBe(false);
     expect(sandboxKeepActor({ name: "horse1", cast: "extra" })).toBe(false);
     expect(sandboxKeepActor({ name: "birdcage", cast: "extra" })).toBe(false);
+    expect(sandboxKeepActor({ name: "skeleton", cast: "mine" })).toBe(true);
+    expect(sandboxKeepActor({ name: "shaman", cast: "extra" })).toBe(true);
     expect(sandboxKeepActor({ name: "gus", cast: "gang" })).toBe(false);
     expect(sandboxKeepActor({ name: "help", cast: "gang" })).toBe(false);
     expect(sandboxKeepActor({ name: "oona", cast: "gang" })).toBe(false);
@@ -157,6 +168,37 @@ describe("sandbox advanceday", () => {
     expect(vm.globals.get("dayrobber")).toBe(1);
     expect(vm.globals.get("oonaphase")).toBe(3);
     expect(vm.globals.get("mwifephase")).toBe(1);
+  });
+
+  it("clears the fade plate the way extracted postmovie does", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.sandbox = true;
+    host.sandboxClock = 2;
+    let fade: number | undefined;
+    host.view = {
+      pose: { x: 6, y: 14, facing: "N" },
+      world: "town",
+      graph: { scenes: new Map(), cameraTiles: new Set(), transitions: [], byFrom: new Map() },
+      walk() {},
+      async setPose() {},
+      log() {},
+      refreshActors() {},
+      setFadeOpacity(opacity: number) {
+        fade = opacity;
+      },
+    };
+    const vm = new VM({
+      async call(name) {
+        if (name === "initall" || name === "currentscene" || name === "currentview") {
+          return 0;
+        }
+        return 0;
+      },
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    await host.sandboxAdvanceDay(vm);
+    expect(fade).toBe(0);
   });
 
   it("marks saloon and mansion stair talks as already done", () => {
@@ -346,6 +388,7 @@ describe("sandbox Leroy range talk", () => {
 
   it("does not put a gun in the sandbox seed flags", () => {
     expect("gun" in SANDBOX_STORY_FLAGS).toBe(false);
+    expect(SANDBOX_INVEN_SEEDS).not.toContain("gun");
   });
 
   it("does not wait on Leroy's return walk after he loans the gun", () => {
@@ -376,6 +419,88 @@ describe("sandbox Leroy range talk", () => {
     expect(leroy.walking).toBe(false);
     expect(leroy.turning).toBe(false);
     expect(leroy.route).toEqual([]);
+  });
+});
+
+describe("sandbox inventory seeds", () => {
+  it("grants cave tools and every satchel reader, book last", () => {
+    expect(SANDBOX_INVEN_SEEDS).toEqual([
+      "mask",
+      "flute",
+      "blade",
+      "tbird",
+      "history",
+      "pages",
+      "yunnibook",
+    ]);
+    expect(SANDBOX_INVEN_LAYOUT_DAY).toBe(4);
+    expect(SANDBOX_INVEN_SEEDS).not.toContain("postcards");
+  });
+
+  it("skips items the player already holds", () => {
+    expect(
+      sandboxInventoryToSeed([
+        { name: "mask", owner: "stranger" },
+        { name: "flute", owner: "none" },
+        { name: "yunnibook", owner: "OONA" },
+      ]),
+    ).toEqual(["flute", "blade", "tbird", "history", "pages", "yunnibook"]);
+  });
+
+  it("addinven seeds yunnibook last so it is the held item", async () => {
+    const inven = resolve("dfextract/out/PRP/_INVEN/setcursor _arg__1.json");
+    if (!existsSync(inven)) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    host.sandbox = true;
+    for (const proc of loadProcs("PRP/_INVEN/setcursor _arg__1.json")) {
+      host.index.add("shop:inven", proc, "inven");
+    }
+    for (const name of SANDBOX_INVEN_SEEDS) {
+      host.namedProp(name).shop = "inven";
+    }
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    vm.globals.set("handitem", "helpbut");
+    vm.globalNames.add("handitem");
+    await host.seedSandboxInventory(vm);
+    expect(host.namedProp("yunnibook").owner).toBe("stranger");
+    expect(host.namedProp("history").owner).toBe("stranger");
+    expect(host.namedProp("pages").owner).toBe("stranger");
+    expect(host.namedProp("postcards").owner).toBe("none");
+    expect(host.namedProp("flute").owner).toBe("stranger");
+    expect(host.namedProp("blade").owner).toBe("stranger");
+    expect(host.namedProp("mask").owner).toBe("stranger");
+    expect(host.namedProp("tbird").owner).toBe("stranger");
+    expect(vm.globals.get("handitem")).toBe("yunnibook");
+    await host.seedSandboxInventory(vm);
+    expect(vm.globals.get("handitem")).toBe("yunnibook");
+  });
+
+  it("mayroom armchair opens diary.flt without a day gate", () => {
+    const rel = "SET/_MAYROOM/Scene B2.txt";
+    if (!existsSync(resolve("dfextract/out", rel))) {
+      return;
+    }
+    const txt = readFileSync(resolve("dfextract/out", rel), "utf8");
+    expect(txt).toMatch(/currentview \(\) = "south" & pointinarm/);
+    expect(txt).toMatch(/openstagefile \("diary\.flt"\)/);
+    expect(txt).not.toMatch(/if day = .+pointinarm/);
+  });
+
+  it("does not seed inventory in Resurrected", async () => {
+    const host = new DustHost({} as PuppetUi);
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    await host.seedSandboxInventory(vm);
+    expect(host.namedProp("yunnibook").owner).toBe("none");
   });
 });
 
@@ -454,3 +579,122 @@ describe("sandbox animal placement", () => {
     expect(hog.walking).toBe(true);
   });
 });
+
+describe("Unlocked fountain → hub", () => {
+  it("opens the hub from court or nitecour, not town", () => {
+    expect(sandboxFountainOpensHub("court")).toBe(true);
+    expect(sandboxFountainOpensHub("nitecour.set")).toBe(true);
+    expect(sandboxFountainOpensHub("town")).toBe(false);
+    expect(sandboxFountainOpensHub("hub")).toBe(false);
+  });
+
+  it("plays openfoun.mov then gotospecial hub D5 west", () => {
+    const json = JSON.stringify(sandboxFountainProc());
+    expect(json).toContain("openfoun.mov");
+    expect(json).toContain("gotospecial");
+    expect(json).toContain("hub.set");
+    expect(json).toContain("scene d5");
+    expect(json).toContain("west");
+    expect(json).not.toContain("north");
+    expect(json).toContain("mine.snd");
+    expect(json).toContain("\"mine\"");
+    expect(json).toContain("haltsound");
+    expect(json).toContain("halttheme");
+    expect(json).not.toContain("tstone");
+  });
+
+  it("treats the four hub table tiles as sundial scenes", () => {
+    expect(sandboxHubSundialScene("scene d5")).toBe(true);
+    expect(sandboxHubSundialScene("Scene C4")).toBe(true);
+    expect(sandboxHubSundialScene("scene d7")).toBe(false);
+  });
+
+  it("shows the mine mask compass without stealing handitem", () => {
+    const mask = { view: "small", visible: false, screen: false, x: 0, y: 0, owner: "none" };
+    expect(sandboxShowMineMask("town", mask)).toBe(false);
+    expect(mask.visible).toBe(false);
+    expect(sandboxShowMineMask("mine.set", mask)).toBe(true);
+    expect(mask.view).toBe("eyes");
+    expect(mask.visible).toBe(true);
+    expect(mask.screen).toBe(true);
+    expect(mask.owner).toBe("stranger");
+    expect(mask.x).toBe(256);
+    expect(mask.y).toBe(132);
+  });
+
+  it("keeps INVEN mask eyes as a HUD overlay, not a ground pickup", () => {
+    expect(
+      sandboxKeepWorldProp({ name: "mask", shop: "inven", view: "eyes" }, ""),
+    ).toBe(true);
+    expect(
+      sandboxKeepWorldProp({ name: "mask", shop: "inven", view: "small" }, ""),
+    ).toBe(false);
+    expect(
+      sandboxKeepWorldProp({ name: "chest", shop: "inven", view: "small", set: "hub" }, ""),
+    ).toBe(true);
+    expect(
+      sandboxKeepWorldProp({ name: "jug", shop: "inven", view: "small", set: "town" }, ""),
+    ).toBe(false);
+  });
+
+  it("equips the mask as handitem before mine openset", () => {
+    const globals = new Map<string, string>();
+    expect(sandboxIsMineSet("mine.set")).toBe(true);
+    expect(sandboxEquipMineMask("hub", { set: (name, value) => globals.set(name, value) })).toBe(
+      false,
+    );
+    expect(sandboxEquipMineMask("mine", { set: (name, value) => globals.set(name, value) })).toBe(
+      true,
+    );
+    expect(globals.get("handitem")).toBe("mask");
+  });
+
+  it("replaces court fountain() with openfoun.mov → hub D5 N", () => {
+    const host = new DustHost({} as PuppetUi);
+    host.sandbox = true;
+    host.currentSet = "court";
+    host.index.add(
+      "set",
+      {
+        name: "fountain",
+        params: [],
+        body: [{ type: "call", call: { type: "call", name: "spotmovie", args: [] } }],
+      },
+      "court",
+    );
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    vm.object = "set";
+    const json = JSON.stringify(host.lookup("fountain", vm));
+    expect(json).toContain("openfoun.mov");
+    expect(json).toContain("hub.set");
+    expect(json).not.toContain("spotmovie");
+    host.currentSet = "town";
+    expect(host.lookup("fountain", vm)?.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "call",
+          call: expect.objectContaining({ name: "spotmovie" }),
+        }),
+      ]),
+    );
+  });
+
+  it("sundial dump names the four rooms and the chest combo", () => {
+    const rel = resolve("dfextract/out/FLT/_SUNDIAL/offerobject _what_.txt");
+    if (!existsSync(rel)) {
+      return;
+    }
+    const txt = readFileSync(rel, "utf8");
+    expect(txt).toMatch(/nextroom = "mine"/);
+    expect(txt).toMatch(/nextroom = "snake"/);
+    expect(txt).toMatch(/nextroom = "tbird"/);
+    expect(txt).toMatch(/nextroom = "flute"/);
+    expect(txt).toMatch(/largedial = 12 & meddial = 4 & smalldial = 12/);
+    expect(txt).toMatch(/setupprop \("hub"\)/);
+  });
+});
+

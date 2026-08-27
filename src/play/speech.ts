@@ -24,6 +24,8 @@ export class VoiceBank {
   private readonly buffers = new Map<string, AudioBuffer>();
   /** MOVPLAY group A: same channel restarts (does not stack). */
   private readonly fxSlots = new Map<string, () => void>();
+  /** Looping beds / `soundloop` nodes. Host can drop them on SET change. */
+  private readonly looping = new Set<() => void>();
 
   currentTime(): number {
     if (!this.t0) {
@@ -73,6 +75,14 @@ export class VoiceBank {
     return this.decodeRaw(url, raw)?.duration ?? 0;
   }
 
+  /** Kill looping beds and `soundloop` FX (town saw/saloon leaking into the cave). */
+  stopAllLooping(): void {
+    for (const stop of [...this.looping]) {
+      stop();
+    }
+    this.looping.clear();
+  }
+
   /** One-shot world/UI WAV. Does not stop speech or set the viseme clock. */
   async playFx(
     url: string,
@@ -85,31 +95,23 @@ export class VoiceBank {
       this.fxSlots.get(channel)?.();
       this.fxSlots.delete(channel);
     }
-    const raw = this.raw.get(url) ?? (await this.fetchRaw(url));
-    const ctx = this.ctx;
-    if (!raw || !ctx) {
-      return () => undefined;
-    }
-    const buffer = this.decodeRaw(url, raw);
-    if (!buffer) {
-      return () => undefined;
-    }
-    const gain = ctx.createGain();
-    gain.gain.value = Math.max(0, Math.min(1, volume));
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.loop = loop;
-    source.connect(gain);
-    gain.connect(ctx.destination);
+    let cancelled = false;
+    let started = false;
+    let source: AudioBufferSourceNode | null = null;
+    let gain: GainNode | null = null;
     const stop = (): void => {
-      try {
-        source.stop();
-      } catch {
-        /* already stopped */
+      cancelled = true;
+      this.looping.delete(stop);
+      if (started && source) {
+        try {
+          source.stop();
+        } catch {
+          /* already stopped */
+        }
       }
       try {
-        source.disconnect();
-        gain.disconnect();
+        source?.disconnect();
+        gain?.disconnect();
       } catch {
         /* already disconnected */
       }
@@ -117,13 +119,44 @@ export class VoiceBank {
         this.fxSlots.delete(channel);
       }
     };
+    if (loop) {
+      this.looping.add(stop);
+    }
+    const raw = this.raw.get(url) ?? (await this.fetchRaw(url));
+    const ctx = this.ctx;
+    if (cancelled || !raw || !ctx) {
+      stop();
+      return stop;
+    }
+    const buffer = this.decodeRaw(url, raw);
+    if (cancelled || !buffer) {
+      stop();
+      return stop;
+    }
+    gain = ctx.createGain();
+    gain.gain.value = Math.max(0, Math.min(1, volume));
+    source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = loop;
+    source.connect(gain);
+    gain.connect(ctx.destination);
     try {
       if (ctx.state !== "running") {
         await ctx.resume();
       }
+      if (cancelled) {
+        stop();
+        return stop;
+      }
       source.start();
+      started = true;
+      if (cancelled) {
+        stop();
+        return stop;
+      }
     } catch {
-      return () => undefined;
+      stop();
+      return stop;
     }
     if (channel) {
       this.fxSlots.set(channel, stop);

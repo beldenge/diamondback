@@ -3,9 +3,12 @@ import {
   findWord,
   hitFlatButton,
   isPuzzleStage,
+  isReaderStage,
   pointHitsFlatItem,
+  pointHitsReaderBorder,
   pointInMacRect,
   putWord,
+  readerBorderName,
   shopFileOf,
   substringIndex,
   upsertPuzzleLabel,
@@ -51,6 +54,15 @@ describe("saloon game helpers", () => {
     expect(isPuzzleStage("checkers")).toBe(true);
     expect(isPuzzleStage("checkers.flt")).toBe(true);
     expect(isPuzzleStage("fight")).toBe(true);
+    expect(isPuzzleStage("sundial")).toBe(true);
+    expect(isPuzzleStage("flute")).toBe(true);
+    expect(isPuzzleStage("snake")).toBe(true);
+    expect(isPuzzleStage("tumble")).toBe(true);
+    expect(isPuzzleStage("yunnibox")).toBe(true);
+    expect(isPuzzleStage("diary")).toBe(true);
+    expect(isPuzzleStage("yunni")).toBe(true);
+    expect(isPuzzleStage("hist")).toBe(true);
+    expect(isPuzzleStage("pages")).toBe(true);
     expect(isPuzzleStage("new")).toBe(false);
     expect(isPuzzleStage("target")).toBe(false);
     expect(isPuzzleStage("target.flt")).toBe(false);
@@ -59,6 +71,27 @@ describe("saloon game helpers", () => {
     expect(
       pointHitsFlatItem({ url: "x", x: 100, y: 100, w: 40, h: 50 }, 110, 120),
     ).toBe(true);
+  });
+
+  it("reader borders miss the page hole and keep the frame", () => {
+    expect(isReaderStage("diary.flt")).toBe(true);
+    expect(isReaderStage("yunnibook")).toBe(true);
+    expect(isReaderStage("torn")).toBe(true);
+    expect(isReaderStage("dbhist")).toBe(true);
+    expect(readerBorderName("hist")).toBe("histbord");
+    expect(readerBorderName("yunnibook")).toBe("yunnibord");
+    expect(pointHitsReaderBorder("diarybord", 256, 132)).toBe(false);
+    expect(pointHitsReaderBorder("diarybord", 256, 300)).toBe(false);
+    expect(pointHitsReaderBorder("diarybord", 10, 40)).toBe(true);
+    expect(pointHitsReaderBorder("histbord", 256, 132)).toBe(false);
+    expect(pointHitsReaderBorder("histbord", 256, 300)).toBe(false);
+    expect(pointHitsReaderBorder("histbord", 10, 20)).toBe(true);
+    expect(pointHitsReaderBorder("yunnibord", 256, 132)).toBe(false);
+    expect(pointHitsReaderBorder("yunnibord", 256, 300)).toBe(false);
+    expect(pointHitsReaderBorder("yunnibord", 10, 20)).toBe(true);
+    expect(pointHitsReaderBorder("pagebord", 256, 192)).toBe(false);
+    expect(pointHitsReaderBorder("pagebord", 256, 300)).toBe(false);
+    expect(pointHitsReaderBorder("pagebord", 100, 50)).toBe(true);
   });
 
   it("keeps TARGET scores that share a row", () => {
