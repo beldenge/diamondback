@@ -9,7 +9,7 @@ let storyGame: PlayGame | null = null;
 let sandboxGame: PlayGame | null = null;
 
 function currentMode(): ClientMode {
-  return clientMode(window.location.search, window.location.pathname);
+  return clientMode(window.location.search);
 }
 
 function hideLanding(): void {
@@ -39,7 +39,7 @@ function showMovies(): void {
   }
 }
 
-function showPlay(): void {
+function showResurrected(): void {
   sandboxGame?.hide();
   gallery?.hide();
   hideLanding();
@@ -70,8 +70,8 @@ function applyRoute(): void {
     case "movies":
       showMovies();
       break;
-    case "play":
-      showPlay();
+    case "resurrected":
+      showResurrected();
       break;
     case "unlocked":
       showUnlocked();
@@ -106,7 +106,7 @@ document.addEventListener("click", (event) => {
     return;
   }
   const url = new URL(anchor.href);
-  const next = clientMode(url.search, url.pathname);
+  const next = clientMode(url.search);
   const hereMode = currentMode();
   if (next === hereMode && url.search === window.location.search) {
     event.preventDefault();

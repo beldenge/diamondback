@@ -1,18 +1,11 @@
-export type ClientMode = "landing" | "unlocked" | "play" | "movies";
+export type ClientMode = "landing" | "unlocked" | "resurrected" | "movies";
 
-/** Query `mode` plus a `/play` path. Empty URL is the title chooser. */
-export function clientMode(search: string, pathname: string): ClientMode {
+/** Query `mode`. Empty or unknown URL is the title chooser. */
+export function clientMode(search: string): ClientMode {
   const query = search.startsWith("?") ? search.slice(1) : search;
   const mode = new URLSearchParams(query).get("mode")?.trim().toLowerCase() ?? "";
-  const path = pathname.replace(/\/+$/, "");
-  if (mode === "play" || mode === "resurrected" || path.endsWith("/play")) {
-    return "play";
-  }
-  if (mode === "unlocked") {
-    return "unlocked";
-  }
-  if (mode === "movies" || mode === "gallery") {
-    return "movies";
+  if (mode === "resurrected" || mode === "unlocked" || mode === "movies") {
+    return mode;
   }
   return "landing";
 }

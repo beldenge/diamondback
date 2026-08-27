@@ -12,15 +12,7 @@
     <script>
       (function () {
         var mode = (new URLSearchParams(location.search).get("mode") || "").toLowerCase();
-        var path = location.pathname.replace(/\/+$/, "");
-        if (
-          mode === "movies" ||
-          mode === "gallery" ||
-          mode === "play" ||
-          mode === "resurrected" ||
-          mode === "unlocked" ||
-          /\/play$/.test(path)
-        ) {
+        if (mode === "movies" || mode === "resurrected" || mode === "unlocked") {
           document.documentElement.classList.add("boot-hidden");
         }
       })();

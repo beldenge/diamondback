@@ -1,4 +1,4 @@
-# Dust: Resurrected (`/?mode=resurrected` or `/?mode=play`)
+# Dust: Resurrected (`/?mode=resurrected`)
 
 How the remake runs Day 1 night: original HUD under the stills, CST actors,
 PUP talking-heads, world props, night FX, and spot-movies, all driven by

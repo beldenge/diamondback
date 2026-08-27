@@ -8,7 +8,7 @@
 - We won't upscale visuals or audio at this time.
 - This will not be released commercially.
 - Interpret extracted DreamFactory **tokens** at runtime (TypeScript VM). Do not hand-port 541 scripts into JSON graphs. Do not port `DF.EXE` C.
-- `https://diamondback.town` is a title chooser. **Dust: Resurrected** (`/?mode=resurrected` or `/?mode=play`) is the VM story. **Dust: Unlocked** (`/?mode=unlocked`) is the same PlayGame / VM with a sandbox policy (empty of story casts, all doors, minigame NPCs, farm animals except the dog). **The Picture Show** (`/?mode=movies`) is extracted full-screen reels. Chooser cards switch in-page (no document reload).
+- `https://diamondback.town` is a title chooser. **Dust: Resurrected** (`/?mode=resurrected`) is the VM story. **Dust: Unlocked** (`/?mode=unlocked`) is the same PlayGame / VM with a sandbox policy (empty of story casts, all doors, minigame NPCs, farm animals except the dog). **The Picture Show** (`/?mode=movies`) is extracted full-screen reels. Chooser cards switch in-page (no document reload).
 - Do not build save/load in the first VM slice (format is `*.rtd`, still unknown).
 
 ## 3. Tech Stack & Principles
@@ -97,7 +97,7 @@ Default run (`/`) is the title chooser. Modes:
 
 | Name | URL | What |
 |---|---|---|
-| **Dust: Resurrected** | `/?mode=resurrected` or `/?mode=play` | VM game (Day 1 night so far). `&intro=1` plays openings in-game |
+| **Dust: Resurrected** | `/?mode=resurrected` | VM game (Day 1 night so far). `&intro=1` plays openings in-game |
 | **Dust: Unlocked** | `/?mode=unlocked` | Same engine as Resurrected; no story casts, all doors, minigame NPCs, farm animals (not the dog) |
 | **The Picture Show** | `/?mode=movies` | Browser reel player (`timeline.json` + PNG/WAV). Opening is selected first. Not inspect MOVs |
 
@@ -121,6 +121,7 @@ Default run (`/`) is the title chooser. Modes:
 
 | Date | Decision |
 |---|---|
+| 2026-08-26 | One `?mode=` URL per title: `resurrected`, `unlocked`, `movies`. Dropped aliases `mode=play`, `mode=gallery`, and the `/play` path. Unknown `mode` is the chooser. |
 | 2026-08-25 | Checkers table is `CHECKERS.FLT` still 3, a full opaque 512×384 painting. `playagame` `setvisible (false)` hides the store SET; Dust BitBlts that still. Not skip-through to the shop. Play hides the world while the board is up and blits the still onto an opaque canvas. |
 | 2026-08-26 | Checkers overlay must keep the last FLT blit and piece imgs across `forceupdate` / `updatescreen`. Reloading the still (`fillRect` black) every paint flickered the whole screen; `closeshopfile` painting an empty board dropped Bolivar’s men after a move. |
 | 2026-08-26 | Checkers “transparent table” was the crate under the board in FLT still 3, not pal0 skip onto STORE. Dropped the opaque-canvas blit (**supersedes** 08-25 canvas row). Overlay is the FLT `<img>` plus script `setvisible (false)`. |
