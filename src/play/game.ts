@@ -20,10 +20,9 @@ import {
 import {
   IDLE_NEIGHBOR_DEPTH,
   neighborStillUrls,
-  poseHqUrl,
   transitionStillUrls,
 } from "../world/set/film";
-import { mediaGate, type MediaPriority } from "../world/set/media";
+import { bitsGate, type MediaPriority } from "../world/set/media";
 import {
   createStillAnim,
   displayedFilmstripIndex,
@@ -58,7 +57,7 @@ import {
   zUrl,
   zUrlFromStill,
 } from "../world/set/graph";
-import { rasterizePng, StillsView } from "../world/set/stillsView";
+import { pngImageData, StillsView } from "../world/set/stillsView";
 import {
   actorSprite,
   actorStillHeight,
@@ -85,6 +84,8 @@ import {
   rangeGroundBlitZ,
   shouldBlitDoorOverlay,
   paintFarToNear,
+  actorLayerStamp,
+  occlusionStamp,
   spriteBitsFromImageData,
   wallOverlayBlitZ,
   propStillScale,
@@ -218,7 +219,7 @@ export class PlayGame implements WorldView {
    */
   private talking = false;
   private readonly heldKeys = new Set<string>();
-  private pendingWalk: WalkInput | null = null;
+
   private booting = true;
   private visible = true;
   private scriptsReady = false;
@@ -230,6 +231,10 @@ export class PlayGame implements WorldView {
   private fadeGen = 0;
   private readonly actorCanvas: HTMLCanvasElement;
   private readonly actorCtx: CanvasRenderingContext2D;
+  private readonly actorFrame: ImageData;
+  private actorStamp = "";
+  private readonly bitsStamp = new WeakMap<SpriteBits, number>();
+  private nextBitsStamp = 1;
   private readonly pick = new Uint16Array(STILL_WIDTH * STILL_HEIGHT);
   private readonly pickNames: string[] = [""];
   private readonly spriteBits = new Map<string, SpriteBits>();
@@ -303,6 +308,7 @@ export class PlayGame implements WorldView {
       throw new Error("actor canvas");
     }
     this.actorCtx = actorCtx;
+    this.actorFrame = actorCtx.createImageData(STILL_WIDTH, STILL_HEIGHT);
     this.actorCanvas.style.backgroundColor = "transparent";
     this.actorLayer.append(this.actorCanvas);
     this.captionEl = document.createElement("div");
@@ -565,7 +571,6 @@ export class PlayGame implements WorldView {
   walk(kind: "strait" | "left" | "right"): void {
     const input: WalkInput = kind === "strait" ? "forward" : kind;
     if (this.busy) {
-      this.pendingWalk = input;
       return;
     }
     this.tryMove(input);
@@ -909,9 +914,9 @@ export class PlayGame implements WorldView {
     if (this.anim) {
       this.driveAnim(this.anim, dt);
       this.needsRender = true;
+      // Sprites ride the plate. Idle layout is refreshActors / Z / sprites.
+      this.layoutActors();
     }
-    // Project after the still advances so sprites ride the same plate.
-    this.layoutActors();
     this.applyCursor();
     this.ui.tick(dt);
     if (this.needsRender) {
@@ -1339,7 +1344,6 @@ export class PlayGame implements WorldView {
     }
     this.skipNextClick = true;
     if (this.busy && !this.talking) {
-      this.pendingWalk = input;
       return;
     }
     if (this.inputBlocked()) {
@@ -1508,10 +1512,6 @@ export class PlayGame implements WorldView {
     }
     event.preventDefault();
     if (this.busy && !this.talking && this.scriptsReady) {
-      const input = walkInputFromCode(event.code);
-      if (input) {
-        this.pendingWalk = input;
-      }
       return;
     }
     if (this.inputBlocked() || !this.scriptsReady) {
@@ -1529,12 +1529,8 @@ export class PlayGame implements WorldView {
 
   private tryMove(input: WalkInput): void {
     if (this.busy || !this.graph) {
-      if (this.busy) {
-        this.pendingWalk = input;
-      }
       return;
     }
-    this.pendingWalk = null;
     this.hqGen += 1;
     if (input === "forward") {
       const door = doorOnPose(
@@ -1570,33 +1566,28 @@ export class PlayGame implements WorldView {
     this.pendingTileStep = isTileStep(this.pose, dest);
     this.busy = true;
     this.pending = tr;
+    this.view.hideOverlay();
+    this.startStillStrip(tr, dest);
     const destScene = this.host.sceneNameForPose(this.graph, dest.x, dest.y);
-    void (async () => {
-      await this.host.closeDoorIfLeftOpening(this.vm, destScene, dest.facing);
-      if (this.pendingTileStep) {
-        await this.host.onLeave(this.vm);
-      }
-      if (this.pending === tr) {
-        this.startStillStrip(tr, dest);
-      }
-    })();
+    void Promise.resolve().then(() =>
+      this.host.closeDoorIfLeftOpening(this.vm, destScene, dest.facing),
+    );
   }
 
   private startStillStrip(tr: SetTransition, dest: WalkerPose): void {
     const folder = this.stillsFolder();
     const motion = transitionStillUrls(tr, folder);
-    const destHq = poseHqUrl(this.graph, dest, folder);
-    const urls = destHq ? [...motion, destHq] : motion;
     const nextMoves = neighborStillUrls(this.graph, dest, folder, 1);
-    this.view.retain([...urls, ...nextMoves]);
-    this.view.preload(urls, "high");
+    this.view.retain([...motion, ...nextMoves]);
+    this.view.preload(motion, "high");
+    this.view.prefer(motion);
     this.view.preload(nextMoves, "high");
-    const anim = createStillAnim(urls);
+    const anim = createStillAnim(motion);
     this.anim = anim;
-    if (this.view.showCached(urls[0])) {
+    if (this.view.showCached(motion[0]!)) {
       anim.ready = true;
     } else {
-      void this.view.show(urls[0]).then(() => {
+      void this.view.show(motion[0]!).then(() => {
         if (this.anim === anim) {
           anim.ready = true;
           anim.elapsed = 0;
@@ -1605,10 +1596,10 @@ export class PlayGame implements WorldView {
     }
     this.timer.reset();
     this.needsRender = true;
-    this.preloadZ(urls, "high");
+    this.preloadZ(motion, "high");
     this.preloadZ(nextMoves, "low");
-    this.trimZCache([...urls, ...nextMoves]);
-    this.bindZ(zUrlFromStill(urls[0]));
+    this.trimZCache([...motion, ...nextMoves]);
+    this.bindZ(zUrlFromStill(motion[0]!));
   }
 
   private driveAnim(anim: StillAnim, dt: number): void {
@@ -1644,6 +1635,7 @@ export class PlayGame implements WorldView {
   private finishMove(): void {
     const tr = this.pending;
     const tileStep = this.pendingTileStep;
+    const fromScene = this.host.currentScene;
     this.anim = null;
     this.pending = null;
     this.pendingTileStep = false;
@@ -1654,16 +1646,51 @@ export class PlayGame implements WorldView {
       this.host.currentDir = this.pose.facing;
     }
     this.host.noticeCamera();
-    // Dest HQ is the last plate of the strip (already on screen when
-    // preloaded). Do not layout dest sprites before that still is up —
-    // that was the end-of-move teleport.
+    // Dest is current (`0x40e0e1`) and index is idle. Standing HQ is a
+    // blit, not a sixth timed plate — do not wait on it or its Z.
     const gen = this.hqGen;
-    void this.afterStillMove(tileStep, gen);
+    this.revealDestHq(false);
+    void this.afterStillMove(tileStep, gen, fromScene);
   }
 
-  private async afterStillMove(tileStep: boolean, gen: number): Promise<void> {
-    await this.showHold();
+  /**
+   * Dest HQ as a standing blit. Dust delayed this until idle; chained
+   * walks never need it. `fetch` starts a decode only when we are still.
+   */
+  private revealDestHq(fetch: boolean): void {
+    if (!this.graph) {
+      return;
+    }
+    const frame = hqFrame(this.graph, this.pose);
+    if (!frame) {
+      return;
+    }
+    const folder = this.stillsFolder();
+    const still = frameUrl(folder, frame.frame0, frame.offset);
+    if (this.view.showCached(still)) {
+      this.bindZ(zUrl(folder, frame.frame0, frame.offset));
+      this.needsRender = true;
+      this.layoutActors();
+      return;
+    }
+    if (!fetch) {
+      this.layoutActors();
+      return;
+    }
+    this.bindZ(zUrl(folder, frame.frame0, frame.offset));
+    void this.view.show(still).then(() => {
+      this.needsRender = true;
+      this.layoutActors();
+    });
+    this.layoutActors();
+  }
+
+  private async afterStillMove(tileStep: boolean, gen: number, fromScene: string): Promise<void> {
     if (tileStep) {
+      await this.host.onLeave(this.vm, fromScene);
+      if (this.hqGen !== gen) {
+        return;
+      }
       await this.host.onArrive(this.vm);
     }
     if (this.hqGen !== gen) {
@@ -1671,14 +1698,17 @@ export class PlayGame implements WorldView {
     }
     this.preloadNeighbors();
     this.continueWalk();
+    if (this.hqGen !== gen || this.busy || this.talking || this.anim) {
+      return;
+    }
+    this.revealDestHq(true);
   }
 
   private continueWalk(): void {
     if (this.inputBlocked()) {
       return;
     }
-    const next = queuedWalk(this.pendingWalk, this.heldKeys);
-    this.pendingWalk = null;
+    const next = queuedWalk(null, this.heldKeys);
     if (!next) {
       return;
     }
@@ -1789,12 +1819,10 @@ export class PlayGame implements WorldView {
       this.actorLayer.hidden = true;
       this.handEl.hidden = true;
       this.hudFace.hidden = true;
+      this.actorStamp = "";
       return;
     }
     this.actorLayer.hidden = false;
-    const frame = this.actorCtx.createImageData(STILL_WIDTH, STILL_HEIGHT);
-    this.pick.fill(0);
-    this.pickNames.length = 1;
     const cam = this.viewCamera();
     const camZ = cam.z ?? cameraZOf(this.world, this.graph);
     const zPlane = this.liveZPlane();
@@ -1943,25 +1971,57 @@ export class PlayGame implements WorldView {
         this.lastActorDraw.delete(name);
       }
     }
-    let pickId = 1;
-    for (const draw of paintFarToNear(draws)) {
-      this.pickNames[pickId] = draw.name;
-      blitSpriteZ(
-        frame.data,
-        this.pick,
-        pickId,
-        zPlane,
-        draw.z,
-        draw.bits,
-        draw.topLeft.x,
-        draw.topLeft.y,
-        draw.stillScale,
-      );
-      pickId += 1;
+    const painted = paintFarToNear(draws);
+    const stamp = actorLayerStamp(
+      painted.map((draw) => ({
+        name: draw.name,
+        x: draw.topLeft.x,
+        y: draw.topLeft.y,
+        stillScale: draw.stillScale,
+        z: draw.z,
+        bitsW: draw.bits.w,
+        bitsH: draw.bits.h,
+        bitsId: this.idOfBits(draw.bits),
+      })),
+      occlusionStamp(this.zWant, zPlane, this.zCache.has(this.zWant)),
+    );
+    if (stamp !== this.actorStamp) {
+      this.actorStamp = stamp;
+      const frame = this.actorFrame;
+      frame.data.fill(0);
+      this.pick.fill(0);
+      this.pickNames.length = 1;
+      let pickId = 1;
+      for (const draw of painted) {
+        this.pickNames[pickId] = draw.name;
+        blitSpriteZ(
+          frame.data,
+          this.pick,
+          pickId,
+          zPlane,
+          draw.z,
+          draw.bits,
+          draw.topLeft.x,
+          draw.topLeft.y,
+          draw.stillScale,
+        );
+        pickId += 1;
+      }
+      this.actorCtx.putImageData(frame, 0, 0);
     }
-    this.actorCtx.putImageData(frame, 0, 0);
     this.layoutHand();
     this.layoutPortrait();
+  }
+
+  private idOfBits(bits: SpriteBits): number {
+    const hit = this.bitsStamp.get(bits);
+    if (hit !== undefined) {
+      return hit;
+    }
+    const id = this.nextBitsStamp;
+    this.nextBitsStamp += 1;
+    this.bitsStamp.set(bits, id);
+    return id;
   }
 
   /**
@@ -2103,7 +2163,7 @@ export class PlayGame implements WorldView {
     const pending = this.spriteLoading.get(url);
     if (pending) {
       if (priority === "high") {
-        mediaGate.prefer(`bits:${url}`);
+        bitsGate.prefer(`bits:${url}`);
       }
       return pending;
     }
@@ -2199,7 +2259,7 @@ export class PlayGame implements WorldView {
     const inflight = this.zLoading.get(url);
     if (inflight) {
       if (priority === "high") {
-        mediaGate.prefer(`bits:${url}`);
+        bitsGate.prefer(`bits:${url}`);
       }
       return inflight;
     }
@@ -2309,12 +2369,12 @@ function decodeStillImage(url: string, priority: MediaPriority = "low"): Promise
   const hit = stillImageLoads.get(url);
   if (hit) {
     if (priority === "high") {
-      mediaGate.prefer(`bits:${url}`);
+      bitsGate.prefer(`bits:${url}`);
     }
     return hit;
   }
   const promise = new Promise<ImageData>((resolve, reject) => {
-    mediaGate.enqueue(`bits:${url}`, priority, async () => {
+    bitsGate.enqueue(`bits:${url}`, priority, async () => {
       try {
         resolve(await fetchStillImageData(url));
       } catch (err) {
@@ -2329,8 +2389,7 @@ function decodeStillImage(url: string, priority: MediaPriority = "low"): Promise
 }
 
 async function fetchStillImageData(url: string): Promise<ImageData> {
-  const { canvas, ctx } = await rasterizePng(url);
-  return ctx.getImageData(0, 0, canvas.width, canvas.height);
+  return pngImageData(url);
 }
 
 function keyToScriptArg(code: string): string | null {

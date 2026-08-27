@@ -28,7 +28,7 @@ import {
   walkInputFromKeys,
   walkInputKey,
 } from "./walker";
-import { framesToPlay, type SceneRecord, type TransitionRecord } from "./types";
+import { framesToPlay, STILL_FRAME_SEC, type SceneRecord, type TransitionRecord } from "./types";
 
 const fixtureScenes: SceneRecord[] = [
   { x: 0, y: 1, interact: 0, unknown_c: 0, blocked: 0, unknown_e: 0, name: "Scene B1", script_container: 0 },
@@ -120,6 +120,8 @@ describe("walker", () => {
     expect(turn).toBeDefined();
     expect(framesToPlay(walk!)).toBe(5);
     expect(framesToPlay(turn!)).toBe(5);
+    expect(STILL_FRAME_SEC).toBeCloseTo(0.05, 10);
+    expect(framesToPlay(walk!) * STILL_FRAME_SEC).toBeCloseTo(0.25, 10);
   });
 
   it("maps still clicks to turn / walk", () => {
@@ -149,7 +151,7 @@ describe("walker", () => {
     expect(queuedWalk("left", [])).toEqual({ input: "left", repeat: false });
     expect(queuedWalk("forward", ["KeyW"])).toEqual({ input: "forward", repeat: true });
     expect(queuedWalk(null, ["KeyW"])).toEqual({ input: "forward", repeat: true });
-    expect(queuedWalk("left", ["KeyW"])).toEqual({ input: "left", repeat: false });
+    expect(queuedWalk("left", ["KeyW"])).toEqual({ input: "forward", repeat: true });
     expect(isSwipePointer("touch")).toBe(true);
     expect(isSwipePointer("pen")).toBe(true);
     expect(isSwipePointer("mouse")).toBe(false);

@@ -184,6 +184,44 @@ export function paintFarToNear<T extends { forward: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => b.forward - a.forward);
 }
 
+/**
+ * SET Z identity for the actor overlay. `hold` is last-plane while the
+ * matching `FRAMES/z` decodes — never skip a blit across that swap.
+ */
+export function occlusionStamp(
+  zWant: string,
+  zPlane: Uint8Array | null,
+  cached: boolean,
+): string {
+  if (!zWant) {
+    return zPlane ? "last" : "none";
+  }
+  if (cached) {
+    return zPlane ? `ready:${zWant}` : `empty:${zWant}`;
+  }
+  return zPlane ? `hold:${zWant}` : `wait:${zWant}`;
+}
+
+export type ActorBlitDraw = {
+  name: string;
+  x: number;
+  y: number;
+  stillScale: number;
+  z: number;
+  bitsW: number;
+  bitsH: number;
+  bitsId: number;
+};
+
+/** Same stamp → same pixels. Skip `putImageData`, do not skip Z hold-last. */
+export function actorLayerStamp(draws: readonly ActorBlitDraw[], zStamp: string): string {
+  let stamp = zStamp;
+  for (const draw of draws) {
+    stamp += `|${draw.name}:${draw.x.toFixed(3)}:${draw.y.toFixed(3)}:${draw.stillScale.toFixed(4)}:${draw.z}:${draw.bitsW}x${draw.bitsH}:${draw.bitsId}`;
+  }
+  return stamp;
+}
+
 export interface SpriteBits {
   data: Uint8ClampedArray;
   w: number;

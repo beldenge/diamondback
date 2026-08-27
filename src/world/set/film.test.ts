@@ -44,12 +44,23 @@ describe("filmstrip URLs", () => {
     expect(poseHqUrl(graph, pose, "_TOWN")).toBe("/extract/SET/_TOWN/FRAMES/10_5.png");
   });
 
-  it("depth 1 is this pose's left/right/forward strips plus dest HQs", () => {
+  it("depth 1 is this pose's left/right/forward motion, not standing HQ", () => {
     const urls = neighborStillUrls(graph, pose, "_TOWN", 1);
     expect(urls).toContain("/extract/SET/_TOWN/FRAMES/10_0.png");
-    expect(urls).toContain("/extract/SET/_TOWN/FRAMES/10_5.png");
     expect(urls).toContain("/extract/SET/_TOWN/FRAMES/20_0.png");
+    expect(urls).not.toContain("/extract/SET/_TOWN/FRAMES/10_5.png");
     expect(urls).not.toContain("/extract/SET/_TOWN/FRAMES/40_0.png");
+  });
+
+  it("prefetches every next plate 0 before plate 1", () => {
+    const urls = neighborStillUrls(graph, pose, "_TOWN", 1);
+    const i0 = urls.indexOf("/extract/SET/_TOWN/FRAMES/10_0.png");
+    const i1 = urls.indexOf("/extract/SET/_TOWN/FRAMES/10_1.png");
+    const j0 = urls.indexOf("/extract/SET/_TOWN/FRAMES/20_0.png");
+    expect(i0).toBeGreaterThanOrEqual(0);
+    expect(j0).toBeGreaterThanOrEqual(0);
+    expect(i0).toBeLessThan(i1);
+    expect(j0).toBeLessThan(i1);
   });
 
   it("idle prefetch is one tap ahead, not the dest's next turn", () => {

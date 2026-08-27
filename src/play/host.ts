@@ -3389,8 +3389,8 @@ export class DustHost implements OpcodeHost {
     }
   }
 
-  async onLeave(ctx: VM): Promise<void> {
-    await ctx.inObject("scene", this.currentScene, () => ctx.evalCall("closescene", []));
+  async onLeave(ctx: VM, scene = this.currentScene): Promise<void> {
+    await ctx.inObject("scene", scene, () => ctx.evalCall("closescene", []));
   }
 
   /**

@@ -86,15 +86,21 @@ export const TOWN_SPAWN_FALLBACK: WalkerPose = { x: 6, y: 14, facing: "N" };
 
 export const STILL_WIDTH = 512;
 export const STILL_HEIGHT = 264;
-/** 6 filmed frames per step/turn. ~24 fps; 5 motion frames ≈ 210 ms. */
-export const STILL_FRAME_SEC = 1 / 24;
+/**
+ * One SET motion plate. DF.EXE `0x40dd90` increments `[0x4493dc]` once
+ * per display pump, and that pump waits boot `framerate (3)` ticks of
+ * the 60 Hz `timeGetTime*3/50` counter (`0x40e1d2`). Five plates = 250 ms.
+ * Not 24 fps. Dest HQ is the standing blit after index hits 5, not a
+ * sixth timed plate.
+ */
+export const STILL_FRAME_SEC = 3 / 60;
 /** Containers in a framelist record: 5 motion + 1 HQ still. */
 export const FRAMES_PER_TRANSITION = 6;
 
 /**
  * Motion only. The 6th container is a HQ still of the *from* pose on
- * walks (playing it snaps you back). After the 5 motion frames we show
- * the landing pose’s HQ still immediately.
+ * walks (playing it snaps you back). After the 5 motion frames Dust
+ * copies dest and sets index `-1`; we blit the landing pose’s HQ then.
  */
 export function framesToPlay(_tr: SetTransition): number {
   return FRAMES_PER_TRANSITION - 1;

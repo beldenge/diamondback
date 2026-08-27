@@ -397,8 +397,9 @@ at startup.
 in real time. `advanceday` and scripted events advance it — same rule
 the remake already uses.
 
-`framerate(3)` at boot: **units unknown**. Do not treat as 3 fps.
-SET walks at ~24 fps come from play, not this call.
+`framerate(3)` at boot is 3 ticks of the 60 Hz counter per display
+pump (`0x40e1d2`) → **20 Hz**. Not 3 fps. SET walks are 5 plates at
+that rate (`0x40dd90` inc).
 
 `delay(n)`: used (30 after fades, 45 in checkers). Unit unknown.
 Inferred blocking.
@@ -567,7 +568,8 @@ Capstone on `.text` (not Ghidra). Addresses are VAs, image base
 |---|---|
 | `0x40dcd0` | World → screen. First `ret` at `0x40dd48` is **forward ≤ 0** (`test esi,esi / jg 0x40dd49`). X/Y math is the continuation. Point `{x,y,z}` at `esi+2/+4/+6`. Subtract camera `0x460978/97a/97c`. Rotate by `[0x4494b8]` / `[0x4494d0]` (TRIG sin/cos, 16384). `cdq; and edx, 0x3fff; add; sar 14` (toward 0). Else `imul` both axes by focal `[0x460958]`, `idiv` forward. Store `y` at out+0 (`centerY − up*focal/forward`), `x` at out+2 (`centerX + right*focal/forward`). Returns lens-forward in `ax`. |
 | `0x40d255` / `0x40d488` | `mov word [0x460958], 0x136` — focal **310**. View centers are half of `[0x460950]`×`[0x460952]` (512×384 stage; still is 512×264 → centerY **132**). |
-| `0x40dd90` | SET filmstrip camera. `0x4493dc` is the motion index (`-1` idle; `0..4` during the strip). Adds `[0x4494b0]` (**frame0** container, not a pose table) and `0x40e550` **loads that still**. Feet = current tile `*256+128`. Walk (`[0x460962] == [0x460968]`): look-deg stays cardinal, XY `+= index*64` along the axis (`shl 8 / sar 2`). Turn: XY stays, look-deg `+= index*16` (`shl 6 / sar 2`, 0..64 = 90°). Then `0x40e081` setback on that heading. After index hits 5, dest tile/facing is copied and index set to `-1`. |
+| `0x40dd90` | SET filmstrip camera. `0x4493dc` is the motion index (`-1` idle; `0..4` during the strip). Adds `[0x4494b0]` (**frame0** container, not a pose table) and `0x40e550` **loads that still**. Feet = current tile `*256+128`. Walk (`[0x460962] == [0x460968]`): look-deg stays cardinal, XY `+= index*64` along the axis (`shl 8 / sar 2`). Turn: XY stays, look-deg `+= index*16` (`shl 6 / sar 2`, 0..64 = 90°). Then `0x40e081` setback on that heading. Tail (`0x40e0d0`): `inc [0x4493dc]`; if index hits 5, dest tile/facing is copied and index set to `-1`. One plate per display pump (`0x40e1d2` / `framerate (3)` → **20 Hz**; five plates = 250 ms). Dest HQ is not a sixth timed plate. |
+| `0x40d920` | Start a walk/turn (`currentscene ("strait"/"left"/"right")`). If `[0x4493dc] >= 0` **return** — no queue. Else `0x40eae0` dest + `0x40db50` lookup; on miss, revert dest. On hit, store frame0 and set index to 0 (if `[0x4493cc]==3`) or 1. |
 | `0x40ddac` | `shl ax, 8; add ax, 0x80` — feet = `tile * 256 + 128`. Not 255. |
 | `0x40e640` / `0x40e670` | `calcvect`: `TRIG[deg & 255] * dist / 16384`. 640 = sin table `[0x44953c]`, 670 = cos `[0x4493d4]`. Setback: `camX -= sin*sb`, `camY -= cos*sb`. |
 | `0x40e081` / `0x40e08e` | `camX/Y -= calcvect(look-deg, [0x46094c])` — draw-lens setback. |
@@ -632,7 +634,7 @@ EXE + SET.
 | Screen Y | `0x40dcd0` pinhole `132 − 310*(objZ−62)/forward` | same. N7 E jug hotspot **279**. 1/z Y was a remake guess |
 | Scale | `actorscale * field / 1000 / lens-forward` (`0x415271`, skip forward `< 32`). Field is setInfo +0x2a (**114** GANG, **96** INVEN jug) | same |
 | Sprite Z | `(lensForward − zclip − setback + 128) >> 6` | same, then at most **one** SET plane closer if the hotspot is dirt. 1/z from the feet hid the N7 E jug (Z=4 on Z=3 dirt) |
-| Filmstrip walk | `index*64` along the axis | lerp camera XY, `t = index/4` on the 5 motion frames; dest HQ stays at dest |
+| Filmstrip walk | `index*64` along the axis; 5 plates at 20 Hz; `0x40d920` no-ops while in strip | lerp camera XY, `t = index/4` on the 5 motion frames; dest HQ is the standing blit |
 | Filmstrip turn | `index*16` look-deg + setback | yaw + reproject `0x40dcd0` every plate |
 | Draw order | PRP then CST, both reproject every frame | far-to-near among world sprites; still Z vs sprite is per pixel |
 

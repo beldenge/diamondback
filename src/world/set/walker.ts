@@ -120,20 +120,24 @@ export function walkInputFromKeys(keys: Iterable<string>): WalkInput | null {
 }
 
 /**
- * After a SET strip: one queued tap (latest wins), else the key still
- * down. Play must send this through boot `keydown` / `keyrepeat` — scene
- * gates (G12 dog, doors) live on those hooks, not on `tryMove`.
+ * After a SET strip: only a key that is still down. DF.EXE `0x40d920`
+ * returns immediately when `[0x4493dc] >= 0` — taps during the strip
+ * are dropped, not queued. Play must send the held key through boot
+ * `keyrepeat` — scene gates (G12 dog, doors) live on those hooks, not
+ * on `tryMove`.
  */
 export function queuedWalk(
   pending: WalkInput | null,
   heldKeys: Iterable<string>,
 ): { input: WalkInput; repeat: boolean } | null {
   const held = walkInputFromKeys(heldKeys);
-  const input = pending ?? held;
-  if (!input) {
+  if (held) {
+    return { input: held, repeat: true };
+  }
+  if (!pending) {
     return null;
   }
-  return { input, repeat: held === input };
+  return { input: pending, repeat: false };
 }
 
 /** Finger / stylus. Mouse keeps click-to-inspect; keys still walk. */

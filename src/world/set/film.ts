@@ -20,15 +20,19 @@ export function poseHqUrl(graph: SetGraph, pose: WalkerPose, folder: string): st
 }
 
 /**
- * Idle standing prefetch: this pose plus the tap you can start now.
+ * Idle standing prefetch: the tap you can start now (motion plates).
+ * Standing HQ is fetched only after idle — Dust delayed that blit.
  * A walk/turn already high-prefetches the dest pose's depth-1 strips,
  * so depth 2 is not needed for chained input.
  */
 export const IDLE_NEIGHBOR_DEPTH = 1;
 
 /**
- * Standing HQ plus filmed left / right / forward strips out to `depth`.
+ * Filmed left / right / forward motion plates out to `depth`.
  * Depth 1 is the move you can start now; depth 2 is the move after that.
+ * Does not include standing HQ (`poseHqUrl`) — that is idle-only.
+ * Order is plate 0 of each strip, then plate 1, … so the first still of
+ * any tap is queued before the rest of those flipbooks.
  */
 export function neighborStillUrls(
   graph: SetGraph,
@@ -36,17 +40,9 @@ export function neighborStillUrls(
   folder: string,
   depth: number,
 ): string[] {
-  const urls: string[] = [];
+  const strips: string[][] = [];
   const seenPose = new Set<string>();
-  const seenUrl = new Set<string>();
   const queue: { pose: WalkerPose; depth: number }[] = [{ pose: origin, depth: 0 }];
-  const push = (url: string): void => {
-    if (seenUrl.has(url)) {
-      return;
-    }
-    seenUrl.add(url);
-    urls.push(url);
-  };
   while (queue.length > 0) {
     const item = queue.shift();
     if (!item) {
@@ -57,10 +53,6 @@ export function neighborStillUrls(
       continue;
     }
     seenPose.add(key);
-    const hq = poseHqUrl(graph, item.pose, folder);
-    if (hq) {
-      push(hq);
-    }
     if (item.depth >= depth) {
       continue;
     }
@@ -69,10 +61,26 @@ export function neighborStillUrls(
       if (!tr) {
         continue;
       }
-      for (const url of transitionStillUrls(tr, folder)) {
-        push(url);
-      }
+      strips.push(transitionStillUrls(tr, folder));
       queue.push({ pose: applyTransition(tr), depth: item.depth + 1 });
+    }
+  }
+  // Plate 0 of every next move before plate 1, so a tap's first still
+  // is warm even if the rest of that strip is still queued.
+  const urls: string[] = [];
+  const seenUrl = new Set<string>();
+  let maxLen = 0;
+  for (const strip of strips) {
+    maxLen = Math.max(maxLen, strip.length);
+  }
+  for (let i = 0; i < maxLen; i += 1) {
+    for (const strip of strips) {
+      const url = strip[i];
+      if (!url || seenUrl.has(url)) {
+        continue;
+      }
+      seenUrl.add(url);
+      urls.push(url);
     }
   }
   return urls;

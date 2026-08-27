@@ -50,10 +50,11 @@ you have already stepped. That is why early builds felt like
 “two steps forward, one back.”
 
 **Play five motion frames, then the landing pose’s HQ still.**
-`framesToPlay()` returns 5. After the last motion frame we hold ~500 ms
-(`HQ_REVEAL_DELAY_SEC`) on that LQ plate, then swap in dest HQ (Dust’s
-JPEG-style sharpen). A new walk or turn during the wait cancels the
-swap; input is not blocked on the timer.
+`framesToPlay()` returns 5. DF.EXE `0x40dd90` increments the filmstrip
+index once per 20 Hz display pump (`0x40e1d2` wait of `framerate (3)`
+60 Hz ticks). After index hits 5 it copies dest and sets index `-1`.
+Dest HQ is that standing blit, not a sixth timed plate. A walk command
+while index `>= 0` is a no-op (`0x40d920`).
 
 Turns also play 5 motion frames. On a turn, `+5` is the HQ of the
 **starting** facing; the dest HQ is still looked up separately.
@@ -93,30 +94,32 @@ O7 north spawn HQ is `1640_5.png`.
 
 | Knob | What we use |
 |---|---|
-| Motion rate | `STILL_FRAME_SEC = 1/24` (~24 fps). Five motion frames ≈ 210 ms. |
+| Motion rate | `STILL_FRAME_SEC = 3/60` (20 Hz). Five motion frames = 250 ms. |
 | Hitch policy | Advance **one** frame per interval. Never skip. If a PNG is not ready, hold until it is. |
-| HQ delay | `HQ_REVEAL_DELAY_SEC = 0.5`. Last LQ frame stays up; dest HQ after that. A new step cancels it. |
-| Input while busy | One pending tap (latest wins). After the strip, input is live (including during the HQ wait). Hold-to-repeat is Dust `keyrepeat`. |
+| Dest HQ | Standing blit after idle. Do not prefetch it on the walk; Dust delayed that sharpen. Last motion plate holds until HQ is ready. |
+| Input while busy | Ignore. Dust `0x40d920` returns if the strip is live. After idle, a held key is Dust `keyrepeat`. |
 | Dead / unfilmed move | No-op (no transition in the graph). |
 
 On keydown the first motion frame paints immediately if it is already
-decoded. While you stand, we prefetch **depth-1** neighbors (this
-pose’s left / right / forward strips + dest HQs, and matching Z) at
-low priority — one tap ahead. Starting a walk/turn promotes **that
-strip + the dest pose’s depth-1 neighborhood** so a chained tap does
-not wait on a cold PNG. A shared decode gate (max 8 inflight) keeps
-CST/PRP sprite loads from starving the film; the current plate is
-always high priority. If a PNG is missing when the clock wants it,
-**wait** — do not skip. Entering a building drops the last Z plane so
-town occlusion is never held onto a shop still.
-Textures are `ImageBitmap`s; the GPU cache evicts after 256 stills
-(~138 MB RGBA) and will not drop the retained current/next strip.
+decoded. While you stand, we prefetch **depth-1** neighbor **motion**
+plates (left / right / forward, and matching Z) at low priority — one
+tap ahead. Standing HQ is idle-only. Starting a walk/turn promotes
+**that strip** (high). Dest depth-1 motion is also high, queued *after* the
+current five. Color stills use `stillGate` (max 8, 2 reserved). Z and
+sprites use `bitsGate` (max 3) so they cannot flood `Image.decode`.
+`Image.decode` cannot be aborted once started. If a PNG is missing
+when the clock wants it, **wait** — do not skip. Entering a building
+drops the last Z plane so town occlusion is never held onto a shop still.
+Stills are 2D canvases (not `ImageBitmap` — indexed SET PNGs go black
+in Firefox with `colorSpaceConversion: "none"`). The GPU cache evicts
+after 256 stills (~138 MB RGBA) and will not drop the retained
+current/next strip.
 That is not the film: `TOWN.SET` is ~60 MB of 8-bit deltas; the PNG
 dump is ~115 MB; keeping every town still as RGBA would be ~1.7 GB.
 
-A tap during the strip is remembered once (latest wins). After the
-strip, Dust `keyrepeat` fires if the key is still down. Play mode
-uses the same walker/prefetch as the sandbox.
+A tap during the strip is dropped (`0x40d920`). After idle, Dust
+`keyrepeat` fires if the key is still down. Play mode uses the same
+walker/prefetch as the sandbox.
 
 Locally, Vite serves extract files at `/extract/…` →
 `../../../dfextract/out/…` with `Cache-Control: no-cache` + ETag so a
@@ -282,9 +285,9 @@ do not swap (except you entered court at night).
 | `extract.ts` | `/extract` locally, `VITE_EXTRACT_BASE` when hosted; hosted PNG fetches use the HTTP cache |
 | `walker.ts` | Input → filmed transition |
 | `playback.ts` | One-frame-per-tick strip clock (no catch-up) |
-| `stillsView.ts` | Ortho blit + texture cache (priority decode gate) |
-| `media.ts` | Shared inflight cap: current strip before prefetch/sprites |
-| `film.ts` | Motion URLs + neighbor prefetch lists |
+| `stillsView.ts` | Ortho blit + canvas cache; `pngImageData` scratch for Z/sprites |
+| `media.ts` | `stillGate` (8) film; `bitsGate` (3) Z/sprites; current strip then dest depth-1 high |
+| `film.ts` | Motion URLs; neighbor prefetch is plate 0 of each move, then plate 1… |
 | `graph.test.ts` | Spawn, G11 HQs, 52 camera tiles |
 | `doors.ts` | Hand-ported hitboxes, locks, SET hops |
 | `sfx.ts` | `UNILIB` knock / door WAVs |

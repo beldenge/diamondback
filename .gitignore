@@ -20,3 +20,6 @@ sources/*.pdf
 dfextract/out/
 dustdecompile/out/
 screenshots
+
+# Local Firefox Profiler dumps (tens of MB)
+Firefox *.json

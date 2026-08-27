@@ -45,8 +45,11 @@ gates. `opencastfile` loads `Cast.json` + `sprites.json` only;
 person (`horse2` uses `horse1`). The play VM must be `new VM(host)` so
 `ensureObject` runs — a `{ call, lookup }` wrapper skips Leroy and the
 dog. `boot()` opening gang/extra/HOUSE again is a no-op on the network.
-Town stills prefetch one tap ahead (`IDLE_NEIGHBOR_DEPTH`); a walk
-already high-prefetches dest depth-1.
+Town stills prefetch one tap ahead (`IDLE_NEIGHBOR_DEPTH`, motion
+only); a walk already high-prefetches dest depth-1 motion. Standing HQ
+is idle-only. The actor overlay reuses one
+512×264 `ImageData` and skips `putImageData` when nothing moved (Z
+hold-last still forces a blit when the matching plane arrives).
 
 Town **script** names are column-letter + row (`scene g12` = filmed L7
 jail). SET Pascal names in `scenes.json` are the transpose (`Scene L7`).
@@ -162,9 +165,9 @@ chest-to-shins box around the feet hotspot missed hats and kept
 still click bands (those 22%/48% overlays stole the sign). Dust walked
 from chrome *outside* 0–512 or from keys. Mouse + keyboard still walk
 with ←/→/↑ (or WASD). A held key is Dust `keyrepeat` (boot `keydown`
-with `isrepeat`); a tap queued during a strip is the same `keydown`.
-Do not `tryMove` either — Scene G12’s dog (and doors that `if isrepeat`)
-live on those hooks. Touch/pen **swipe** (across = turn, up = walk;
+with `isrepeat`). Taps during a strip are dropped (`0x40d920` when
+index `>= 0`), not queued. Do not `tryMove` either — Scene G12’s dog
+(and doors that `if isrepeat`) live on those hooks. Touch/pen **swipe** (across = turn, up = walk;
 down is not a back step) is the mobile stand-in; it must not start on
 the HUD or steal an INVEN `stdmouse` drag. `passcode` from a scene proc
 falls through to the SET keydown (walk), not to `new.flt`’s options
@@ -488,6 +491,8 @@ still has forward > 0.
 | INVEN field 96 on HOUSE door overlays | `salout` 232×252 is authored 1:1 (hotspot → y=11..263). PRP dest with default 1450 × 96 / (1000 × 156) is ~0.89 and leaves a strip of closed door above the HUD. Door +0x2a is **160**; 1450×160 is ~1.49×. **Only the HOUSE `door` prop** blits at scale 1. Bar drinks (`buildrand*`, z=147 vs camZ 180) kept getting that 1:1 blit and looked huge — they use script `propscale` 800–1100. |
 | Open door on every still / close sound every pan | HOUSE `door` is a still replacement for the pose `setupprop` opened. World-projecting it onto C1 E paints the leaf on the inner doors; `initprop` on every pan replays close. Bind to `openedAt`; close **once** when leaving that still. Book: [HOUSE door overlays](#house-door-overlays). |
 | Skip interior `FRAMES/z/` | Help paints in front of the counter. Draw when `spriteZ ≤ stillZ`. `python cli.py --type set --z`. |
+| 24 fps strip / dest HQ as a 6th timed plate / queue a tap | Walks at ~2/sec. DF.EXE is 5 plates at 20 Hz then idle (`0x40dd90` / `0x40d920`). Taps during the strip are dropped. Do not await dest HQ or Z before the next step. |
+| `createImageData` + `putImageData` every rAF | Firefox GC `TOO_MUCH_MALLOC` (~5 ms) plus a constant `putImageData` floor on 240 Hz panels. Reuse one 512×264 `ImageData`; skip the blit when the stamp matches. Do not skip across Z hold-last → live. Decode gate leaves 2 slots free of low prefetch so the current plate can start; do not abort in-flight `Image.decode`. |
 | Scene `closescene` on in-place pans | `doorclose1` on every A2 turn. Those hooks are **tile** steps (`isTileStep`). Overlay close on a turn is `closeDoorIfLeftOpening`, not `closescene`. |
 | `closesetfile` without the old scene’s `closescene` | Street door still visible; the close plays later on pans. |
 | `loadedScriptFiles` skipping a file because `index.has(key)` | Town `keydown` gone after an interior hop; TARGET EXIT dead on the second visit (`stage` already had setcursor). Always merge that file’s procs. Cache the parse; do not refetch. Multi-file keys: [TARGET shooting range](#target-shooting-range). |
@@ -509,7 +514,7 @@ still has forward > 0.
 | Tick `runQueued` during `boot()` | Animation loop and `advanceday` share the VM. `makeface` due during boot is dropped; `stoploop` did not clear `dueLoops`, so re-arm thought the portrait was still live. Do not tick scripts until boot returns; `stoploop` cancels due callbacks; `ensureHudPortrait` after boot. |
 | `#play-hud-face` under `#actor-layer` | Raising the still overlay to z-index 42 (full-height door) hid the HOUSE face. Portrait stacks with `#play-hand`, above the actor layer. |
 | Prefetch two viseme JSON files | Choice-line jaw lags while the WAV plays (Leroy and Help). Warm **every** ident; `puppetspeak` awaits the track before `play()`. |
-| Uncapped SET still + all-CST sprite decode | Turn/walk hangs 1–2s or eats the key. Current strip is high-priority; neighbor strips prefetch at depth 2; shared inflight cap 8. Do not skip plates. |
+| Uncapped SET still + all-CST sprite decode | Turn/walk hangs 1–2s or eats the key. Current strip then dest depth-1 are high on `stillGate` (8). Z/sprites on `bitsGate` (3). Do not skip plates. Do not run two 8-slot decode pools. |
 | New face blit per 60 Hz tick (`paintGen` drops in-flight jaws) | Idle head, then a late jump. One blit; queue the latest pose; share one `Image` onload. |
 | Avatar EXAMINE on DOM `click` after `#play-stage` `pointerdown` | First press lost. Dust is button `mousedown` + `trackbut`. Overlay fires on **pointerdown**; HUD buttons win over item sprites. |
 | `infoyoself` on boot `handitem` `helpbut` | Empty shop `infoyoself`. `addinven ("helpbut")` is chrome, not an inspect target. |
@@ -518,7 +523,7 @@ still has forward > 0.
 | `idlefx` every 240 ticks | Same spoken line at 4 s, no blinks. The EXE plays named idle clips with a random per-clip wait, not that script. |
 | Await `speak()` for blinks / glances | Hourglass and dead bevels on every silent fidget. Only `idlespeak` awaits `puppetspeak`; blinks/gestures `fidget()` with `waitEvent` still live. |
 | Viseme ticks as the `0x40B060` wait / `continue` overdue tracks | Glances every ~2 s; idle 4 twice in a row. Wait is WAV ms; glances 3×; one clip per wake; 4 s floor after `idlespeak`. |
-| `tryMove` on hold-to-repeat / a tap queued during the strip | Hold W past the G12 dog. After the filmstrip, fire boot `keydown` / `keyrepeat`, not a raw SET step. |
+| `tryMove` on hold-to-repeat | Hold W past the G12 dog. After the filmstrip, fire boot `keydown` / `keyrepeat`, not a raw SET step. Taps during the strip are dropped (`0x40d920`). |
 | Hide portrait / skip CST blit when the next PNG is still decoding | Face and town people flicker on `makeface` / a deg step. Keep the last blit; high-priority the plate in view. |
 | `openpuppetfile` unhide with the previous canvas | Next talk flashes the last face. `screentoblack` is a no-op here; clear + drop stale blits, show the UI after the new sheet paints. |
 | Talking-head under `#actor-layer` / rest from sprite headers | Help outdoor idle painted the shop-interior plate and stacked both sleeves on the chest (384 headers). Rest is **idle 1** extras for every PUP (`Background: -1` on Help1/Dell1/Cobb; Help2 indoor keeps the plate). Unencoded `idle 1.json` / `Hands 1` 404s drop that rest. Encode extract path segments; do not default Background to frame 0. `#puppet-ui` stacks above the actor layer. |
@@ -716,8 +721,9 @@ scaled. A hotspot **below** 264 still paints onto the still; do not
 clamp Y into 0..264 and do not treat “off the plate” as hidden. The
 actor layer **is** the still (top 264 of the 384 stage), under the HUD.
 
-SET filmstrip (`0x40dd90`): 5 motion frames then dest HQ as the last
-plate. Walk: lerp feet `index*64` (`t = index/4`). Turn: keep XY, yaw
+SET filmstrip (`0x40dd90`): 5 motion frames at **20 Hz** (one plate per
+`framerate (3)` display pump), then dest HQ as an idle standing blit — not a
+sixth timed plate, not prefetched on the walk. Walk: lerp feet `index*64` (`t = index/4`). Turn: keep XY, yaw
 look-deg `index*16`, **reproject** with the table above every plate.
 Draw sprites **after** the still advances. If the next PNG is not
 ready, hold the previous plate’s camera. Facing codes **1=N 2=S 3=E 4=W**.
@@ -813,7 +819,7 @@ Z overlay. Prefer the EXE + SET over the patent when they disagree.
 | Screen-lerp standing 1/z stills across a pan | Looks planted on the film, then teleports to dest HQ. Reproject. |
 | Yaw 90° on 1/z Y | Skates every ground sprite. Yaw + **pinhole** Y is what the EXE does. |
 | Blend near props toward 1/z X | One-off. PRP uses the same `0x40dcd0` as CST. |
-| Layout dest sprites, then swap dest HQ | Dest sprites sit on the last LQ; the world jumps. Dest HQ is the last strip plate; draw sprites **after** the still. |
+| Layout dest sprites, then swap dest HQ | Dest sprites sit on the last LQ; the world jumps. Draw sprites **after** the still. Dest HQ is idle-only; last motion holds until it arrives. |
 
 Clothing pixels are forced opaque. Only the (0,0,0,~120) foot blob
 4-connected to the bottom edge stays alpha 120 — Help’s robe is also

@@ -126,7 +126,7 @@ Original CD / DOSBox tree, extracted PNG/WAV, and `dfextract` / `dustdecompile` 
 ## Spec
 
 Decisions, slices, and the asset pipeline: [`SPEC.md`](SPEC.md). How the
-town stills play (strips, HQ, ~24 fps flipbook, doors):
+town stills play (strips, HQ, 20 Hz flipbook, doors):
 [`src/world/set/README.md`](src/world/set/README.md). Extract still
 codec and palette: [`dfextract/docs/images.md`](dfextract/docs/images.md).
 Extractor from scratch: [`dfextract/README.md`](dfextract/README.md).

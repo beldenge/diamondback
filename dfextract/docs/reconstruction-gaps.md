@@ -112,7 +112,7 @@ comma-separated `row col code` encoding. Play copy:
 
 | Missing | Why it matters |
 |---|---|
-| How a 6-frame SET transition is **timed** / blended | Outdoor walker: 5 motion @ ~24 fps, then dest HQ immediately. Dust delayed HQ ~500 ms. Exact `DF.EXE` tick not proven. See [`src/world/set/README.md`](../../src/world/set/README.md). |
+| How a 6-frame SET transition is **timed** / blended | **Locked.** DF.EXE `0x40dd90` / `0x40e1d2`: 5 motion plates at 20 Hz, dest HQ is the standing blit. `0x40d920` no-ops while in strip. See [`src/world/set/README.md`](../../src/world/set/README.md). |
 | MOV reel playback (rate + audio cues) | Holds, A/B mixer, framebuffer, palettes recovered from `MOVPLAY` (see §4a). B playlist wrap after last entry is the leftover. |
 | How stills are **stored at runtime** | Dump is paletted PNG (old RGBA dump was ~115 MB town). Dust’s SET is ~60 MB of 8-bit deltas into one 135 KB buffer. Do not assume 1.7 GB (all frames as RGBA textures). HTTP-per-PNG + 80-texture LRU is what the walker does now. |
 | Z-buffers | **Locked in play.** Trailing RLE after SET color stills. `python cli.py --type set --z` writes `FRAMES/z/*.png` and does **not** rewrite color stills. South-gate road Z is **3** at your feet … **7** up the street (24 = sky). Pixel draws when `spriteZ ≤ stillZ`. Sprite Z is EXE `(lensForward − zclip − setback + 128) >> 6`, then at most **one** plane closer if the hotspot is dirt. Do not use 1/z from the feet (hid the N7 E jug). Do not `min` with a wall. Book: [`src/play/README.md`](../../src/play/README.md) § World → still. |

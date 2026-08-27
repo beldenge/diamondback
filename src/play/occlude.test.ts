@@ -17,6 +17,8 @@ import {
   spriteOverZ,
   liveZPlaneForStill,
   wallOverlayBlitZ,
+  actorLayerStamp,
+  occlusionStamp,
 } from "./occlude";
 import { engineStillScale, PRP_SCALE_FIELD } from "./facing";
 
@@ -27,6 +29,35 @@ describe("SET Z vs actor", () => {
     expect(exeSpriteZ(130, 32)).toBe(2);
     // (240 − 32 − 64 + 128) >> 6 = 4
     expect(exeSpriteZ(240, 32)).toBe(4);
+  });
+
+  it("occlusionStamp distinguishes wait, hold, ready, and missing Z", () => {
+    const plane = new Uint8Array([3]);
+    expect(occlusionStamp("z/a.png", null, false)).toBe("wait:z/a.png");
+    expect(occlusionStamp("z/a.png", plane, false)).toBe("hold:z/a.png");
+    expect(occlusionStamp("z/a.png", plane, true)).toBe("ready:z/a.png");
+    expect(occlusionStamp("z/a.png", null, true)).toBe("empty:z/a.png");
+  });
+
+  it("changes the actor overlay stamp when hold-last Z becomes live", () => {
+    const last = new Uint8Array([3]);
+    const draw = {
+      name: "leroy",
+      x: 200,
+      y: 100,
+      stillScale: 1,
+      z: 4,
+      bitsW: 8,
+      bitsH: 16,
+      bitsId: 1,
+    };
+    const hold = actorLayerStamp([draw], occlusionStamp("z/b.png", last, false));
+    const live = actorLayerStamp([draw], occlusionStamp("z/b.png", last, true));
+    expect(hold).not.toBe(live);
+    expect(actorLayerStamp([draw], occlusionStamp("z/b.png", last, false))).toBe(hold);
+    expect(
+      actorLayerStamp([{ ...draw, x: 201 }], occlusionStamp("z/b.png", last, false)),
+    ).not.toBe(hold);
   });
 
   it("holds the last SET Z while the next filmstrip plane decodes", () => {

@@ -727,12 +727,13 @@ Boolean constant (opcode, not a variable).
 
 ### `framerate` (16022, field)
 
-Boot calls framerate (3). Units unknown (MOVPLAY also has a framerate string).
+Boot calls framerate (3). That many 60 Hz ticks per display pump
+(`0x40e1d2`) → **20 Hz** game/SET-walk frames. Not 3 fps.
 
-- **Confidence:** unknown
+- **Confidence:** proven (wait at `0x40e1d2`; SET index inc in `0x40dd90`)
 - **Args:** integer
 - **Calls in dump:** 16  arities [0, 1]
-- Do not treat 3 as 3 fps. SET walker currently uses ~24 fps from play, not this.
+- Do not treat 3 as 3 fps.
 - Example: `framerate (3)`  (BOOT/_BOOTFILE/Script 1.txt:19)
 - Example: `framerate ()`  (PRP/_CRACK/mousedown _arg__2.txt:10)
 - Example: `framerate (1)`  (PRP/_CRACK/mousedown _arg__2.txt:11)
@@ -876,7 +877,7 @@ Fade down.
 
 ## 5. Still unknown (do not invent)
 
-- SET walk fps (~24) is from play, not DF.EXE. `framerate (3)` with `hasattention` is 60/3 script Hz (inferred). `delay (n)` / fade durations are 60 Hz ticks (play: `screentoblack (…, 30)` = 0.5 s).
+- SET walk clock is DF.EXE `0x40dd90` / `0x40e1d2`: 5 plates at 20 Hz (boot `framerate (3)`). `hasattention` is 60/3 script Hz (inferred). `delay (n)` / fade durations are 60 Hz ticks (play: `screentoblack (…, 30)` = 0.5 s).
 - MOV reel timing / audio cues (see dfextract reconstruction-gaps §4a).
 - `walktostar` named dest uses the SET polyline at waypoint +0x18 (not BFS). Scripts wait with `while iswalk { forceupdate }`. `actorxyz` is SET units (256/tile in the EXE; scripts often `/ 256`). `actorspeed` is units per 20 Hz game frame.
 - Save file layout (`savegame` / `opengame`).

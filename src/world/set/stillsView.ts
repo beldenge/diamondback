@@ -9,7 +9,7 @@ import {
   Texture,
 } from "three";
 import { pngFetchCache } from "./extract";
-import { mediaGate, type MediaPriority } from "./media";
+import { stillGate, type MediaPriority } from "./media";
 import { STILL_HEIGHT, STILL_WIDTH } from "./types";
 
 /** ~256 stills × 512×264 RGBA. Older GPU uploads are disposed. */
@@ -94,13 +94,18 @@ export class StillsView {
   }
 
   /**
-   * Decode in the background. High = current strip / dest HQ (jumps the
-   * queue). Low = neighbor prefetch. Shared inflight cap with sprites.
+   * Decode in the background. High = current strip, then dest
+   * neighborhood. Low = idle prefetch. Color stills are `stillGate`.
    */
   preload(urls: string[], priority: MediaPriority = "low"): void {
     for (const url of urls) {
       void this.load(url, priority);
     }
+  }
+
+  /** Current-strip URLs jump the high queue (first plate first). */
+  prefer(urls: readonly string[]): void {
+    stillGate.preferMany(urls.map((url) => `tex:${url}`));
   }
 
   /** Do not GPU-evict these (current strip + next-move neighborhood). */
@@ -155,12 +160,12 @@ export class StillsView {
     const pending = this.loading.get(url);
     if (pending) {
       if (priority === "high") {
-        mediaGate.prefer(`tex:${url}`);
+        stillGate.prefer(`tex:${url}`);
       }
       return pending;
     }
     const promise = new Promise<Texture>((resolve, reject) => {
-      mediaGate.enqueue(`tex:${url}`, priority, async () => {
+      stillGate.enqueue(`tex:${url}`, priority, async () => {
         try {
           const texture = await decodeStillTexture(url, priority);
           this.cache.set(url, texture);
@@ -222,13 +227,49 @@ function stillTexture(image: TexImageSource, flipY: boolean): Texture {
   return texture;
 }
 
+type ScratchSlot = {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  busy: boolean;
+};
+
+const scratchPool: ScratchSlot[] = [];
+
+function borrowScratch(width: number, height: number): ScratchSlot {
+  let slot = scratchPool.find((item) => !item.busy);
+  if (!slot) {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d", { alpha: true, willReadFrequently: true });
+    if (!ctx) {
+      throw new Error("still canvas");
+    }
+    slot = { canvas, ctx, busy: false };
+    scratchPool.push(slot);
+  }
+  slot.busy = true;
+  if (slot.canvas.width !== width || slot.canvas.height !== height) {
+    slot.canvas.width = width;
+    slot.canvas.height = height;
+  } else {
+    slot.ctx.clearRect(0, 0, width, height);
+  }
+  return slot;
+}
+
+function releaseScratch(slot: ScratchSlot): void {
+  slot.busy = false;
+}
+
 /**
  * Decode an extract PNG onto a 2D canvas. Indexed SET stills go black in
  * Firefox if we use createImageBitmap({ colorSpaceConversion: "none" })
  * or revoke the blob URL before the pixels are copied.
+ * `readback` keeps the bitmap in software for `getImageData` (Z/sprites).
+ * Town stills omit that so the GPU upload stays on the fast path.
  */
 export async function rasterizePng(
   url: string,
+  opts?: { readback?: boolean },
 ): Promise<{ canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D }> {
   const res = await fetch(url, { cache: pngFetchCache(import.meta.env.PROD) });
   if (!res.ok) {
@@ -253,10 +294,20 @@ export async function rasterizePng(
     if (w <= 0 || h <= 0) {
       throw new Error(`${url} empty still`);
     }
+    if (opts?.readback) {
+      const slot = borrowScratch(w, h);
+      try {
+        slot.ctx.drawImage(img, 0, 0);
+        return { canvas: slot.canvas, ctx: slot.ctx };
+      } catch (err) {
+        releaseScratch(slot);
+        throw err;
+      }
+    }
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
-    const ctx = canvas.getContext("2d", { alpha: true, willReadFrequently: true });
+    const ctx = canvas.getContext("2d", { alpha: true });
     if (!ctx) {
       throw new Error("still canvas");
     }
@@ -264,6 +315,19 @@ export async function rasterizePng(
     return { canvas, ctx };
   } finally {
     URL.revokeObjectURL(objectUrl);
+  }
+}
+
+/** Z/sprite pixels. Uses a software scratch canvas; does not keep it. */
+export async function pngImageData(url: string): Promise<ImageData> {
+  const { canvas, ctx } = await rasterizePng(url, { readback: true });
+  try {
+    return ctx.getImageData(0, 0, canvas.width, canvas.height);
+  } finally {
+    const slot = scratchPool.find((item) => item.canvas === canvas);
+    if (slot) {
+      releaseScratch(slot);
+    }
   }
 }
 
