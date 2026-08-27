@@ -117,12 +117,13 @@ Default run (`/`) is the title chooser. Modes:
 - Extractor setup: [`dfextract/README.md`](dfextract/README.md). The remake does not run that tool.
 - npm package / repo name: `diamondback`.
 
-**Next:** Dust: Resurrected runs extracted `boot()` / `advanceday()` for Day 1 night (Leroy, dog, Help, Jones, hotel/saloon casts, jug/bone, night FX, shooting stars, locked shops, spot-movies). Saloon card tables and the slot machine run extracted `SALGAMES.FLT` / `.PRP` (Jan blackjack, Mez poker, reels). The shooting range is extracted `TARGET` SET/FLT/CST/PRP (not a second engine); traps: [`src/play/README.md`](src/play/README.md) § TARGET shooting range. Store checkers is extracted `CHECKERS.FLT` / `.PRP` plus native `pluginfx("checkmove")` from CHECKERS.DLL; traps: [`src/play/README.md`](src/play/README.md) § Store checkers. Script-pump contracts for the next FLT (sleep, fights) are in the same file § Script pump. Widen remaining interiors (rooms, Dell fight, sleep). Do not inpaint remaining still holes.
+**Next:** Dust: Resurrected Day 1 night is the full authored loop: street + hotel/saloon, cards/slots, lodging (`$9` / ring), upstairs playroom, `hotbed.mov` `actionframe` → Day 2 morning, optional phase-8 Dell `FIGHT.FLT`. Unlocked still has checkers / range / tables. Do not inpaint remaining still holes. Day 2 shops and gun/boots gates are the next story slice.
 
 ## 10. Decision Log
 
 | Date | Decision |
 |---|---|
+| 2026-08-27 | Day 1 night closes: `actionframe (1)` is true after a finished `playmovie` (sleep / dollar poster). `closetrackfile ("gossip")` pops the voice bank and does not halt the room theme. Dell’s fist fight is extracted `FIGHT.FLT` / `.PRP` (same puzzle overlay as cards); fists overlay must not steal Dell `mousedown`. |
 | 2026-08-27 | Default `python cli.py` includes SET Z planes (`FRAMES/z/`). Play needs them for occlusion; `--video` stays opt-in. `--z` alone still rewrites depth without color stills. |
 | 2026-08-27 | Standing stills (`showHold`, dest HQ, SET hop) must not `view.show` color before Z is known. `view.ensure` + `showCached`. Keep last `zPlane` across folder reset until the new pair binds. Needs `FRAMES/z/` (default dump); a cached Z miss paints through the bar. |
 | 2026-08-27 | Picture Show **Coming attractions** group lists CD `INFO/` attract reels (`MAIN` catalog, Dust screens, Jump Raven / Skull Cracker / Lunicus / Titanic previews and stills, Skull Cracker action + Coming Halloween). Same `GALLERY_REELS` player; not inspectables. |

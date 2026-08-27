@@ -59,13 +59,15 @@ Code: [`sceneName.ts`](sceneName.ts).
 
 | Kind | Day 1 night |
 |---|---|
-| People | Leroy at the sign. Help after the dog. Jones after Help’s ring. Hotel: Fear + Laurel. Saloon: Gus, Oona, Isao, Trotter. Card tables: click `blackjack` / `gamblers` (Jan / Mez). Slot cabinet: Scene D3 east hotspot. |
+| People | Leroy at the sign. Help after the dog. Jones after Help’s ring. Hotel: Fear + Laurel. Saloon: Gus, Oona, Isao, Trotter. Card tables: click `blackjack` / `gamblers` (Jan / Mez). Slot cabinet: Scene D3 east hotspot. Leave the saloon with more than $5: Blood + Mrs. Mayor on the street, Leroy walks to the range. |
 | Animals | Dog on the street. Pig. Horses / cow if `random` says so. No chickens (day-only). |
-| Ground items | Jug at `town.jug` (after Leroy walks off). Bone at `town.bone` (Help’s day1 script). |
+| Ground items | Jug at `town.jug` (after Leroy walks off). Bone at `town.bone` (Help’s day1 script). Hotel C3 south poster `dollar.mov` adds $4 when `actionframe (1)`. |
 | Sky / extras | `shootingstar` (night). Tumbleweeds are **day** (`clock != 3`). |
-| Ambience | `night.snd` + looping `town.snd`. `nightfxs`: saloon bed, chin chime, then owl / coyote / cricket. |
+| Ambience | `night.snd` + looping `town.snd`. `nightfxs`: saloon bed, chin chime, then owl / coyote / cricket. Saloon crowd `sounddone` gates the next yell. |
 | Click movies | South-gate rules / firearms (`nitewarn` / `nitefire`), shop signs, `dog1` / `dog2`, item inspects, store pots (`grocpots.mov`), mission bells (`bell.mov`). Intros skipped unless `?intro`. `dog1.mov` is a 59-tick overlay with two A1 cues 100 ms apart on the same 0.88 s growl. Play **two sequential still+audio passes** (one growl each) so the second cue does not cut the first into one bark. Wait-for-click is DF.EXE command type 2 slot 0 last 2 (`timeline.wait`), not rec+0≠0 (that field is command count). Pots/bells SFX are A-slot commands in that stream, timed at dest-frame `last` (bells A1/A2/A3 at recs 2/22/43; pots one clang at rec 2 — rec 9 is replay). WARNING/BONE wait; DOG1 rec+32 cues only. |
-| Locked | Jail, chin (until `phase >= 2`), bank, apoth, store, doctor, stage. Hotel + saloon open. |
+| Lodging / sleep | Fear sells the room for $9 at `phase = 4` (Blood’s cigar), or takes Help’s ring. `phase = 5` unlocks the upstairs playroom. Click the bed sign → `hotbed.mov` → `actionframe (1)` → `advanceday` (Day 2 morning in the room, `d1nd2m.mov`). |
+| Dell fight | Optional. After the key (`phase = 7`), leave the hotel looking **west** (G5) → `phase = 8`, Jones walks you; D7 south starts `FIGHT.FLT`. Sleep at `phase = 5` skips it. |
+| Locked | Jail, chin (until `phase >= 2`), bank, apoth, store, doctor, stage. Hotel + saloon open. Saloon upstairs: Ruby knock-talk; Oona’s room is locked this night; Mazie is knock-only. |
 
 `gotointerior` (`gotospecial` with an empty scene) stands at the SET
 header spawn (+48 camera tile), not the street cell you left. Mapping
@@ -176,7 +178,7 @@ falls through to the SET keydown (walk), not to `new.flt`’s options
 
 ## Script pump (FLT minigames, next hand, world idle)
 
-Dust is single-threaded. Checkers, slots, sleep, fights, and the next
+Dust is single-threaded. Checkers, slots, sleep, the Dell fight, and the next
 blackjack/poker hand all share this pump. Do not invent a second
 scheduler.
 
@@ -230,6 +232,18 @@ slots count**. SALGAMES `shuffle` does `putword (list, " ", n, "")`
 then writes the swap. Filtering empties shrinks 52 cards to ~12; hand
 two `findword` past the end deals nothing. Same helpers for poker
 hands and checkers move lists.
+
+**`actionframe (1)`.** After `playmovie` / `spotmovie` finishes (inspect
+wait-click counts as finish), the opcode returns true for **1**. Empty
+or skipped intros stay 0. Hotel sleep (`hotbed.mov`) and the lobby
+`$4` poster (`dollar.mov`) both branch on this. Do not leave it
+unimplemented — that played the bed movie and dumped you back in the
+room.
+
+**`closetrackfile ("gossip")`.** Voice-bank pop (Mazie knock, Fear
+through-the-door). It must **not** `halttheme` the saloon/hotel bed.
+`countsounds` / `indextosound` list clips of the **open** SND folder
+(`src/play/sndTracks.ts`).
 
 **Empty `switch` `case` labels fall through** (Pascal). Mez `case 0` /
 `case 1` share a body; `cardtovalue "2h"`…`"2c"` share `return (2)`.
@@ -316,6 +330,27 @@ vanished. `automove` still needs the global list for a multi-jump
 
 Traps: [`dustdecompile/docs/findings.md`](../../dustdecompile/docs/findings.md)
 § CHECKERS.DLL.
+
+## Dell fight (Day 1 night)
+
+Extracted `fight.flt` + `fight.prp` + `fight.snd`, same puzzle overlay as
+SALGAMES. Scene D7 `fight()` opens the flat after Jones walks you there
+(`phase = 8`). Do not write a second brawler.
+
+**Start.** Hotel street G5 west at `phase = 7` sets `phase = 8` and
+`setupactor ("jones", "fight")`. D7 south with Jones visible pans and
+`setupactor ("dell", "fight")`. Dell `endwalk` at `town.dell2` sends
+`scene d7` `fight ()`: `openstagefile ("fight.flt")`,
+`openshopfile ("fight.prp")`, `shopwarm`, `gotoflat ("flat 0")`.
+
+**Table.** Still `frame_3.png`. Dell + fists + two power sliders are
+screen PRP. Player clicks Dell (not the fist overlay — that sprite has
+no `mousedown`). `getpunch` is stage Y bands. `makeloop` `punch` is
+Dell’s AI. Win → `setupactor ("tko")` / knife `runaway`; lose →
+`wonfight` and a long fade.
+
+**Extract.** `FLT/_FIGHT/openflat_2.json` is the fight proc (not
+`setcursor`). PRP `setcursor _arg__54.json` is Dell.
 
 ## TARGET shooting range
 
@@ -511,9 +546,13 @@ still has forward > 0.
 | Tick `runQueued` while `scriptBusy` if `scriptPump > 0` | First blackjack hand is a click (`talking` blocks tick). Hand two is idle `resetgame`. `dealcards` `forceupdate` raises `scriptPump`, tick starts a second pump on the same VM, first card shows, the rest never deal. Tick stays off for the whole idle pump; nested drain is only `forceupdate`. |
 | `pauseloop (kind, "all")` as a sticky kind pause | Sit pauses HUD/world loops, then bust does `makeloop ("flat", me, "resetgame")`. Treating the kind as sticky left that timer paused, so the next hand never started. Dust `makeloop` is live. Pause existing loops and drop already-due ones of that kind; do not pause the next-hand timer. Nested `forceupdate` still must not run other `makeloop`s. |
 | `screentoblack` / `delay` waiting on `requestAnimationFrame` | Those opcodes are 60 Hz ticks (`blacktoscreen (…, 30)` = 0.5 s). Waiting on rAF inside Three’s animation loop can stall after the second-hand bet (fade never finishes, `dealcards` never runs). Use wall-clock ticks. `forceupdate` (`0x433740`) is one 20 Hz display/walk pump, not a `makeloop` drain. |
+| Leave `actionframe` unimplemented | `hotbed.mov` plays and `advanceday` never runs (return 0). Same miss on hotel `dollar.mov` `$4`. After `playmovie` finishes, frame **1** is set. |
+| `closetrackfile ("gossip")` as `halttheme` | Mazie knock / Fear through-the-door killed the saloon or lobby bed. Gossip is a voice-bank pop. |
 | `putword (list, " ", n, "")` dropping the word | SALGAMES `shuffle` clears a slot then writes the swap. Filtering empties shrinks 52 cards to ~12. Hand two `findword` past the end deals nothing. Keep holes; `findword` is the same 1-based split. |
 | `setVar` writing checkers `move` to the automove global | Bolivar’s man vanished; jumps never captured; overlay/click patches did nothing. `makemove (move, person)` reassigns the **parameter** to the decoded delta; the global stays the comma list. Params are locals even when the name is a declared global. |
-| Skip `showHold` when `setPose` matches boot’s pre-set O7 N | First `opensetfile` no-ops; MeshBasicMaterial stays white (HUD + Leroy/jug, no town) until a turn. Skip only if a still is already on screen. |
+| FIGHT fists overlay winning `hittest` | Gut/jaw clicks no-op (`knife_2` has no `mousedown`). Punches are Dell’s script. Prefer a puzzle prop that actually has `mousedown`. |
+| Leave `actionframe` unimplemented | `hotbed.mov` plays and `advanceday` never runs (return 0). Same miss on hotel `dollar.mov` `$4`. After `playmovie` finishes, frame **1** is set. |
+| `closetrackfile ("gossip")` as `halttheme` | Mazie knock / Fear through-the-door killed the saloon or lobby bed. Gossip is a voice-bank pop. |
 | Load NEW.FLT flats without running `openflat` | HUD portrait stays the cowboy baked into `frame_3.png`. Engine `openstagefile` shows mainpanel (`noface` / `makeloop makeface`). `initall` `stoploop ("flat", "all")` then `opensetfile` must re-arm that loop. |
 | Tick `runQueued` during `boot()` | Animation loop and `advanceday` share the VM. `makeface` due during boot is dropped; `stoploop` did not clear `dueLoops`, so re-arm thought the portrait was still live. Do not tick scripts until boot returns; `stoploop` cancels due callbacks; `ensureHudPortrait` after boot. |
 | `#play-hud-face` under `#actor-layer` | Raising the still overlay to z-index 42 (full-height door) hid the HOUSE face. Portrait stacks with `#play-hand`, above the actor layer. |
@@ -536,7 +575,7 @@ still has forward > 0.
 | Map `cross` at 1-based `scenerow * 20 + 93` | `scene g15` y=393, clipped off the parchment. Opcode is 1-based for pig `isadj`; the grid is **0-based** tiles from (222, 93). Slot 2 of `1,1,1,2,2,2` has no frame (blink). |
 | `infoyoself` on every inventory `stdmouse` | Not Dust. Panel click selects `handitem`; EXAMINE inspects. |
 
-Code: interiors [`sceneName.ts`](sceneName.ts) / [`graph.ts`](../world/set/graph.ts); hits [`facing.ts`](facing.ts) `spriteDestRect`; EXAMINE [`hud.ts`](hud.ts) / [`game.ts`](game.ts); map X [`hud.ts`](hud.ts) `mapCrossHotspot`; choice idle [`host.ts`](host.ts) `waitPuppetEvent` / [`ui.ts`](ui.ts); viseme cache [`host.ts`](host.ts) `puppetClipKey`; script pump [above](#script-pump-flt-minigames-next-hand-world-idle).
+Code: interiors [`sceneName.ts`](sceneName.ts) / [`graph.ts`](../world/set/graph.ts); hits [`facing.ts`](facing.ts) `spriteDestRect`; EXAMINE [`hud.ts`](hud.ts) / [`game.ts`](game.ts); map X [`hud.ts`](hud.ts) `mapCrossHotspot`; choice idle [`host.ts`](host.ts) `waitPuppetEvent` / [`ui.ts`](ui.ts); viseme cache [`host.ts`](host.ts) `puppetClipKey`; script pump [above](#script-pump-flt-minigames-next-hand-world-idle); sleep `actionframe` / gossip tracks [`host.ts`](host.ts) / [`sndTracks.ts`](sndTracks.ts).
 
 ---
 

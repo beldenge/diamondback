@@ -84,6 +84,15 @@ export function movieWaitSetsSkipClick(eventType: string): boolean {
   return eventType === "pointerup";
 }
 
+/**
+ * Script `actionframe (n)` after `playmovie` / `spotmovie`. Dust movies
+ * that finish (including inspect wait-click) set **1**. Empty / skipped
+ * reels stay 0. Every dump site checks `actionframe (1)`.
+ */
+export function actionFrameAfterPlay(played: boolean): number {
+  return played ? 1 : 0;
+}
+
 export function frameUrl(folder: string, container: number): string {
   return extractUrl(`${folder}/FRAMES/frame_${container}.png`);
 }

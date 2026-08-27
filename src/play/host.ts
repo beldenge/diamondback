@@ -80,6 +80,7 @@ import {
   type PuzzleLabel,
 } from "./puzzle";
 import {
+  actionFrameAfterPlay,
   clipUrl,
   fallbackTimeline,
   frameUrl,
@@ -87,6 +88,12 @@ import {
   movieFolder,
   type MovieTimeline,
 } from "./movies";
+import {
+  countSounds,
+  indexToSound,
+  isGossipTrack,
+  sndFolderFromFile,
+} from "./sndTracks";
 import {
   isTownGridSize,
   openSetShouldStand,
@@ -371,7 +378,11 @@ export class DustHost implements OpcodeHost {
   stillDown = false;
   /** Town play is the NEW.FLT `mainpanel` under the still. */
   currentFlatName = "mainpanel";
+  /** Last finished `playmovie`. Scripts read `actionframe (1)`. */
+  lastActionFrame = 0;
+  private puppetShown = false;
   private trackFolder = "_UNILIB";
+  private readonly trackStack: string[] = [];
   private bedStop: (() => void) | null = null;
   private pendingBed: string | null = null;
   private loopSounds = new Map<string, () => void>();
@@ -548,10 +559,12 @@ export class DustHost implements OpcodeHost {
         }
         return 0;
       }
-      case "closetrackfile":
       case "halttheme":
         this.stopBed();
         this.currentTheme = "none";
+        return 0;
+      case "closetrackfile":
+        this.closeTrack(str(args[0]));
         return 0;
       case "haltsound":
         this.stopLoopSounds();
@@ -837,7 +850,7 @@ export class DustHost implements OpcodeHost {
         this.noteFx(str(args[0]));
         return 0;
       case "opentrackfile":
-        this.trackFolder = `_${str(args[0]).replace(/\.snd$/i, "").toUpperCase()}`;
+        this.openTrack(str(args[0]));
         return 0;
       case "playtheme":
         this.playBed(str(args[0]));
@@ -887,6 +900,27 @@ export class DustHost implements OpcodeHost {
       case "playmovie":
         await this.playMovie(str(args[0]));
         return 0;
+      case "actionframe":
+        return this.lastActionFrame === Math.trunc(num(args[0] ?? 1)) ? 1 : 0;
+      case "countbevels":
+        return this.bevels.length;
+      case "puppetvisible":
+        if (args.length) {
+          const on = truthyArg(args[0]);
+          this.puppetShown = on;
+          this.ui.setVisible?.(on);
+          return on;
+        }
+        return this.puppetShown;
+      case "sounddone":
+        return this.currentSoundName === "none" ? 1 : 0;
+      case "shopwarm":
+        await this.openShop(str(args[0]));
+        return 0;
+      case "countsounds":
+        return countSounds(this.trackFolder);
+      case "indextosound":
+        return indexToSound(this.trackFolder, num(args[1] ?? args[0]));
       case "delay":
         // Same 60 Hz tick as `screentoblack (…, 30)`. Not rAF, not script Hz.
         await sleep(dustTicksToMs(num(args[0])));
@@ -963,6 +997,7 @@ export class DustHost implements OpcodeHost {
       case "closepuppetfile":
         this.skipSpeech = false;
         this.currentPuppet = "none";
+        this.puppetShown = false;
         this.ui.close();
         if (this.cursorName === "watch") {
           this.cursorName = "arrow";
@@ -2863,6 +2898,7 @@ export class DustHost implements OpcodeHost {
     }
     if (show) {
       this.currentPuppet = name.toLowerCase();
+      this.puppetShown = true;
       if (this.puppetSheet) {
         await this.ui.open(this.puppetSheet);
       }
@@ -3079,12 +3115,20 @@ export class DustHost implements OpcodeHost {
   private hitTestPuzzle(point: Point): string {
     const shop = this.puzzleShop;
     const items = this.puzzleItems();
+    const hits: string[] = [];
     for (const item of [...items].reverse()) {
       if (item.name && pointHitsFlatItem(item, point.x, point.y)) {
-        this.hitKind = "prop";
-        this.clickAbsorbed = true;
-        return item.name;
+        hits.push(item.name.toLowerCase());
       }
+    }
+    // FIGHT fists overlay Dell. Fists have no `mousedown` (only knife
+    // anims); punches live on Dell. Prefer a prop that handles the click.
+    const named = hits.find((name) => this.index.lookup([`prop:${name}`], "mousedown"));
+    const pick = named ?? hits[0];
+    if (pick) {
+      this.hitKind = "prop";
+      this.clickAbsorbed = true;
+      return pick;
     }
     const hit = hitFlatButton(this.stageHits.get(this.currentFlatName) ?? [], point.x, point.y);
     if (hit) {
@@ -3093,12 +3137,18 @@ export class DustHost implements OpcodeHost {
       return hit.name;
     }
     if (shop) {
+      const shopHits: string[] = [];
       for (const prop of this.props.values()) {
         if (prop.visible && prop.shop === shop && this.pointHitsProp(prop, point)) {
-          this.hitKind = "prop";
-          this.clickAbsorbed = true;
-          return prop.name;
+          shopHits.push(prop.name.toLowerCase());
         }
+      }
+      const handled = shopHits.find((name) => this.index.lookup([`prop:${name}`], "mousedown"));
+      const shopPick = handled ?? shopHits[0];
+      if (shopPick) {
+        this.hitKind = "prop";
+        this.clickAbsorbed = true;
+        return shopPick;
       }
     }
     this.hitKind = "flat";
@@ -3563,6 +3613,7 @@ export class DustHost implements OpcodeHost {
   }
 
   private async playMovie(name: string): Promise<void> {
+    this.lastActionFrame = 0;
     if (this.skipMovies && isIntroMovie(name)) {
       this.view?.log(`skip ${name}`);
       return;
@@ -3588,6 +3639,23 @@ export class DustHost implements OpcodeHost {
     } else {
       this.view?.log(`movie ${name}`);
     }
+    this.lastActionFrame = actionFrameAfterPlay(frames.length > 0);
+  }
+
+  private openTrack(name: string): void {
+    this.trackStack.push(this.trackFolder);
+    this.trackFolder = sndFolderFromFile(name);
+  }
+
+  private closeTrack(name: string): void {
+    if (isGossipTrack(name)) {
+      this.trackFolder = this.trackStack.pop() ?? "_UNILIB";
+      return;
+    }
+    this.trackStack.length = 0;
+    this.stopBed();
+    this.currentTheme = "none";
+    this.trackFolder = "_UNILIB";
   }
 }
 

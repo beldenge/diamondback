@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  actionFrameAfterPlay,
   formatMovieClock,
   movieClipsStarting,
   movieDurationSec,
@@ -27,6 +28,11 @@ describe("inspect movie hold", () => {
     expect(movieWaitSetsSkipClick("click")).toBe(false);
     expect(movieWaitSetsSkipClick("pointerdown")).toBe(false);
     expect(movieWaitSetsSkipClick("pointerup")).toBe(true);
+  });
+
+  it("marks a finished playmovie as actionframe 1", () => {
+    expect(actionFrameAfterPlay(true)).toBe(1);
+    expect(actionFrameAfterPlay(false)).toBe(0);
   });
 
   it("warning / bone inspect stills wait; dog1 does not", () => {

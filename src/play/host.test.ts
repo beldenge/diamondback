@@ -2492,3 +2492,89 @@ describe("range EXIT", () => {
     expect(afterTxt).toMatch(/dumpinven \("gun"\)/);
   });
 });
+
+describe("Day 1 sleep / lodging opcodes", () => {
+  function dayHost() {
+    const host = new DustHost({
+      addBevel() {},
+      clear() {},
+      setVisible() {},
+    } as unknown as PuppetUi);
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    return { host, vm };
+  }
+
+  it("actionframe (1) is true after a finished playmovie", async () => {
+    const { host, vm } = dayHost();
+    expect(await host.call("actionframe", [1], vm)).toBe(0);
+    await host.call("playmovie", ["hotbed.mov"], vm);
+    expect(host.lastActionFrame).toBe(1);
+    expect(await host.call("actionframe", [1], vm)).toBe(1);
+    expect(await host.call("actionframe", [2], vm)).toBe(0);
+  });
+
+  it("countbevels tracks puppetbevel and puppetclear", async () => {
+    const { host, vm } = dayHost();
+    expect(await host.call("countbevels", [], vm)).toBe(0);
+    await host.call("puppetbevel", ["I want a room.", 101], vm);
+    await host.call("puppetbevel", ["Just looking around.", 102], vm);
+    expect(await host.call("countbevels", [], vm)).toBe(2);
+    await host.call("puppetclear", [], vm);
+    expect(await host.call("countbevels", [], vm)).toBe(0);
+  });
+
+  it("sounddone is true until a singlesound is in flight", async () => {
+    const { host, vm } = dayHost();
+    expect(await host.call("sounddone", [], vm)).toBe(1);
+    await host.call("singlesound", ["crowdnoise"], vm);
+    expect(await host.call("sounddone", [], vm)).toBe(0);
+  });
+
+  it("shopwarm does not stay unimplemented", async () => {
+    const { host, vm } = dayHost();
+    await host.call("shopwarm", ["fight.prp"], vm);
+    expect(vm.unimplemented.has("shopwarm")).toBe(false);
+  });
+
+  it("closetrackfile gossip restores the previous bank and keeps the theme", async () => {
+    const { host, vm } = dayHost();
+    await host.call("opentrackfile", ["saloon1.snd"], vm);
+    await host.call("playtheme", ["saloonsep.snd"], vm);
+    expect(host.currentTheme).toBe("saloonsep.snd");
+    await host.call("opentrackfile", ["mazie.snd"], vm);
+    expect(await host.call("countsounds", ["gossip"], vm)).toBe(6);
+    expect(await host.call("indextosound", ["gossip", 2], vm)).toBe("mazie.2");
+    await host.call("closetrackfile", ["gossip"], vm);
+    expect(host.currentTheme).toBe("saloonsep.snd");
+    expect(await host.call("countsounds", ["gossip"], vm)).toBe(0);
+  });
+
+  it("hotroom sleep and hotel dollar use actionframe (1)", () => {
+    const bed = resolve("dfextract/out/SET/_HOTROOM/Scene A1.txt");
+    const dollar = resolve("dfextract/out/SET/_HOTLOWER/Scene C3.txt");
+    if (!existsSync(bed) || !existsSync(dollar)) {
+      return;
+    }
+    expect(readFileSync(bed, "utf8")).toMatch(/actionframe \(1\)/);
+    expect(readFileSync(dollar, "utf8")).toMatch(/playercash = playercash \+ 4/);
+  });
+
+  it("loads FIGHT flat punch / quit and Dell mousedown", () => {
+    const fight = resolve("dfextract/out/FLT/_FIGHT/openflat_2.json");
+    const dell = resolve("dfextract/out/PRP/_FIGHT/setcursor _arg__54.json");
+    if (!existsSync(fight) || !existsSync(dell)) {
+      return;
+    }
+    expect(loadProcs("FLT/_FIGHT/openflat_2.json").map((proc) => proc.name)).toEqual(
+      expect.arrayContaining(["fight", "quitfight", "makeface"]),
+    );
+    expect(loadProcs("PRP/_FIGHT/setcursor _arg__54.json").map((proc) => proc.name)).toEqual(
+      expect.arrayContaining(["mousedown", "punch", "damage", "getpunch"]),
+    );
+  });
+});
+

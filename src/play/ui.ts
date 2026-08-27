@@ -484,6 +484,17 @@ export class PuppetUi {
     this.finishWait(-1);
   }
 
+  /**
+   * Dust `puppetvisible`. Hide the talking-head without `close()` so
+   * inventory-from-dialogue (`selhandbevel`) can restore it.
+   */
+  setVisible(on: boolean): void {
+    if (!this.sheet && on) {
+      return;
+    }
+    this.root.hidden = !on;
+  }
+
   clear(): void {
     this.setLine("");
     this.clearBevels();

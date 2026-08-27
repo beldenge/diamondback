@@ -166,7 +166,7 @@ describe("prop script dump names", () => {
     if (!existsSync(resolve(root, "FLT/_NEW/setcursor _arg_.json"))) {
       return;
     }
-    for (const stem of ["new", "target", "checkers", "salgames", "credits"]) {
+    for (const stem of ["new", "target", "checkers", "salgames", "credits", "fight"]) {
       for (const rel of stageScriptRels(stem)) {
         expect(existsSync(resolve(root, rel)), rel).toBe(true);
       }

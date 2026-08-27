@@ -50,6 +50,7 @@ describe("saloon game helpers", () => {
     expect(isPuzzleStage("salgames")).toBe(true);
     expect(isPuzzleStage("checkers")).toBe(true);
     expect(isPuzzleStage("checkers.flt")).toBe(true);
+    expect(isPuzzleStage("fight")).toBe(true);
     expect(isPuzzleStage("new")).toBe(false);
     expect(isPuzzleStage("target")).toBe(false);
     expect(isPuzzleStage("target.flt")).toBe(false);
