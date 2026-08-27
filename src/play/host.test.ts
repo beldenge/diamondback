@@ -105,6 +105,53 @@ function mockExtractDisk(): () => void {
   };
 }
 
+describe("script dump probes", () => {
+  it("openStage(new.flt) and HOUSE/INVEN shops do not GET missing dumps", async () => {
+    if (!existsSync(resolve("dfextract/out/FLT/_NEW/flats.json"))) {
+      return;
+    }
+    const missing: string[] = [];
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const decoded = decodeURIComponent(String(input));
+      const marker = "/extract/";
+      const at = decoded.indexOf(marker);
+      if (at < 0) {
+        return orig(input);
+      }
+      const rel = decoded.slice(at + marker.length).split("?")[0];
+      const disk = resolve("dfextract/out", rel);
+      if (!existsSync(disk)) {
+        missing.push(rel);
+        return { ok: false, status: 404, json: async () => ({}), text: async () => "" } as Response;
+      }
+      if (rel.toLowerCase().endsWith(".wav") || rel.toLowerCase().endsWith(".png")) {
+        return { ok: true, json: async () => ({}), text: async () => "", arrayBuffer: async () => new ArrayBuffer(0) } as Response;
+      }
+      const text = readFileSync(disk, "utf8");
+      return {
+        ok: true,
+        json: async () => JSON.parse(text),
+        text: async () => text,
+        arrayBuffer: async () => new TextEncoder().encode(text).buffer,
+      } as Response;
+    }) as typeof fetch;
+    try {
+      const host = new DustHost({} as PuppetUi);
+      const intern = host as unknown as {
+        openStage(name: string): Promise<void>;
+        openShop(name: string): Promise<void>;
+      };
+      await intern.openStage("new.flt");
+      await intern.openShop("house.prp");
+      await intern.openShop("inven.prp");
+      expect(missing, missing.join("\n")).toEqual([]);
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
+});
+
 describe("SET script reload", () => {
   it("reinstalls gototown when stage already has setcursor after a FLT swap", async () => {
     const setcursor = "FLT/_TARGET/setcursor _arg_.json";

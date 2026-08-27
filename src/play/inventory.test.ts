@@ -5,7 +5,15 @@ import { parseScript, type ScriptFile } from "../vm/ast";
 import { VM } from "../vm/runtime";
 import { examineHandName, inventorySpriteView } from "./hud";
 import { DustHost } from "./host";
-import { HOUSE_GROUPS, INVEN_GROUPS, propScriptRels } from "./propCatalog";
+import {
+  HOUSE_GROUPS,
+  INVEN_GROUPS,
+  propScriptRels,
+  puzzlePropScriptRels,
+  puzzleShopScriptRels,
+  shopScriptRels,
+  stageScriptRels,
+} from "./propCatalog";
 import type { PuppetUi } from "./ui";
 
 function loadProcs(rel: string) {
@@ -112,12 +120,79 @@ describe("prop script dump names", () => {
     expect(propScriptRels(mask!)).toEqual(["PRP/_INVEN/initprop_83.json"]);
   });
 
-  it("keeps HOUSE per-item setcursor _arg__ files", () => {
+  it("uses the HOUSE first-proc dump name, not both spellings", () => {
     const door = HOUSE_GROUPS.find((group) => group.name === "door");
+    const star = HOUSE_GROUPS.find((group) => group.name === "shootingstar");
     expect(door).toBeTruthy();
-    expect(propScriptRels(door!)).toEqual([
-      "PRP/_HOUSE/initprop_562.json",
-      "PRP/_HOUSE/setcursor _arg__562.json",
+    expect(star).toBeTruthy();
+    expect(propScriptRels(door!)).toEqual(["PRP/_HOUSE/setcursor _arg__562.json"]);
+    expect(propScriptRels(star!)).toEqual(["PRP/_HOUSE/initprop_2.json"]);
+  });
+
+  it("does not probe shop-level initprop_1.json", () => {
+    expect(shopScriptRels("house")).toEqual(["PRP/_HOUSE/setcursor _arg__1.json"]);
+    expect(shopScriptRels("inven")).toEqual(["PRP/_INVEN/setcursor _arg__1.json"]);
+  });
+
+  it("loads only dumps extract wrote for each HOUSE/INVEN group", () => {
+    const root = resolve("dfextract/out");
+    if (!existsSync(resolve(root, "PRP/_HOUSE/setcursor _arg__1.json"))) {
+      return;
+    }
+    for (const group of [...HOUSE_GROUPS, ...INVEN_GROUPS]) {
+      const rels = propScriptRels(group);
+      expect(rels, group.name).toHaveLength(1);
+      expect(existsSync(resolve(root, rels[0])), rels[0]).toBe(true);
+    }
+    for (const rel of [...shopScriptRels("house"), ...shopScriptRels("inven")]) {
+      expect(existsSync(resolve(root, rel)), rel).toBe(true);
+    }
+  });
+
+  it("does not probe TARGET/CHECKERS extras on NEW.FLT", () => {
+    expect(stageScriptRels("new")).toEqual(["FLT/_NEW/setcursor _arg_.json"]);
+    expect(stageScriptRels("target")).toEqual([
+      "FLT/_TARGET/setcursor _arg_.json",
+      "FLT/_TARGET/gototown _dirname_.json",
     ]);
+    expect(stageScriptRels("checkers")).toEqual([
+      "FLT/_CHECKERS/setcursor _arg_.json",
+      "FLT/_CHECKERS/playcheckers.json",
+    ]);
+  });
+
+  it("loads only dumps extract wrote for FLT stage extras", () => {
+    const root = resolve("dfextract/out");
+    if (!existsSync(resolve(root, "FLT/_NEW/setcursor _arg_.json"))) {
+      return;
+    }
+    for (const stem of ["new", "target", "checkers", "salgames", "credits"]) {
+      for (const rel of stageScriptRels(stem)) {
+        expect(existsSync(resolve(root, rel)), rel).toBe(true);
+      }
+    }
+  });
+
+  it("loads only dumps extract wrote for puzzle PRP containers", () => {
+    const root = resolve("dfextract/out");
+    if (!existsSync(resolve(root, "PRP/_CHECKERS/automove_1.json"))) {
+      return;
+    }
+    expect(puzzleShopScriptRels("checkers")).toEqual(["PRP/_CHECKERS/automove_1.json"]);
+    expect(puzzlePropScriptRels("checkers", 2)).toEqual(["PRP/_CHECKERS/setcursor _arg__2.json"]);
+    expect(puzzlePropScriptRels("checkers", 14)).toEqual([]);
+    for (const stem of ["checkers", "salgames", "target", "crack", "fight", "flute", "scorp"]) {
+      for (const rel of puzzleShopScriptRels(stem)) {
+        expect(existsSync(resolve(root, rel)), rel).toBe(true);
+      }
+    }
+    for (const id of [2, 8, 14, 522, 540]) {
+      for (const rel of [
+        ...puzzlePropScriptRels("checkers", id),
+        ...puzzlePropScriptRels("salgames", id),
+      ]) {
+        expect(existsSync(resolve(root, rel)), rel).toBe(true);
+      }
+    }
   });
 });

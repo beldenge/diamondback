@@ -58,7 +58,10 @@ import {
   HOUSE_GROUPS,
   INVEN_GROUPS,
   propScriptRels,
+  puzzlePropScriptRels,
+  puzzleShopScriptRels,
   shopScriptRels,
+  stageScriptRels,
 } from "./propCatalog";
 import { checkMove } from "./checkers";
 import {
@@ -2117,14 +2120,9 @@ export class DustHost implements OpcodeHost {
     this.stageStills.clear();
     this.puzzleLabels = [];
     this.currentStageName = stem;
-    await this.addScriptFile("stage", `${folder}/setcursor _arg__1.json`);
-    await this.addScriptFile("stage", `${folder}/setcursor _arg_.json`);
-    // TARGET (and similar FLTs) keep gototown in its own file, not
-    // setcursor. EXIT `sendtostage (gototown ("south"))` needs it.
-    await this.addScriptFile("stage", `${folder}/gototown _dirname_.json`);
-    await this.addScriptFile("stage", `${folder}/gototown _dirname__1.json`);
-    // CHECKERS.FLT container 1 is playcheckers / closecheckers, not setcursor.
-    await this.addScriptFile("stage", `${folder}/playcheckers.json`);
+    for (const rel of stageScriptRels(stem)) {
+      await this.addScriptFile("stage", rel);
+    }
     const flats = await fetchJson<{
       stage?: string;
       flats?: {
@@ -2240,9 +2238,9 @@ export class DustHost implements OpcodeHost {
     const folder = `PRP/_${stem.toUpperCase()}`;
     const key = `shop:${stem}`;
     this.puzzleShop = stem;
-    await this.addScriptFile(key, `${folder}/setcursor _arg__1.json`);
-    // CHECKERS.PRP keeps automove / makemove on container 1, not a group script.
-    await this.addScriptFile(key, `${folder}/automove_1.json`);
+    for (const rel of puzzleShopScriptRels(stem)) {
+      await this.addScriptFile(key, rel);
+    }
     const groups = await fetchJson<{ name: string; script: number }[]>(
       extractUrl(`${folder}/groups.json`),
     ).catch(() => [] as { name: string; script: number }[]);
@@ -2285,12 +2283,7 @@ export class DustHost implements OpcodeHost {
       prop.poseTiming = Object.fromEntries(
         Object.entries(tables).map(([view, seq]) => [view.toLowerCase(), seq]),
       );
-      const id = group.script;
-      for (const rel of [
-        `${folder}/setcursor _arg__${id}.json`,
-        `${folder}/mousedown _arg__${id}.json`,
-        `${folder}/initprop_${id}.json`,
-      ]) {
+      for (const rel of puzzlePropScriptRels(stem, group.script)) {
         await this.addScriptFile(`prop:${name}`, rel);
       }
       this.pendingOpenProps.push(name);
