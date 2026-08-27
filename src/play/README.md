@@ -39,7 +39,10 @@ range](#target-shooting-range). INVEN world `small` pickups (jug, bone,
 
 Play mode runs extracted `boot()` then stage `advanceday()`. That is
 Day 1 night (`clock = 3`, `$5`, `nite.set`, script scene `g15` =
-filmed **O7** north). Do not hand-place Leroy or unlock doors — CST
+filmed **O7** north). Start cash is **5** from `advanceday` (999 if
+`debugging`). Help’s “Here! Five dollars. A loan…” (`help.16`) only
+runs when `playercash <= 0` — a broke refill, including if the $5 is
+in the bank, not the opening grant. Do not hand-place Leroy or unlock doors — CST
 `initactors`, PRP `initprops`, and SET scene `lock*` procs are the
 gates. `opencastfile` loads `Cast.json` + `sprites.json` only;
 `Actor/Script.json` is fetched the first time `sendtoactor` names that
@@ -551,8 +554,6 @@ still has forward > 0.
 | `putword (list, " ", n, "")` dropping the word | SALGAMES `shuffle` clears a slot then writes the swap. Filtering empties shrinks 52 cards to ~12. Hand two `findword` past the end deals nothing. Keep holes; `findword` is the same 1-based split. |
 | `setVar` writing checkers `move` to the automove global | Bolivar’s man vanished; jumps never captured; overlay/click patches did nothing. `makemove (move, person)` reassigns the **parameter** to the decoded delta; the global stays the comma list. Params are locals even when the name is a declared global. |
 | FIGHT fists overlay winning `hittest` | Gut/jaw clicks no-op (`knife_2` has no `mousedown`). Punches are Dell’s script. Prefer a puzzle prop that actually has `mousedown`. |
-| Leave `actionframe` unimplemented | `hotbed.mov` plays and `advanceday` never runs (return 0). Same miss on hotel `dollar.mov` `$4`. After `playmovie` finishes, frame **1** is set. |
-| `closetrackfile ("gossip")` as `halttheme` | Mazie knock / Fear through-the-door killed the saloon or lobby bed. Gossip is a voice-bank pop. |
 | Load NEW.FLT flats without running `openflat` | HUD portrait stays the cowboy baked into `frame_3.png`. Engine `openstagefile` shows mainpanel (`noface` / `makeloop makeface`). `initall` `stoploop ("flat", "all")` then `opensetfile` must re-arm that loop. |
 | Tick `runQueued` during `boot()` | Animation loop and `advanceday` share the VM. `makeface` due during boot is dropped; `stoploop` did not clear `dueLoops`, so re-arm thought the portrait was still live. Do not tick scripts until boot returns; `stoploop` cancels due callbacks; `ensureHudPortrait` after boot. |
 | `#play-hud-face` under `#actor-layer` | Raising the still overlay to z-index 42 (full-height door) hid the HOUSE face. Portrait stacks with `#play-hand`, above the actor layer. |

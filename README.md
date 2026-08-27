@@ -22,7 +22,7 @@ npm run dev
 
 Open http://localhost:5173 — title chooser (three cards). Cards switch in-page; they do not reload the document. Vite serves stills from `dfextract/out/` at `/extract/…`.
 
-**Dust: Resurrected** (`/?mode=resurrected`): the VM game (Day 1 night so far). Original dashboard, CST sprites, PUP talking-heads. Needs a full extract (PUP/CST/FLT/PRP, not just SET stills). Boot skips intros unless `&intro=1`. Playback notes: [`src/play/README.md`](src/play/README.md).
+**Dust: Resurrected** (`/?mode=resurrected`): the VM game (Day 1 night through hotel sleep). Original dashboard, CST sprites, PUP talking-heads. Needs a full extract (PUP/CST/FLT/PRP, not just SET stills). Boot skips intros unless `&intro=1`. Playback notes: [`src/play/README.md`](src/play/README.md).
 
 **Dust: Unlocked** (`/?mode=unlocked`): same PlayGame / VM as Resurrected, sandbox policy. Empty of story casts, every door open (`debugging`), minigame NPCs (Leroy at the range, Bolivar at the store, saloon blackjack/poker tables), farm animals (not the dog). `N` day/night; `?clock=1|2|3`. Afternoon by default so shops and tables are up. Needs the same full extract as Resurrected (PUP/CST/FLT/PRP, not just SET stills).
 

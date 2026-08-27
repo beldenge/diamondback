@@ -99,7 +99,7 @@ Default run (`/`) is the title chooser. Modes:
 
 | Name | URL | What |
 |---|---|---|
-| **Dust: Resurrected** | `/?mode=resurrected` | VM game (Day 1 night so far). `&intro=1` plays openings in-game |
+| **Dust: Resurrected** | `/?mode=resurrected` | VM game (Day 1 night through hotel sleep). `&intro=1` plays openings in-game |
 | **Dust: Unlocked** | `/?mode=unlocked` | Same engine as Resurrected; no story casts, all doors, minigame NPCs, farm animals (not the dog) |
 | **The Picture Show** | `/?mode=movies` | Browser reel player (`timeline.json` + PNG/WAV). Opening is selected first. Coming attractions is CD `INFO/` ads. Not inspect MOVs |
 
@@ -108,7 +108,7 @@ Default run (`/`) is the title chooser. Modes:
 - Hosted: https://diamondback.town (Pages). Stills from CloudFront via `VITE_EXTRACT_BASE`. Local `/extract` is unchanged.
 - Command cheat sheet: [`README.md`](README.md).
 - Spawn: Scene O7 facing north. **N** swaps day/night stills (Unlocked only); does not change `day`. Unlocked defaults to afternoon so shops and saloon tables are up.
-- Sleep has no stills UI yet (hotel bed later). Clock is discrete; `sleep()` still wakes next morning.
+- Sleep is the hotel-room bed sign (`hotbed.mov` → `actionframe` → extracted `advanceday`). Clock is discrete; Unlocked has no story sleep.
 - Debug query: `/?mode=unlocked&clock=1|2|3`.
 - How strips, HQ, G11, flipbook (20 Hz, no skip, no input queue), loader, and doors work: [`src/world/set/README.md`](src/world/set/README.md).
 - CST/PRP world→still (X, Y, scale, Z, pans) is **locked**: [`src/play/README.md`](src/play/README.md) § World → still. Do not revive 1/z Y/scale/Z or frozen/screen-lerped pans.

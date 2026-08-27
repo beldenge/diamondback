@@ -2553,6 +2553,74 @@ describe("Day 1 sleep / lodging opcodes", () => {
     expect(await host.call("countsounds", ["gossip"], vm)).toBe(0);
   });
 
+  it("skips intro movies without setting actionframe", async () => {
+    const { host, vm } = dayHost();
+    host.skipMovies = true;
+    await host.call("playmovie", ["intro.mov"], vm);
+    expect(host.lastActionFrame).toBe(0);
+    expect(await host.call("actionframe", [1], vm)).toBe(0);
+  });
+
+  it("Day 1 advanceday grants $5; Help loans $5 only when broke", async () => {
+    const advanceday = resolve("dfextract/out/FLT/_NEW/setcursor _arg_.txt");
+    const help1 = resolve("dfextract/out/PUP/_HELP1/day1.json");
+    const help2 = resolve("dfextract/out/PUP/_HELP2/day1.txt");
+    if (!existsSync(advanceday) || !existsSync(help1) || !existsSync(help2)) {
+      return;
+    }
+    const day1 = readFileSync(advanceday, "utf8");
+    expect(day1).toMatch(/playercash = 5/);
+    expect(day1).toMatch(/playercash = 999/);
+    expect(readFileSync(help2, "utf8")).toMatch(/if playercash <= 0/);
+    expect(readFileSync(help2, "utf8")).toMatch(/playercash = 5/);
+
+    const run = loadProcs("PUP/_HELP1/day1.json").find((proc) => proc.name === "runyoself");
+    expect(run).toBeTruthy();
+    const spoken: string[] = [];
+    const host = new DustHost({
+      addBevel() {},
+      clear() {},
+      async speak() {},
+    } as unknown as PuppetUi);
+    const vm = new VM({
+      async call(name, args, ctx) {
+        if (name === "puppetspeak") {
+          spoken.push(String(args[0] ?? ""));
+          return 0;
+        }
+        if (name === "puppetevent") {
+          return -1;
+        }
+        if (name === "actorvisible") {
+          return true;
+        }
+        if (name === "propvisible" || name === "propowner") {
+          return 0;
+        }
+        return host.call(name, args, ctx);
+      },
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    for (const proc of loadProcs("PUP/_HELP1/day1.json")) {
+      host.index.add("puppet:day1", proc, "help1-day1");
+    }
+    vm.globalNames.add("playercash");
+    vm.globalNames.add("helpphase");
+    vm.globals.set("helpphase", 0);
+
+    spoken.length = 0;
+    vm.globals.set("playercash", 5);
+    await vm.inObject("puppet", "day1", () => vm.runProc(run!));
+    expect(spoken).not.toContain("help.16");
+
+    spoken.length = 0;
+    vm.globals.set("playercash", 0);
+    await vm.inObject("puppet", "day1", () => vm.runProc(run!));
+    expect(spoken[0]).toBe("help.16");
+    expect(vm.globals.get("playercash")).toBe(5);
+  });
+
   it("hotroom sleep and hotel dollar use actionframe (1)", () => {
     const bed = resolve("dfextract/out/SET/_HOTROOM/Scene A1.txt");
     const dollar = resolve("dfextract/out/SET/_HOTLOWER/Scene C3.txt");

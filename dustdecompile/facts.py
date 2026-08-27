@@ -80,6 +80,7 @@ LIBRARY = {
         "args": "none",
         "notes": [
             "Day 1 start cash is 5 (999 if debugging).",
+            "Help help.16 (“Here! Five dollars. A loan…”) is if playercash <= 0, not the spawn grant. Dump: PUP/_HELP1/day1.txt:9 (same on Help2).",
             "Day-change MOV names are d1nd2m, d2md2a, d2ad2n, …",
         ],
     },

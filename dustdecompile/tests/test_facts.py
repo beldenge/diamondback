@@ -60,6 +60,12 @@ class TestFactsStatic(unittest.TestCase):
         self.assertIn("runyoself", HOOKS)
         self.assertIn("mousedown", HOOKS)
 
+    def test_advanceday_notes_start_cash_vs_help_loan(self) -> None:
+        notes = LIBRARY["advanceday"]["notes"]
+        blob = " ".join(notes)
+        self.assertIn("start cash is 5", blob)
+        self.assertIn("playercash <= 0", blob)
+
 
 @unittest.skipUnless(default_dust_root() is not None, SKIP)
 class TestFactsAgainstDfExe(unittest.TestCase):
