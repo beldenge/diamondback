@@ -123,7 +123,7 @@ Default run (`/`) is the title chooser. Modes:
 
 | Date | Decision |
 |---|---|
-| 2026-08-27 | Sprite pal 0 on SET/FLT blits is VGA black, not GDI unused-white. Pal 0 salt on doors, INVEN gun/books, and HUB skeletons was the dump; MINE.CST skeletons use MINE.SET (CST table is an RGB cube). Codec skip 255 stays transparent. Traps: [`dfextract/docs/images.md`](dfextract/docs/images.md). |
+| 2026-08-27 | Sprite pal 0 on SET/FLT blits is VGA black, not GDI unused-white. Pal 0 salt on doors, INVEN gun/books, and HUB skeletons was the dump; MINE.CST skeletons use MINE.SET (CST table is an RGB cube). Codec skip is *unwritten* 255; **written** 255 is VGA white (bone/ring highlights). Traps: [`dfextract/docs/images.md`](dfextract/docs/images.md). |
 | 2026-08-27 | Reader `*bord` hittest misses the codec-skip page hole (dumped PNG bbox, not HUD `y < 256` and not whole-sprite `yunnibord`). Inner click is FLT/stage `mousedown` (page turn); frame closes. |
 | 2026-08-27 | HOUSE reader `*bord` dumps from the companion FLT ColorPalette (YUNNI / HIST / PAGES / DIARY / CURE), not chroma-max over every DATA SET. That tie picked TOWN and inverted the leather (`yunnibord` `(88,80,62)` vs `yunnopen.mov` `(41,0,0)`). |
 | 2026-08-27 | Unlocked seeds Yunni INVEN at boot (`mask`, `flute`, `blade`, `tbird`) plus satchel readers (`history`, `pages`, `yunnibook`) via extracted `addinven`, after `helpbut`. No postcards. Diary is mayroom armchair (`diary.flt`); FLT reader chrome is HOUSE `*bord` with a codec-skip page hole so frame clicks close and page clicks turn. Do not set `day = 4`. Avatar-flat layout uses day-4 `moveyoself`. No gun. Traps: [`src/play/README.md`](src/play/README.md) § Unlocked underground. |

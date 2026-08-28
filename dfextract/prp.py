@@ -397,15 +397,17 @@ def _colorize_trans(
     indexes the current SET/FLT palette. Prefer the companion still pal
     with the most chromatic opaque pixels.
     """
-    width, height, pos_x, pos_y, indices = decode_trans_indices(data)
-    own = colorize_sprite(width, height, pos_x, pos_y, indices, house_pal)
+    width, height, pos_x, pos_y, indices, written = decode_trans_indices(data)
+    own = colorize_sprite(
+        width, height, pos_x, pos_y, indices, house_pal, written=written
+    )
     ordered: list[Palette] = []
     if preferred is not None:
         ordered.append(preferred)
     ordered.extend(set_pals)
     if not ordered:
         return own
-    opaque = sum(1 for index in indices if index != 255) or 1
+    opaque = sum(1 for flag in written if flag) or 1
     best = own
     best_chroma = _chroma_count(own)
     seen: set[int] = {id(house_pal)}
@@ -414,7 +416,9 @@ def _colorize_trans(
         if marker in seen:
             continue
         seen.add(marker)
-        sprite = colorize_sprite(width, height, pos_x, pos_y, indices, pal)
+        sprite = colorize_sprite(
+            width, height, pos_x, pos_y, indices, pal, written=written
+        )
         chroma = _chroma_count(sprite)
         # Preferred still-pal wins a chroma tie: pal 0 unused-white vs
         # VGA black does not change chroma (both are fill) but white is

@@ -50,7 +50,8 @@ blank crows and door pal-0 into salt; bottles/plates use real SET slots
 and stay colored. INVEN HUD items 8-bit-blit onto NEW.FLT the same way:
 pal 0 is black grain, not white salt and not a hole. Codec skip
 (unwritten index 255) stays transparent — Dust leaves the framebuffer
-there (gun outline, butbevel hole). Do not key pal 0 through the HUD.
+there (gun outline, butbevel hole). Written trans-sprite 255 is VGA
+white, not skip. Do not key pal 0 through the HUD. Full book below.
 
 Where it lives:
 
@@ -81,7 +82,8 @@ our `still_rgba` / `still_plte`):
 | **0** | almost always unused `0xFFFF` | **black** |
 | **1–254** | 8.8 RGB, or unused `0xFFFF` | high byte, or unused fill |
 | **255** (still pixel) | stored `(0,0,0)` | **white** (ox skull highlights) |
-| **255** (trans-sprite codec) | not a color | **do not write** (leave the framebuffer) |
+| **255 unwritten** (trans skip run) | not a color | **do not write** (gun outline, ring center, butbevel hole) |
+| **255 written** (trans copy/repeat) | stored `(0,0,0)` | **VGA white** (bone/ring speculars). Not skip. |
 
 `DF.EXE` `0x423e59` `sar r16, 8` of unused `0xFFFF` yields **white in
 the GDI `PALETTEENTRY`**. That is not the blit. Using it to expand
@@ -89,13 +91,23 @@ sprite PNGs painted pal 0 as salt. DFET’s unused `(0,0,0)` was the
 right *still-blit* color; calling that “HUD black spots” and flipping
 to white (or keying pal 0 through the leather) were the next two misses.
 
-**Codec skip is the hole, not pal 0.** Trans-sprite decode fills the
-buffer with 255, then writes only the runs the codec names. Unwritten
-255 stays alpha 0 (gun outline, butbevel hole, ring center, reader
-`*bord` page hole). Pal 0 is a **written** index. Help’s legs, TARGET
-crow bodies, gun leather grain, door frames/studs, and hub-skeleton
-specks are pal 0. They must stay **opaque black**. Keying pal 0 makes
-Help legless and moth-eats the holster.
+**Codec skip is the hole, not pal 0, and not every index 255.** Skip
+runs (`flag & 3 == 1`) leave the pixel unwritten — alpha 0 (gun
+outline, ring **center**, butbevel hole, reader `*bord` page hole).
+Copy/repeat can **write** index 255. That is VGA white, the same still
+end as the ox skull. INVEN Bone/large writes 255 twelve times along
+the cream highlight ridge; Ring/large writes it eight times on the
+band. Collapsing those onto skip punched HUD leather through the bone
+and ring. Pal 0 is a **written** index. Help’s legs, TARGET crow
+bodies, gun leather grain, door frames/studs, and hub-skeleton specks
+are pal 0. They must stay **opaque black**. Keying pal 0 makes Help
+legless and moth-eats the holster.
+
+Ring/bone “white specks” that remain after that fix are authored cream
+**247–249** `(255,216,182)` / `(255,234,196)` / `(255,237,198)` — the
+same HELP-letter cream, identical in INVEN, NEW.FLT, and TOWN.SET.
+Not unused, not pal 0. They sit on the gold/bone highlight. SALGAMES
+card cream is the same class of dither.
 
 ### Which palette expands the indices
 
@@ -124,8 +136,10 @@ count on that sprite is 0.
 
 | Sprite | Pal 0 of opaque | Wrong dump | Right dump |
 |---|---|---|---|
-| INVEN `Gun/large` c407 | ~10% (292 px) | white salt on leather | black grain; skip 255 = outline |
+| INVEN `Gun/large` c407 | ~10% (292 px) | white salt on leather | black grain; skip = outline |
 | INVEN `Yunnibook/large` | ~4% | white salt on the cover | black grain |
+| INVEN `Bone/large` | pal 0 = 0; **writes 255 ×12** | leather showing through the ridge | skip = silhouette; written 255 = white highlight |
+| INVEN `Ring/large` | pal 0 = 0; **writes 255 ×8** | extra holes in the band | skip = finger hole; written 255 = white glint |
 | HOUSE `door/court` (town mission) | ~16% | glowing white frame + studs | brown door, dark frame |
 | HOUSE `door/padreout` (inside looking out) | ~20% | whitewashed frame | dark interior pal, pal 0 black |
 | HOUSE `door/rice` (china shop inside) | ~0.7% | white flecks on the scroll | CHIN pal, pal 0 black specks |
@@ -133,7 +147,8 @@ count on that sprite is 0.
 | MINE `skeleton/stand` c3 | (uses SET browns, not pal 0) | cyan/magenta RGB cube | MINE.SET rust + green eyes |
 | SALGAMES `ah/full` | **0** | PRP unused-white wash | FLT cream paper |
 
-Re-dump after a pal change: `python cli.py --type prp,cst --frames`.
+Re-dump after a pal or trans-codec change:
+`python cli.py --type prp,cst,pup --frames`.
 Do not patch `out/**`. Play must not remap opaque black to white on
 INVEN (`spriteBitsFromImageData` has no `unusedWhite`).
 
@@ -151,6 +166,8 @@ INVEN (`spriteBitsFromImageData` has no `unusedWhite`).
 | CST pal when a sibling SET exists, but only if unused-black ≥ 0.7 | TARGET crows worked (empty pal). MINE skeletons rainbowed (full RGB cube). Always take the companion SET. |
 | SET unused-white on TARGET pal 0 | `birdtarg` bodies blank. Pal 0 is crow black. |
 | Treat pal 0 as photographed cream/whitewash | Unused `0xFFFF` has no authored RGB. The engine blits index 0 as black. |
+| Treat every index 255 as codec skip | Bone/ring pinholes (written 255 highlights) become HUD-leather holes. Skip is *unwritten*; written 255 is VGA white. |
+| Key cream 247–249 on the ring/bone | Authored HELP-letter cream, same in INVEN / NEW.FLT / TOWN. Not unused. |
 | Hand-edit `out/**` PNGs to paint out the specks | Re-extract wipes it. Fix `dfextract/` (or play blit), then `--type prp,cst --frames`. |
 
 ## Transparent sprites (PUP faces, CST bodies, small PRP)
@@ -183,7 +200,7 @@ Each payload byte `flag`:
 | `flag & 3` | `count = flag >> 2` | Action |
 |---|---|---|
 | `bit0=1, bit1=1` | copy `count` unique palette indices from the stream (RGBA, alpha 255) |
-| `bit0=1, bit1=0` | `count` transparent pixels (0,0,0,0) |
+| `bit0=1, bit1=0` | `count` **unwritten** pixels (leave framebuffer; not index 255 as a color) |
 | `bit0=0, bit1=1` | repeat the **next** palette index `count` times |
 | `bit0=0, bit1=0` | copy `count` pixels from the previous row |
 

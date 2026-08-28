@@ -143,7 +143,7 @@ These assume the Dust CD tree is present. Checks include:
 - TOWN/NITE/TARGET grids are 225 cells (A–O), not the 129-cell G–O suffix
 - SET stills are `{frame0}_{offset}.png` (O7→N7 walk and an N7 turn both use 1640)
 - Palette 255 is white on stills (O7 skull); L7 west→north wall is not sky
-- Sprite pal 0 is VGA black (gun grain, court/rice doors, hub skeletons); skip 255 is the hole; MINE skeletons use MINE.SET not the CST RGB cube
+- Sprite pal 0 is VGA black (gun grain, court/rice doors, hub skeletons); unwritten skip is the hole; written 255 is VGA white (bone/ring); MINE skeletons use MINE.SET not the CST RGB cube
 - NITEFOUN.MOV and APOTH container 45 decode to 512×264 stills
 
 ## Expected scale of a full run

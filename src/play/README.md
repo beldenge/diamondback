@@ -724,19 +724,24 @@ Play:
   black to white (`unusedWhite` was that remap).
 - Reader `*bord` page hole is codec skip (alpha 0 at the page), not
   pal 0. Hittest uses the dumped opaque bbox.
+- Written trans-sprite index **255** is VGA white (bone/ring
+  highlights), not skip. Only *unwritten* 255 is the hole (ring
+  center). Cream 247–249 on the ring/bone is authored HELP-letter
+  cream, identical in INVEN / NEW.FLT / TOWN.
 
-Tests: `dfextract/tests/test_palette_blit.py`,
-`src/play/occlude.test.ts` (INVEN pal 0 stays black). Re-dump
-`python cli.py --type prp,cst --frames` after a pal change. Extract
-PNGs revalidate (`no-cache` + ETag); a stale gun PNG is the browser
-cache, not play.
+Tests: `dfextract/tests/test_palette_blit.py` (codec written-mask,
+committed gun/doors/bone/ring), `src/play/occlude.test.ts` (INVEN pal 0
+stays black). Re-dump `python cli.py --type prp,cst,pup --frames` after
+a pal or trans-codec change. Extract PNGs revalidate (`no-cache` + ETag);
+a stale gun PNG is the browser cache, not play.
 
 ### Dead ends (do not retry)
 
 | Approach | What we saw |
 |---|---|
 | GDI unused-white for sprite PNGs | Salt on doors, gun, books, hub skeletons. VGA 0 is black. |
-| Key pal 0 through the HUD / still | Help legless; holster moth-eaten. Pal 0 is written. Skip 255 is the hole. |
+| Treat every index 255 as codec skip | Bone/ring pinholes: the codec *wrote* 255 (VGA white highlights). Skip is unwritten. |
+| Key pal 0 through the HUD / still | Help legless; holster moth-eaten. Pal 0 is written. Unwritten skip is the hole. |
 | `unusedWhite` blit: every opaque black → white | Extract-correct grain flipped back to salt on `#play-hand`. |
 | HOUSE unused-black without SET recolor | Silhouette doors. Recolor from the mapped SET, unused-black. |
 | Companion SET pal loaded with unused-white | Pal 0 door frames salt. `_palette_from_header` unused is black. |

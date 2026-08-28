@@ -198,10 +198,11 @@ bit-identical state. Do not invent the `.rtd` layout.
 - `FRAMES/_unnamed/` under PRP — table did not name that container
 - Stale `out/_JENIX` (no `PUP/` prefix) — ignore
 - Titanic-only opcodes in `opcodes.py` that Dust never calls
-- **White specks on sprites are not authored dust.** Pal 0 unused
-  `0xFFFF` 8-bit-blits as VGA black; codec skip 255 is the hole. GDI
-  unused-white, keying pal 0, and MINE.CST’s RGB cube are extract
-  bugs. Book: [images.md](images.md) § Pal 0 vs codec skip 255.
+- **White specks / HUD pinholes on sprites are not authored dust.** Pal 0
+  unused `0xFFFF` 8-bit-blits as VGA black. Unwritten codec skip is the
+  hole; written index 255 is VGA white (bone/ring). GDI unused-white,
+  keying pal 0, collapsing every 255 to skip, and MINE.CST’s RGB cube
+  are extract bugs. Book: [images.md](images.md) § Pal 0 vs codec skip 255.
 
 ---
 

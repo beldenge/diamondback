@@ -19,9 +19,11 @@ Playback book: [`src/play/README.md`](src/play/README.md).
 Extractor: [`dfextract/README.md`](dfextract/README.md).  
 Gaps: [`dfextract/docs/reconstruction-gaps.md`](dfextract/docs/reconstruction-gaps.md).
 
-White specks on sprites (doors, gun, books, skeletons) are **pal 0
-expanded as GDI unused-white**. Sprites 8-bit-blit onto the SET/FLT
-still: pal 0 is VGA **black**, codec skip 255 is the hole. Do not key
-pal 0 and do not remap INVEN black to white. Book:
+White specks / HUD pinholes on sprites are extract, not authored dust.
+Sprites 8-bit-blit onto the SET/FLT still: **pal 0 is VGA black** (not
+GDI unused-white). **Unwritten** codec skip is the hole (ring center,
+gun outline). **Written** index 255 is VGA white (bone/ring highlights)
+— do not treat every 255 as skip. Do not key pal 0. Do not remap INVEN
+black to white. Book:
 [`dfextract/docs/images.md`](dfextract/docs/images.md) § Pal 0 vs codec
-skip 255.
+skip 255. Tests: `dfextract/tests/test_palette_blit.py`.

@@ -103,10 +103,22 @@ CONTACT_SHADOW_ALPHA = 120
 CONTACT_SHADOW_MIN = 8
 CONTACT_SHADOW_MAX = 50
 TRANSPARENT_INDEX = 255
+# Written index 255 is VGA still-white (ox skull, bone/ring highlights).
+# Unwritten pixels (codec skip) stay alpha 0. Do not collapse the two:
+# INVEN Bone/large writes 255 twelve times along the cream ridge.
+VGA_WHITE = (255, 255, 255, 255)
 
 
-def decode_trans_indices(container: bytes) -> tuple[int, int, int, int, bytes]:
-    """Palette indices, 255 = codec skip (alpha 0). Same RLE as decode_trans_sprite."""
+def decode_trans_indices(
+    container: bytes,
+) -> tuple[int, int, int, int, bytes, bytes]:
+    """Palette indices plus a written mask (1 = codec wrote this pixel).
+
+    Skip runs (``flag & 3 == 1``) leave ``written=0`` — those are the
+    knockout (gun outline, ring center, butbevel hole). Copy/repeat can
+    write index 255; that is VGA white, not skip. Copy-from-previous
+    copies the mask too.
+    """
     if len(container) < 8:
         raise ImageError("sprite container smaller than header")
     height, width, raw_y, raw_x = struct.unpack_from("<hhhh", container, 0)
@@ -117,8 +129,7 @@ def decode_trans_indices(container: bytes) -> tuple[int, int, int, int, bytes]:
     pos_x = 512 // 2 - raw_x
 
     indices = bytearray(width * height)
-    for i in range(len(indices)):
-        indices[i] = TRANSPARENT_INDEX
+    written = bytearray(width * height)
     src = 8
     dst = 0
     row = 0
@@ -143,6 +154,7 @@ def decode_trans_indices(container: bytes) -> tuple[int, int, int, int, bytes]:
                         if src >= end:
                             raise ImageError(f"row {row}: mode-4 ran out of input")
                         indices[dst] = container[src]
+                        written[dst] = 1
                         src += 1
                         dst += 1
                 else:
@@ -156,17 +168,19 @@ def decode_trans_indices(container: bytes) -> tuple[int, int, int, int, bytes]:
                     if dst >= row_end:
                         break
                     indices[dst] = color
+                    written[dst] = 1
                     dst += 1
             else:
                 prev = dst - width
                 if prev < 0:
                     raise ImageError(f"row {row}: copy-from-previous on first row")
                 indices[dst : dst + copy] = indices[prev : prev + copy]
+                written[dst : dst + copy] = written[prev : prev + copy]
                 dst += copy
         row += 1
         dst = row * width
 
-    return width, height, pos_x, pos_y, bytes(indices)
+    return width, height, pos_x, pos_y, bytes(indices), bytes(written)
 
 
 def contact_shadow_mask(
@@ -209,16 +223,25 @@ def colorize_sprite(
     palette: Palette,
     shadow_indices: frozenset[int] | set[int] | None = None,
     transparent_indices: frozenset[int] | set[int] | None = None,
+    written: bytes | None = None,
 ) -> Sprite:
     shadows = shadow_indices or frozenset()
     keyed = set(transparent_indices or ())
-    keyed.add(TRANSPARENT_INDEX)
     foot = contact_shadow_mask(width, height, indices, shadows)
     pixels = bytearray(width * height * 4)
     for i, index in enumerate(indices):
-        if index in keyed:
+        if written is not None:
+            if not written[i]:
+                continue
+        elif index in keyed or index == TRANSPARENT_INDEX:
             continue
         dest = i * 4
+        # Written 255 is VGA white (still end). Unwritten 255 is skip.
+        if index == TRANSPARENT_INDEX:
+            pixels[dest : dest + 4] = bytes(VGA_WHITE)
+            continue
+        if index in keyed:
+            continue
         # Foot-blob only. The same index on the body is clothes (Help's
         # dark folds), not leftover chroma — keep those pixels opaque.
         if index in shadows and i in foot:
@@ -240,7 +263,7 @@ def decode_trans_sprite(
     shadow_indices: frozenset[int] | set[int] | None = None,
     transparent_indices: frozenset[int] | set[int] | None = None,
 ) -> Sprite:
-    width, height, pos_x, pos_y, indices = decode_trans_indices(container)
+    width, height, pos_x, pos_y, indices, written = decode_trans_indices(container)
     return colorize_sprite(
         width,
         height,
@@ -250,6 +273,7 @@ def decode_trans_sprite(
         palette,
         shadow_indices,
         transparent_indices,
+        written,
     )
 
 

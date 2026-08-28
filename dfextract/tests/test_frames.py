@@ -246,7 +246,7 @@ class TestFrames(unittest.TestCase):
                 opaque_black += 1
             if alpha == 0:
                 trans += 1
-        self.assertEqual(white, 0)
+        self.assertLess(white, 10)
         self.assertGreater(opaque_black, 200)
         self.assertGreater(trans, 1000)
 

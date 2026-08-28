@@ -129,7 +129,7 @@ def detect_contact_shadows(
         if frame_id < 0 or frame_id >= len(df.containers):
             continue
         try:
-            width, height, _x, _y, indices = decode_trans_indices(
+            width, height, _x, _y, indices, written = decode_trans_indices(
                 df.containers[frame_id].data
             )
         except ImageError:
@@ -139,7 +139,7 @@ def detect_contact_shadows(
             row = y * width
             for x in range(width):
                 index = indices[row + x]
-                if index == 255:
+                if not written[row + x]:
                     continue
                 total[index] += 1
                 if y >= cut:
@@ -186,11 +186,11 @@ def cst_palette_misses_sprites(df: DFFile, palette) -> bool:
     total = 0
     for container in df.containers[1:40]:
         try:
-            _h, _w, _y, _x, indices = decode_trans_indices(container.data)
+            _h, _w, _y, _x, indices, written = decode_trans_indices(container.data)
         except (ImageError, ValueError, struct.error):
             continue
-        for index in indices:
-            if index == 255:
+        for i, index in enumerate(indices):
+            if not written[i]:
                 continue
             total += 1
             if index >= len(palette.colors) or palette.colors[index] == (0, 0, 0):

@@ -1,12 +1,14 @@
-"""Pal 0 is VGA still black; codec skip 255 is the hole.
+"""Pal 0 is VGA still black; unwritten skip is the hole; written 255 is white.
 
 Book: dfextract/docs/images.md § Pal 0 vs codec skip 255.
 Do not expand unused 0xFFFF as GDI white on SET/FLT blits, do not key
-pal 0, do not remap INVEN opaque black to white.
+pal 0, do not treat every index 255 as skip, do not remap INVEN opaque
+black to white.
 """
 
 from __future__ import annotations
 
+import struct
 import sys
 import tempfile
 import unittest
@@ -27,6 +29,8 @@ from cst import (
 )
 from image import (
     TRANSPARENT_INDEX,
+    VGA_WHITE,
+    Palette,
     colorize_sprite,
     cst_palette,
     decode_trans_indices,
@@ -66,14 +70,19 @@ def _catalog_item(df, group: str, state: str, index: int = 0):
     )
 
 
+def _decode(df, container_id: int):
+    return decode_trans_indices(df.containers[container_id].data)
+
+
 def _indices(df, container_id: int) -> bytes:
-    return decode_trans_indices(df.containers[container_id].data)[4]
+    return _decode(df, container_id)[4]
 
 
 def _assert_pal0_black_skip_trans(
     test: unittest.TestCase,
     indices: bytes,
     rgba: bytes,
+    written: bytes,
     *,
     min_pal0: int = 1,
     min_skip: int = 0,
@@ -82,11 +91,20 @@ def _assert_pal0_black_skip_trans(
     skip = 0
     white_from_pal0 = 0
     keyed_pal0 = 0
+    wrote_255 = 0
     for i, index in enumerate(indices):
         red, green, blue, alpha = rgba[i * 4 : i * 4 + 4]
-        if index == TRANSPARENT_INDEX:
+        if not written[i]:
             skip += 1
-            test.assertEqual(alpha, 0, "codec skip 255 must stay alpha 0")
+            test.assertEqual(alpha, 0, "codec skip (unwritten) must stay alpha 0")
+            continue
+        if index == TRANSPARENT_INDEX:
+            wrote_255 += 1
+            test.assertEqual(
+                (red, green, blue, alpha),
+                (255, 255, 255, 255),
+                "written 255 is VGA white, not a hole",
+            )
             continue
         if index == 0:
             pal0 += 1
@@ -105,13 +123,20 @@ def _assert_pal0_black_skip_trans(
     test.assertEqual(keyed_pal0, 0)
 
 
-def _png_matches_indices(test: unittest.TestCase, path: Path, indices: bytes, width: int, height: int) -> None:
+def _png_matches_indices(
+    test: unittest.TestCase,
+    path: Path,
+    indices: bytes,
+    written: bytes,
+    width: int,
+    height: int,
+) -> None:
     test.assertTrue(path.exists(), path)
     with Image.open(path) as image:
         pixels = list(image.convert("RGBA").getdata())
     test.assertEqual(len(pixels), width * height, path)
     rgba = bytes(c for pixel in pixels for c in pixel)
-    _assert_pal0_black_skip_trans(test, indices, rgba)
+    _assert_pal0_black_skip_trans(test, indices, rgba, written)
 
 
 def _house_door_sprite(state: str):
@@ -124,10 +149,77 @@ def _house_door_sprite(state: str):
     sprite = _colorize_trans(
         df.containers[item.container].data, house_pal, set_pal, []
     )
-    width, height, _x, _y, indices = decode_trans_indices(
+    width, height, _x, _y, indices, written = decode_trans_indices(
         df.containers[item.container].data
     )
-    return sprite, indices, width, height, item
+    return sprite, indices, written, width, height, item
+
+
+def _trans_container(height: int, width: int, rows: list[bytes]) -> bytes:
+    """Minimal trans-sprite bytes: header + per-row (i16 size, payload)."""
+    blob = struct.pack("<hhhh", height, width, 0, 0)
+    for payload in rows:
+        blob += struct.pack("<h", len(payload)) + payload
+    return blob
+
+
+class TestTransCodecWrittenMask(unittest.TestCase):
+    """No Dust tree. Skip vs written 255 is the bone/ring pinhole bug."""
+
+    def test_skip_stays_clear_written_255_is_vga_white(self) -> None:
+        # 2×2: skip, write 255; copy-prev skip, write pal 0.
+        # flags: skip=(count<<2)|1, unique=(count<<2)|3, prev=(count<<2).
+        container = _trans_container(
+            2,
+            2,
+            [
+                bytes((5, 7, 255)),
+                bytes((4, 7, 0)),
+            ],
+        )
+        width, height, _x, _y, indices, written = decode_trans_indices(container)
+        self.assertEqual((width, height), (2, 2))
+        self.assertEqual(list(written), [0, 1, 0, 1])
+        self.assertEqual(indices[1], 255)
+        self.assertEqual(indices[3], 0)
+        pal = Palette(colors=[(1, 2, 3)] * 256)
+        sprite = colorize_sprite(
+            width, height, 0, 0, indices, pal, written=written
+        )
+        self.assertEqual(sprite.rgba[0:4], b"\x00\x00\x00\x00")
+        self.assertEqual(tuple(sprite.rgba[4:8]), VGA_WHITE)
+        self.assertEqual(sprite.rgba[8:12], b"\x00\x00\x00\x00")
+        self.assertEqual(sprite.rgba[12:16], b"\x01\x02\x03\xff")
+
+    def test_copy_from_previous_copies_written_255(self) -> None:
+        container = _trans_container(
+            2,
+            1,
+            [
+                bytes((7, 255)),
+                bytes((4,)),
+            ],
+        )
+        width, height, _x, _y, indices, written = decode_trans_indices(container)
+        self.assertEqual(list(written), [1, 1])
+        self.assertEqual(indices[0], 255)
+        self.assertEqual(indices[1], 255)
+        pal = Palette(colors=[(0, 0, 0)] * 256)
+        sprite = decode_trans_sprite(container, pal)
+        self.assertEqual(tuple(sprite.rgba[0:4]), VGA_WHITE)
+        self.assertEqual(tuple(sprite.rgba[4:8]), VGA_WHITE)
+
+    def test_collapsing_255_to_skip_is_the_pinhole_bug(self) -> None:
+        """colorize without a written mask still keys 255 (legacy). Decode must pass the mask."""
+        container = _trans_container(1, 1, [bytes((7, 255))])
+        width, height, _x, _y, indices, written = decode_trans_indices(container)
+        pal = Palette(colors=[(0, 0, 0)] * 256)
+        punched = colorize_sprite(width, height, 0, 0, indices, pal)
+        filled = colorize_sprite(
+            width, height, 0, 0, indices, pal, written=written
+        )
+        self.assertEqual(punched.rgba[3], 0)
+        self.assertEqual(tuple(filled.rgba[0:4]), VGA_WHITE)
 
 
 class TestPaletteBlit(unittest.TestCase):
@@ -154,19 +246,15 @@ class TestPaletteBlit(unittest.TestCase):
         item = _catalog_item(df, "Gun", "large")
         pal = find_palette(df.containers[0].data, unused_rgb=(0, 0, 0))
         assert pal is not None
-        width, height, x, y, indices = decode_trans_indices(
+        width, height, x, y, indices, written = decode_trans_indices(
             df.containers[item.container].data
         )
-        sprite = colorize_sprite(width, height, x, y, indices, pal)
+        sprite = colorize_sprite(
+            width, height, x, y, indices, pal, written=written
+        )
         _assert_pal0_black_skip_trans(
-            self, indices, sprite.rgba, min_pal0=200, min_skip=1000
+            self, indices, sprite.rgba, written, min_pal0=200, min_skip=1000
         )
-        white = sum(
-            1
-            for i in range(0, len(sprite.rgba), 4)
-            if sprite.rgba[i : i + 4] == b"\xff\xff\xff\xff"
-        )
-        self.assertEqual(white, 0)
 
     def test_yunnibook_pal0_is_grain_not_salt(self) -> None:
         if not INVEN.exists():
@@ -175,11 +263,15 @@ class TestPaletteBlit(unittest.TestCase):
         item = _catalog_item(df, "Yunnibook", "large")
         pal = find_palette(df.containers[0].data, unused_rgb=(0, 0, 0))
         assert pal is not None
-        width, height, x, y, indices = decode_trans_indices(
+        width, height, x, y, indices, written = decode_trans_indices(
             df.containers[item.container].data
         )
-        sprite = colorize_sprite(width, height, x, y, indices, pal)
-        _assert_pal0_black_skip_trans(self, indices, sprite.rgba, min_pal0=50)
+        sprite = colorize_sprite(
+            width, height, x, y, indices, pal, written=written
+        )
+        _assert_pal0_black_skip_trans(
+            self, indices, sprite.rgba, written, min_pal0=50
+        )
 
     def test_helpbut_pal0_is_opaque_letter_counters_are_cream(self) -> None:
         """HELP P hole is cream (idx 249), not pal 0 and not a knockout."""
@@ -189,12 +281,14 @@ class TestPaletteBlit(unittest.TestCase):
         item = _catalog_item(df, "helpbut", "large")
         pal = find_palette(df.containers[0].data, unused_rgb=(0, 0, 0))
         assert pal is not None
-        width, height, x, y, indices = decode_trans_indices(
+        width, height, x, y, indices, written = decode_trans_indices(
             df.containers[item.container].data
         )
-        sprite = colorize_sprite(width, height, x, y, indices, pal)
-        pal0 = sum(1 for index in indices if index == 0)
-        skip = sum(1 for index in indices if index == TRANSPARENT_INDEX)
+        sprite = colorize_sprite(
+            width, height, x, y, indices, pal, written=written
+        )
+        pal0 = sum(1 for i, index in enumerate(indices) if written[i] and index == 0)
+        skip = sum(1 for flag in written if not flag)
         self.assertGreater(pal0, 10)
         self.assertEqual(skip, 0)
         cream = 0
@@ -208,8 +302,10 @@ class TestPaletteBlit(unittest.TestCase):
     def test_court_door_pal0_is_black_not_whitewash(self) -> None:
         if not HOUSE.exists():
             self.skipTest("HOUSE.PRP not present")
-        sprite, indices, _w, _h, _item = _house_door_sprite("court")
-        _assert_pal0_black_skip_trans(self, indices, sprite.rgba, min_pal0=1000)
+        sprite, indices, written, _w, _h, _item = _house_door_sprite("court")
+        _assert_pal0_black_skip_trans(
+            self, indices, sprite.rgba, written, min_pal0=1000
+        )
         chroma = sum(
             1
             for i in range(0, len(sprite.rgba), 4)
@@ -221,14 +317,18 @@ class TestPaletteBlit(unittest.TestCase):
     def test_rice_door_pal0_is_black_flecks(self) -> None:
         if not HOUSE.exists():
             self.skipTest("HOUSE.PRP not present")
-        sprite, indices, _w, _h, _item = _house_door_sprite("rice")
-        _assert_pal0_black_skip_trans(self, indices, sprite.rgba, min_pal0=100)
+        sprite, indices, written, _w, _h, _item = _house_door_sprite("rice")
+        _assert_pal0_black_skip_trans(
+            self, indices, sprite.rgba, written, min_pal0=100
+        )
 
     def test_padreout_door_pal0_is_black(self) -> None:
         if not HOUSE.exists():
             self.skipTest("HOUSE.PRP not present")
-        sprite, indices, _w, _h, _item = _house_door_sprite("padreout")
-        _assert_pal0_black_skip_trans(self, indices, sprite.rgba, min_pal0=1000)
+        sprite, indices, written, _w, _h, _item = _house_door_sprite("padreout")
+        _assert_pal0_black_skip_trans(
+            self, indices, sprite.rgba, written, min_pal0=1000
+        )
 
     def test_hub_skeleton_uses_set_pal_pal0_black(self) -> None:
         if not HUB.exists():
@@ -241,16 +341,12 @@ class TestPaletteBlit(unittest.TestCase):
         sprite = _colorize_trans(
             df.containers[item.container].data, house_pal, set_pal, []
         )
-        width, height, _x, _y, indices = decode_trans_indices(
+        width, height, _x, _y, indices, written = decode_trans_indices(
             df.containers[item.container].data
         )
-        _assert_pal0_black_skip_trans(self, indices, sprite.rgba, min_pal0=10)
-        white = sum(
-            1
-            for i in range(0, len(sprite.rgba), 4)
-            if sprite.rgba[i : i + 4] == b"\xff\xff\xff\xff"
+        _assert_pal0_black_skip_trans(
+            self, indices, sprite.rgba, written, min_pal0=10
         )
-        self.assertEqual(white, 0)
 
     def test_mine_companion_set_wins_even_when_cst_pal_is_a_full_cube(self) -> None:
         if not MINE.exists():
@@ -290,12 +386,16 @@ class TestPaletteBlit(unittest.TestCase):
         df = read_df_file(GANG)
         palette = cst_frame_palette(df)
         self.assertEqual(palette.colors[0], (0, 0, 0))
-        width, height, x, y, indices = decode_trans_indices(df.containers[112].data)
-        sprite = colorize_sprite(width, height, x, y, indices, palette)
-        pal0 = sum(1 for index in indices if index == 0)
+        width, height, x, y, indices, written = decode_trans_indices(
+            df.containers[112].data
+        )
+        sprite = colorize_sprite(
+            width, height, x, y, indices, palette, written=written
+        )
+        pal0 = sum(1 for i, index in enumerate(indices) if written[i] and index == 0)
         self.assertGreater(pal0, 100)
         for i, index in enumerate(indices):
-            if index == 0:
+            if written[i] and index == 0:
                 self.assertEqual(sprite.rgba[i * 4 : i * 4 + 4], b"\x00\x00\x00\xff")
 
     def test_ace_does_not_sample_pal0_cream_is_flt(self) -> None:
@@ -303,8 +403,8 @@ class TestPaletteBlit(unittest.TestCase):
             self.skipTest("SALGAMES.PRP not present")
         df = read_df_file(SALGAMES)
         item = _catalog_item(df, "ah", "full")
-        indices = _indices(df, item.container)
-        pal0 = sum(1 for index in indices if index == 0)
+        _w, _h, _x, _y, indices, written = _decode(df, item.container)
+        pal0 = sum(1 for i, index in enumerate(indices) if written[i] and index == 0)
         self.assertEqual(pal0, 0)
         flt = _companion_flt_palette(SALGAMES)
         prp = find_palette(df.containers[0].data, unused_rgb=(255, 255, 255))
@@ -324,7 +424,69 @@ class TestPaletteBlit(unittest.TestCase):
             if rgb in ((255, 255, 198), (255, 255, 189)):
                 cream += 1
         self.assertGreater(cream, 1000)
-        self.assertEqual(white, 0)
+        # A few written-255 VGA whites on the paper; not unused-pal wash.
+        self.assertLess(white, 20)
+
+    def test_bone_written_255_is_white_highlight_not_a_hole(self) -> None:
+        """Bone/large writes index 255 twelve times on the cream ridge.
+
+        Treating every 255 as skip punched HUD leather through the bone.
+        Unwritten skip stays the silhouette; written 255 is VGA white.
+        """
+        if not INVEN.exists():
+            self.skipTest("INVEN.PRP not present")
+        df = read_df_file(INVEN)
+        item = _catalog_item(df, "Bone", "large")
+        pal = find_palette(df.containers[0].data, unused_rgb=(0, 0, 0))
+        assert pal is not None
+        width, height, x, y, indices, written = decode_trans_indices(
+            df.containers[item.container].data
+        )
+        sprite = colorize_sprite(
+            width, height, x, y, indices, pal, written=written
+        )
+        wrote_255 = 0
+        skip = 0
+        for i, index in enumerate(indices):
+            alpha = sprite.rgba[i * 4 + 3]
+            if not written[i]:
+                skip += 1
+                self.assertEqual(alpha, 0)
+                continue
+            if index == TRANSPARENT_INDEX:
+                wrote_255 += 1
+                self.assertEqual(sprite.rgba[i * 4 : i * 4 + 4], b"\xff\xff\xff\xff")
+        self.assertEqual(wrote_255, 12)
+        self.assertGreater(skip, 400)
+
+    def test_ring_center_is_skip_band_highlights_are_written_255(self) -> None:
+        """Ring/large finger hole is unwritten; eight band pixels write 255."""
+        if not INVEN.exists():
+            self.skipTest("INVEN.PRP not present")
+        df = read_df_file(INVEN)
+        item = _catalog_item(df, "Ring", "large")
+        pal = find_palette(df.containers[0].data, unused_rgb=(0, 0, 0))
+        assert pal is not None
+        width, height, x, y, indices, written = decode_trans_indices(
+            df.containers[item.container].data
+        )
+        sprite = colorize_sprite(
+            width, height, x, y, indices, pal, written=written
+        )
+        wrote_255 = 0
+        skip = 0
+        cx, cy = width // 2, height // 2
+        self.assertFalse(written[cy * width + cx], "ring center must be skip")
+        self.assertEqual(sprite.rgba[(cy * width + cx) * 4 + 3], 0)
+        for i, index in enumerate(indices):
+            if not written[i]:
+                skip += 1
+                continue
+            if index == TRANSPARENT_INDEX:
+                wrote_255 += 1
+                self.assertEqual(sprite.rgba[i * 4 : i * 4 + 4], b"\xff\xff\xff\xff")
+        self.assertEqual(wrote_255, 8)
+        self.assertGreater(skip, 1000)
 
     def test_write_inven_and_hub_keep_pal0_black(self) -> None:
         if not INVEN.exists() or not HUB.exists():
@@ -341,16 +503,16 @@ class TestPaletteBlit(unittest.TestCase):
             skel = dest / "hub" / "FRAMES" / "skeleton1" / "stand" / "00_c67.png"
             df_i = read_df_file(INVEN)
             gun_item = _catalog_item(df_i, "Gun", "large")
-            gw, gh, _x, _y, gidx = decode_trans_indices(
+            gw, gh, _x, _y, gidx, gwritten = decode_trans_indices(
                 df_i.containers[gun_item.container].data
             )
-            _png_matches_indices(self, gun, gidx, gw, gh)
+            _png_matches_indices(self, gun, gidx, gwritten, gw, gh)
             df_h = read_df_file(HUB)
             sk_item = _catalog_item(df_h, "skeleton1", "stand")
-            sw, sh, _x, _y, sidx = decode_trans_indices(
+            sw, sh, _x, _y, sidx, swritten = decode_trans_indices(
                 df_h.containers[sk_item.container].data
             )
-            _png_matches_indices(self, skel, sidx, sw, sh)
+            _png_matches_indices(self, skel, sidx, swritten, sw, sh)
 
     def test_write_mine_stand_is_rust_not_cube(self) -> None:
         if not MINE.exists():
@@ -422,10 +584,10 @@ class TestPaletteBlit(unittest.TestCase):
         for path, src, group, state in samples:
             df = read_df_file(src)
             item = _catalog_item(df, group, state)
-            width, height, _x, _y, indices = decode_trans_indices(
+            width, height, _x, _y, indices, written = decode_trans_indices(
                 df.containers[item.container].data
             )
-            _png_matches_indices(self, path, indices, width, height)
+            _png_matches_indices(self, path, indices, written, width, height)
 
     def test_committed_mine_stand_is_not_rainbow(self) -> None:
         path = OUT / "CST" / "_MINE" / "skeleton" / "stand" / "frame_3.png"
@@ -465,7 +627,8 @@ class TestPaletteBlit(unittest.TestCase):
                 if (red, green, blue) in ((255, 255, 198), (255, 255, 189)):
                     cream += 1
         self.assertGreater(cream, 1000)
-        self.assertEqual(white, 0)
+        # A few written-255 VGA whites on the paper; not unused-pal wash.
+        self.assertLess(white, 20)
 
     def test_committed_reader_and_bevel_holes_are_codec_skip(self) -> None:
         bords = (
@@ -480,6 +643,42 @@ class TestPaletteBlit(unittest.TestCase):
         with Image.open(bords[1]) as image:
             mid = image.convert("RGBA").getpixel((36, 11))
         self.assertEqual(mid[3], 0)
+
+    def test_committed_ring_and_bone_keep_skip_and_written_255(self) -> None:
+        """Stale dump that keyed every 255 would punch the bone ridge and ring band."""
+        ring_png = OUT / "PRP" / "_INVEN" / "FRAMES" / "Ring" / "large" / "00_c20.png"
+        bone_png = OUT / "PRP" / "_INVEN" / "FRAMES" / "Bone" / "large" / "00_c12.png"
+        if not ring_png.exists() or not bone_png.exists():
+            self.skipTest("INVEN frames not dumped")
+        if not INVEN.exists():
+            self.skipTest("INVEN.PRP not present")
+        df = read_df_file(INVEN)
+        for path, group, state, expect_255, expect_center_skip in (
+            (ring_png, "Ring", "large", 8, True),
+            (bone_png, "Bone", "large", 12, False),
+        ):
+            item = _catalog_item(df, group, state)
+            width, height, _x, _y, indices, written = decode_trans_indices(
+                df.containers[item.container].data
+            )
+            with Image.open(path) as image:
+                pixels = list(image.convert("RGBA").getdata())
+            wrote = 0
+            for i, index in enumerate(indices):
+                if written[i] and index == TRANSPARENT_INDEX:
+                    wrote += 1
+                    self.assertEqual(
+                        pixels[i][:4],
+                        (255, 255, 255, 255),
+                        f"{group} written 255 must be opaque white in the dump",
+                    )
+                if not written[i]:
+                    self.assertEqual(pixels[i][3], 0, f"{group} skip must stay a hole")
+            self.assertEqual(wrote, expect_255)
+            if expect_center_skip:
+                cx, cy = width // 2, height // 2
+                self.assertFalse(written[cy * width + cx])
+                self.assertEqual(pixels[cy * width + cx][3], 0)
 
 
 if __name__ == "__main__":
