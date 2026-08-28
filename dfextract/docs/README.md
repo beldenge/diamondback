@@ -14,7 +14,7 @@ and know what is still wrong.
 | [container-format.md](container-format.md) | `LPPALPPA` file header and container table |
 | [scripts.md](scripts.md) | 8-byte script tokens and the opcode table |
 | [audio.md](audio.md) | Dust v1 ADPCM (`v40` / `v41`) |
-| [images.md](images.md) | Palette, sprites, SET/MOV stills (sizes, 255/L7/skull) |
+| [images.md](images.md) | Palette, sprites, SET/MOV stills (sizes, 255/L7/skull). **Pal 0 vs codec skip 255** (white salt on doors / gun / skeletons) |
 | [performance.md](performance.md) | Why the dump was slow, what we changed, leftover speed ideas |
 | [file-types.md](file-types.md) | PUP, CST, SND, BOOT, SET, FLT, PRP, MOV |
 | [findings.md](findings.md) | Sources, what we proved, limits, vs DFET |

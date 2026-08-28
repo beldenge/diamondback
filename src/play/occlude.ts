@@ -413,21 +413,10 @@ export function liveZPlaneForStill(
 
 export function spriteBitsFromImageData(
   image: ImageData,
-  opts?: { unusedWhite?: boolean; restoreShadow?: boolean },
+  opts?: { restoreShadow?: boolean },
 ): SpriteBits {
   const data = new Uint8ClampedArray(image.data);
-  if (opts?.unusedWhite) {
-    // DF.EXE 0x423e59: unused pal 0 is white. Opaque leftover black
-    // (DFET wrote 0xFFFF as (0,0,0)). Codec skip stays alpha 0.
-    for (let p = 0; p < data.length; p += 4) {
-      if (data[p] === 0 && data[p + 1] === 0 && data[p + 2] === 0 && data[p + 3] !== 0) {
-        data[p] = 255;
-        data[p + 1] = 255;
-        data[p + 2] = 255;
-        data[p + 3] = 255;
-      }
-    }
-  } else if (opts?.restoreShadow !== false) {
+  if (opts?.restoreShadow !== false) {
     restoreSpriteAlpha(data, image.width, image.height);
   }
   return { data, w: image.width, h: image.height };

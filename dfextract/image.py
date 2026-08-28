@@ -39,10 +39,12 @@ class Palette:
             if red == -1 and green == -1 and blue == -1:
                 # Unused 8.8 is 0xFFFF. DF.EXE 0x423e59 `sar r16, 8` on
                 # ColorPalette RGB; high byte of 0xFFFF is 255 (white).
-                # DFET wrote (0,0,0) instead — INVEN HUD "black spots".
-                # CST world actors keep unused→black: they index-blit onto
-                # the SET 8-bit still, whose VGA index 0 is black (Help's
-                # legs are pal 0). Pass unused_rgb=(0,0,0) for that path.
+                # Default stays white for that GDI conversion. Sprites that
+                # 8-bit-blit onto a SET/FLT still must pass unused_rgb
+                # (0,0,0): VGA index 0 is black (Help's legs, crow bodies,
+                # door pal-0, gun leather grain). Dumping those as white
+                # was the salt on doors / skeletons / INVEN. Codec skip
+                # (unwritten 255) is the real knockout, not pal 0.
                 colors.append(unused_rgb if unused_rgb is not None else (255, 255, 255))
             else:
                 colors.append(

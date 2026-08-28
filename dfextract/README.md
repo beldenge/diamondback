@@ -246,6 +246,7 @@ python tests/test_cli.py
 python tests/test_pup_scripts.py
 python tests/test_known_types.py
 python tests/test_frames.py
+python tests/test_palette_blit.py
 python tests/test_remaining.py
 python tests/test_prp_names.py
 python tests/test_mov_video.py

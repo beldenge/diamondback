@@ -97,7 +97,7 @@ export function isPuzzleStage(stage: string): boolean {
   return name !== "" && name !== "none" && name !== "new" && name !== "target";
 }
 
-/** HOUSE chrome around FLT readers. 512×384, pal 0 in the page hole. */
+/** HOUSE chrome around FLT readers. 512×384; page hole is codec skip 255, not pal 0. */
 export const READER_BORDER_PROPS = ["diarybord", "histbord", "pagebord", "yunnibord"] as const;
 
 export const READER_STAGES: Readonly<Record<string, (typeof READER_BORDER_PROPS)[number]>> = {

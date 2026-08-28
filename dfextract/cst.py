@@ -206,7 +206,7 @@ def cst_frame_palette(df: DFFile, cst_path: Path | None = None):
     palette = cst_palette(df.containers[0].data)
     path = cst_path or df.path
     set_path = companion_set_path(path) if path else None
-    if not set_path or not cst_palette_misses_sprites(df, palette):
+    if not set_path:
         return palette
     sibling = read_df_file(set_path)
     if not sibling.containers:
@@ -214,6 +214,9 @@ def cst_frame_palette(df: DFFile, cst_path: Path | None = None):
     # Index-blit onto the SET still: VGA index 0 is black (crow bodies,
     # Help's legs). Default find_palette unused-white washed those to
     # blank. Used SET slots stay the still colors (bottles, plates).
+    # MINE.CST stores a full RGB-cube ColorPalette that is not the SET;
+    # requiring unused-black misses (≥0.7) kept the cube and rainbowed
+    # the sundial/mine skeletons. Companion SET wins whenever it exists.
     set_pal = find_palette(sibling.containers[0].data, unused_rgb=(0, 0, 0))
     return set_pal if set_pal else palette
 

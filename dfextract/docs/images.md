@@ -5,8 +5,8 @@ Two codecs. Palette is shared.
 Implementation: `image.py`. PNG write uses Pillow. SET/MOV/FLT stills
 are written as **8-bit paletted PNGs** (`IHDR` color type 3). The `PLTE`
 chunk is the still palette with DFET VGA ends (index 0 black, 255 white),
-so a viewer expands to the same RGB as `still_rgba`. PUP/CST sprites stay
-RGBA because they have real per-pixel alpha.
+so a viewer expands to the same RGB as `still_rgba`. PUP/CST/PRP trans
+sprites stay RGBA because they have real per-pixel alpha (codec skip).
 
 ## Palette
 
@@ -18,33 +18,39 @@ i16 R, G, B     # 8.8 fixed point; we take the high byte
 ```
 
 `R == G == B == -1` (`0xFFFF`) means “unused”. DF.EXE `0x423e59` does
-`sar r16, 8` on those 8.8 channels, so the high byte is **255 (white)**.
-DFET wrote unused as `(0,0,0)` — that was the INVEN HUD “black spots”
-(HELP letter counters, gun leather flecks) and inverted SALGAMES card
-faces. Trans sprites follow the EXE (white) except HOUSE world overlays,
-which keep unused→black and recolor from the SET palette. HOUSE
-reader chrome (`yunnibord`, `histbord`, `pagebord`, `diarybord`,
-`curebord`) 8-bit-blits onto the companion FLT still (YUNNI / HIST /
-PAGES / DIARY / CURE), not a town SET. Scoring every DATA SET by
-chroma ties on TOWN and inverts the leather (`yunnibord` dump
-`(88,80,62)` vs `yunnopen.mov` `(41,0,0)`). Minigame
-PRPs (SALGAMES, CHECKERS, …) 8-bit-blit onto a sibling FLT still;
-that FLT ColorPalette expands the indices. Using the PRP palette
-(almost all unused-white) washes card faces to blank.
+`sar r16, 8` on those 8.8 channels, so the high byte is **255 (white)**
+in the GDI palette struct. Sprites that **8-bit-blit onto a SET/FLT
+still** share that still’s VGA ends: index **0 is black**, not unused
+white. Dumping pal 0 as white was the salt on HOUSE door frames (court /
+padreout), INVEN gun leather, Yunni-book grain, and HUB skeletons.
+DFET’s unused `(0,0,0)` was the right *still-blit* color; treating it as
+a HUD knockout (or as GDI white) was the miss. Codec skip (unwritten
+index 255) stays transparent. HOUSE world overlays keep unused→black
+and recolor from the SET palette. HOUSE reader chrome (`yunnibord`,
+`histbord`, `pagebord`, `diarybord`, `curebord`) 8-bit-blits onto the
+companion FLT still (YUNNI / HIST / PAGES / DIARY / CURE), not a town
+SET. Scoring every DATA SET by chroma ties on TOWN and inverts the
+leather (`yunnibord` dump `(88,80,62)` vs `yunnopen.mov` `(41,0,0)`).
+Minigame PRPs (SALGAMES, CHECKERS, …) 8-bit-blit onto a sibling FLT
+still; that FLT ColorPalette expands the indices. Using the PRP palette
+(almost all unused-white) washes card faces to blank. CST with a
+sibling SET (MINE, TARGET) uses the SET pal — MINE.CST’s own table is
+an RGB cube and rainbows the skeletons.
 
 SET/MOV/FLT **stills** follow DFET’s BMP VGA ends: index **0 is always
 black**, index **255 is always white**. Dust stores 255 as `(0,0,0)` in
 the ColorPalette; using that value made the O7 ox skull a black hole
 while `_NITE` (which paints the skull with real tan/gray indices) looked
 fine. CST world actors keep unused→black: they index-blit onto that
-8-bit still (Help’s legs are pal 0). TARGET.CST sprite indices
-miss that CST pal 36 table (almost all unused-black); dump those
-plates with the sibling TARGET.SET ColorPalette, unused→**black**
+8-bit still (Help’s legs are pal 0). TARGET.CST / MINE.CST sprite
+indices miss the CST ColorPalette (unused-black, or a dummy RGB cube);
+dump those plates with the sibling SET ColorPalette, unused→**black**
 (VGA still index 0). Unused-white turns `birdtarg` pal-0 bodies into
-blank crows; bottles/plates use real SET slots and stay colored. INVEN HUD items are RGB-expanded
-and sample pal 0 as white. Codec skip (unwritten index 255) stays
-transparent — Dust leaves the framebuffer there (gun outline, butbevel
-hole). Do not key pal 0 through the HUD.
+blank crows and door pal-0 into salt; bottles/plates use real SET slots
+and stay colored. INVEN HUD items 8-bit-blit onto NEW.FLT the same way:
+pal 0 is black grain, not white salt and not a hole. Codec skip
+(unwritten index 255) stays transparent — Dust leaves the framebuffer
+there (gun outline, butbevel hole). Do not key pal 0 through the HUD.
 
 Where it lives:
 
@@ -55,6 +61,97 @@ Where it lives:
 | SET / FLT / PRP / MOV | first offset at which indices 0,1,2 appear on an 8-byte stride (`find_palette`) |
 
 On SET, that search hits offset **80**.
+
+## Pal 0 vs codec skip 255 (locked — do not re-debug)
+
+White specks on doors, the INVEN gun, books, hub skeletons, and a
+rainbow mine skeleton were **the same extract bug**, re-litigated as
+HUD holes, GDI white, and CST cubes. This section is the book. Play
+blit: [`src/play/README.md`](../../src/play/README.md) § Sprite palettes.
+Tests: `tests/test_palette_blit.py`, `tests/test_frames.py`,
+`src/play/occlude.test.ts`.
+
+Dust is an **8-bit framebuffer**. Sprites do not RGB-composite through
+the PRP/CST ColorPalette. They copy **indices** into the current SET or
+FLT still. That still’s hardware palette has VGA ends (DFET BMP writer,
+our `still_rgba` / `still_plte`):
+
+| Index | In the ColorPalette file | On the still / 8-bit blit |
+|---|---|---|
+| **0** | almost always unused `0xFFFF` | **black** |
+| **1–254** | 8.8 RGB, or unused `0xFFFF` | high byte, or unused fill |
+| **255** (still pixel) | stored `(0,0,0)` | **white** (ox skull highlights) |
+| **255** (trans-sprite codec) | not a color | **do not write** (leave the framebuffer) |
+
+`DF.EXE` `0x423e59` `sar r16, 8` of unused `0xFFFF` yields **white in
+the GDI `PALETTEENTRY`**. That is not the blit. Using it to expand
+sprite PNGs painted pal 0 as salt. DFET’s unused `(0,0,0)` was the
+right *still-blit* color; calling that “HUD black spots” and flipping
+to white (or keying pal 0 through the leather) were the next two misses.
+
+**Codec skip is the hole, not pal 0.** Trans-sprite decode fills the
+buffer with 255, then writes only the runs the codec names. Unwritten
+255 stays alpha 0 (gun outline, butbevel hole, ring center, reader
+`*bord` page hole). Pal 0 is a **written** index. Help’s legs, TARGET
+crow bodies, gun leather grain, door frames/studs, and hub-skeleton
+specks are pal 0. They must stay **opaque black**. Keying pal 0 makes
+Help legless and moth-eats the holster.
+
+### Which palette expands the indices
+
+| Sprite | File ColorPalette | Expand with | Unused 0xFFFF → |
+|---|---|---|---|
+| SET/MOV/FLT still | that file, + VGA ends | `still_plte` | pal 0 black, pal 255 white |
+| CST GANG / EXTRA | CST +36 | CST pal | black (Help’s legs) |
+| CST TARGET / MINE | often empty or an RGB cube | **sibling SET** | black |
+| HOUSE world (doors, tables) | HOUSE unused-black | **mapped SET** (rice→CHIN, court→TOWN, …) | black |
+| HOUSE `*bord` readers | HOUSE | **companion FLT** (not chroma-max TOWN) | black; hole is skip 255 |
+| HUB skeletons / season props | HUB.PRP | **HUB.SET** | black |
+| SALGAMES cards / handle | PRP almost all unused | **SALGAMES.FLT** | pal 0 unused (cards don’t sample it) |
+| INVEN HUD items | INVEN, pal 0 unused | INVEN with unused→**black** | black grain |
+
+MINE.CST’s own table is a full 6-bit RGB cube (idx 79 = `(153,204,204)`).
+`cst_palette_misses_sprites` (unused-black ≥ 0.7) is **false** on that
+cube, so “use the SET only when the CST pal is empty” kept the cube and
+rainbowed the maze skeletons. Companion SET wins **whenever it exists**.
+GANG.CST has no `GANG.SET`; it stays on the CST pal.
+
+SALGAMES card “white specks” are not pal 0. The ace uses FLT cream
+`(255,255,198)` / `(255,255,189)` — photographed paper dither. Pal 0
+count on that sprite is 0.
+
+### Worked examples (pal 0 is the salt)
+
+| Sprite | Pal 0 of opaque | Wrong dump | Right dump |
+|---|---|---|---|
+| INVEN `Gun/large` c407 | ~10% (292 px) | white salt on leather | black grain; skip 255 = outline |
+| INVEN `Yunnibook/large` | ~4% | white salt on the cover | black grain |
+| HOUSE `door/court` (town mission) | ~16% | glowing white frame + studs | brown door, dark frame |
+| HOUSE `door/padreout` (inside looking out) | ~20% | whitewashed frame | dark interior pal, pal 0 black |
+| HOUSE `door/rice` (china shop inside) | ~0.7% | white flecks on the scroll | CHIN pal, pal 0 black specks |
+| HUB `skeleton1/stand` | ~0.6% | white pelvis/thigh specks | HUB.SET rust, pal 0 black |
+| MINE `skeleton/stand` c3 | (uses SET browns, not pal 0) | cyan/magenta RGB cube | MINE.SET rust + green eyes |
+| SALGAMES `ah/full` | **0** | PRP unused-white wash | FLT cream paper |
+
+Re-dump after a pal change: `python cli.py --type prp,cst --frames`.
+Do not patch `out/**`. Play must not remap opaque black to white on
+INVEN (`spriteBitsFromImageData` has no `unusedWhite`).
+
+### Dead ends (do not retry)
+
+| Approach | What we saw |
+|---|---|
+| GDI `sar 8` unused-white for sprite PNGs | Salt on court/padreout frames, gun leather, books, hub skeletons. Pal 0 is VGA black on the still blit. |
+| DFET unused-black, then “fix” INVEN by keying pal 0 | Holes through the holster and Help’s legs. Pal 0 is written. Skip 255 is the knockout. |
+| DFET unused-black, then remap every opaque black to white at blit | Same salt, now in `src/play` (`unusedWhite`). Extract black + blit white = gun spots again. |
+| HOUSE unused-black without SET recolor | Silhouette doors and card tables. Indices belong to the SET. |
+| SET pal unused-white when recoloring HOUSE | Pal 0 frame/studs become salt. `_palette_from_header` unused is black. |
+| Chroma-max every DATA SET for HOUSE `*bord` | TOWN wins the tie; `yunnibord` leather inverts vs `yunnopen.mov` `(41,0,0)`. Lock the companion FLT. |
+| SALGAMES PRP ColorPalette (unused-white or unused-black) | Faces wash to blank or invert. Expand with **SALGAMES.FLT**. Cream dither is authored, not pal 0. |
+| CST pal when a sibling SET exists, but only if unused-black ≥ 0.7 | TARGET crows worked (empty pal). MINE skeletons rainbowed (full RGB cube). Always take the companion SET. |
+| SET unused-white on TARGET pal 0 | `birdtarg` bodies blank. Pal 0 is crow black. |
+| Treat pal 0 as photographed cream/whitewash | Unused `0xFFFF` has no authored RGB. The engine blits index 0 as black. |
+| Hand-edit `out/**` PNGs to paint out the specks | Re-extract wipes it. Fix `dfextract/` (or play blit), then `--type prp,cst --frames`. |
 
 ## Transparent sprites (PUP faces, CST bodies, small PRP)
 
@@ -102,8 +199,8 @@ feet. Detect **per actor** from stand frames: a dark maroon index
 Skip unused/black (`max(rgb) < 8`) — Help's **legs** are palette index 0
 (unused 0xFFFF, collapsed to black on the SET still) and are clothes,
 not a matte. The robe body is other greens. **INVEN** HUD items sample
-unused pal 0 as 8.8 `0xFFFF` → white (HELP letter counters, gun flecks) —
-opaque, not a hole through the HUD.
+unused pal 0 as VGA black (gun leather grain), same still-blit as CST.
+Unused→white was the salt dump. Codec skip is the hole.
 HOUSE avatar pupils stay. GANG Leroy/Jones use
 index **131** RGB `(25, 17, 17)`; Todd/Oona/Watson use **132**. Flood-fill
 from the bottom edge of the sprite; write that blob as translucent

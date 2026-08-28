@@ -2212,9 +2212,11 @@ export class PlayGame implements WorldView {
     const job = decodeStillImage(url, priority)
       .then((image) => {
         const inven = /\/PRP\/_INVEN\//i.test(url);
+        // Pal 0 is VGA black grain. Do not remap opaque black to white
+        // (that was the gun-salt blit). Skip 255 is already alpha 0.
         const bits = spriteBitsFromImageData(
           image,
-          inven ? { unusedWhite: true, restoreShadow: false } : undefined,
+          inven ? { restoreShadow: false } : undefined,
         );
         this.spriteBits.set(url, bits);
         this.layoutActors();

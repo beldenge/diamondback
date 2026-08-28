@@ -220,17 +220,69 @@ describe("SET Z vs actor", () => {
     expect(bits.data[15]).toBe(255);
   });
 
-  it("paints INVEN unused pal 0 as white, not a hole", () => {
+  it("keeps INVEN pal 0 black and codec skip transparent", () => {
     const data = new Uint8ClampedArray([
       0, 0, 0, 255, 80, 40, 20, 255, 0, 0, 0, 0,
     ]);
     const bits = spriteBitsFromImageData(
       { data, width: 3, height: 1 } as ImageData,
-      { unusedWhite: true, restoreShadow: false },
+      { restoreShadow: false },
     );
-    expect([...bits.data.slice(0, 4)]).toEqual([255, 255, 255, 255]);
+    // VGA still index 0 is black (gun leather grain). Unused→white
+    // was the salt dump. Codec skip stays the ring / outline hole.
+    expect([...bits.data.slice(0, 4)]).toEqual([0, 0, 0, 255]);
     expect(bits.data[7]).toBe(255);
-    // Codec skip stays transparent — silhouette / ring hole.
+    expect(bits.data[11]).toBe(0);
+  });
+
+  it("does not remap a holster-full of pal 0 black to white", () => {
+    const w = 8;
+    const h = 4;
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < w * h; i += 1) {
+      const p = i * 4;
+      if (i % 3 === 0) {
+        data[p] = 0;
+        data[p + 1] = 0;
+        data[p + 2] = 0;
+        data[p + 3] = 255;
+      } else if (i % 3 === 1) {
+        data[p] = 90;
+        data[p + 1] = 41;
+        data[p + 2] = 18;
+        data[p + 3] = 255;
+      }
+    }
+    const bits = spriteBitsFromImageData(
+      { data, width: w, height: h } as ImageData,
+      { restoreShadow: false },
+    );
+    let black = 0;
+    let white = 0;
+    let leather = 0;
+    for (let p = 0; p < bits.data.length; p += 4) {
+      if (bits.data[p + 3] === 0) {
+        continue;
+      }
+      if (bits.data[p] === 255 && bits.data[p + 1] === 255 && bits.data[p + 2] === 255) {
+        white += 1;
+      } else if (bits.data[p] === 0 && bits.data[p + 1] === 0 && bits.data[p + 2] === 0) {
+        black += 1;
+      } else if (bits.data[p] === 90 && bits.data[p + 1] === 41 && bits.data[p + 2] === 18) {
+        leather += 1;
+      }
+    }
+    expect(white).toBe(0);
+    expect(black).toBeGreaterThan(5);
+    expect(leather).toBeGreaterThan(5);
+  });
+
+  it("world sprites keep pal 0 black when contact-shadow restore runs", () => {
+    const data = new Uint8ClampedArray([
+      0, 0, 0, 255, 25, 17, 17, 255, 0, 0, 0, 0,
+    ]);
+    const bits = spriteBitsFromImageData({ data, width: 3, height: 1 } as ImageData);
+    expect([...bits.data.slice(0, 4)]).toEqual([0, 0, 0, 255]);
     expect(bits.data[11]).toBe(0);
   });
 

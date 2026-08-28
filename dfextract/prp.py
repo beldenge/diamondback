@@ -244,8 +244,15 @@ def parse_prp_catalog(df: DFFile) -> list[PropFrame]:
     return catalog
 
 
-def _palette_from_header(path: Path) -> Palette | None:
-    """Read only container 0 so we do not load whole SET files for a palette."""
+def _palette_from_header(
+    path: Path, unused_rgb: tuple[int, int, int] = (0, 0, 0)
+) -> Palette | None:
+    """Read only container 0 so we do not load whole SET files for a palette.
+
+    Companion still pals expand unused 0xFFFF as VGA index 0 (black).
+    Default ``find_palette`` unused-white is the door/gun/skeleton
+    white-spot dump: pal 0 is reserved, not photographed cream.
+    """
     with path.open("rb") as fh:
         head = fh.read(HEADER_SIZE)
         if len(head) < 40 or head[32:40] != MAGIC:
@@ -258,7 +265,7 @@ def _palette_from_header(path: Path) -> Palette | None:
         fh.seek(off0)
         _cid, size = struct.unpack("<iI", fh.read(8))
         data = fh.read(size)
-    return find_palette(data)
+    return find_palette(data, unused_rgb=unused_rgb)
 
 
 def _sibling_set_palettes(prp_path: Path) -> dict[str, Palette]:
@@ -275,6 +282,26 @@ def _sibling_set_palettes(prp_path: Path) -> dict[str, Palette]:
         if pal is not None:
             cache[path.stem.upper()] = pal
     return cache
+
+
+def _companion_set_palette(prp_path: Path) -> Palette | None:
+    """Same-stem sibling SET (HUB.PRP → HUB.SET).
+
+    World props index-blit with that still pal. Unused VGA 0 is black.
+    """
+    parent = prp_path.parent
+    stem = prp_path.stem
+    for name in (f"{stem}.SET", f"{stem.upper()}.SET", f"{stem.lower()}.set"):
+        path = parent / name
+        if not path.is_file():
+            continue
+        try:
+            pal = _palette_from_header(path, unused_rgb=(0, 0, 0))
+        except (OSError, struct.error, ImageError):
+            continue
+        if pal is not None:
+            return pal
+    return None
 
 
 def _companion_flt_palette(prp_path: Path) -> Palette | None:
@@ -389,7 +416,13 @@ def _colorize_trans(
         seen.add(marker)
         sprite = colorize_sprite(width, height, pos_x, pos_y, indices, pal)
         chroma = _chroma_count(sprite)
-        if chroma > best_chroma:
+        # Preferred still-pal wins a chroma tie: pal 0 unused-white vs
+        # VGA black does not change chroma (both are fill) but white is
+        # the door-frame / skeleton-speck dump.
+        better = chroma > best_chroma or (
+            pal is preferred and chroma >= best_chroma
+        )
+        if better:
             best = sprite
             best_chroma = chroma
             if pal is preferred and chroma >= 0.25 * opaque:
@@ -430,21 +463,24 @@ def _write_one_frame(
 
 
 def _write_frames(df: DFFile, out_dir: Path) -> int:
-    # DF.EXE 0x423e59: unused 8.8 0xFFFF `sar 8` → white. HUD / minigame
-    # PRPs (INVEN, SALGAMES, CHECKERS, …) are RGB-composited onto FLT
-    # stills; unused-as-black inverts card faces and slot handles.
-    # HOUSE world overlays 8-bit-blit onto SET stills, so unused stays
-    # black and SET-recolor fills chroma (doors, saloon tables).
-    unused = (0, 0, 0) if df.path.stem.upper() == "HOUSE" else (255, 255, 255)
-    palette = find_palette(df.containers[0].data, unused_rgb=unused)
+    # 8-bit blit onto a SET/FLT still uses that still's palette. VGA
+    # index 0 is black (skip holes, Help's legs, crow bodies). Expanding
+    # unused 0xFFFF as white (DF.EXE 0x423e59 sar 8) painted pal-0
+    # door frames, gun leather, and hub skeletons as salt. Codec skip
+    # (unwritten 255) stays transparent. Companion FLT/SET pals fill
+    # the real indices (SALGAMES cards, HOUSE doors, HUB skeletons).
+    palette = find_palette(df.containers[0].data, unused_rgb=(0, 0, 0))
     if palette is None:
         return 0
     house = df.path.stem.upper() == "HOUSE"
     set_by_stem = _sibling_set_palettes(df.path) if house else {}
     set_pals = list(set_by_stem.values())
     flt_pal = _companion_flt_palette(df.path)
+    companion_set = None if house else _companion_set_palette(df.path)
     if flt_pal is not None:
         set_pals = [flt_pal, *set_pals]
+    elif companion_set is not None:
+        set_pals = [companion_set, *set_pals]
     flt_by_stem = _flt_palettes_near(df.path) if house else {}
     catalog = parse_prp_catalog(df)
     written = 0
@@ -469,7 +505,11 @@ def _write_frames(df: DFFile, out_dir: Path) -> int:
                 item.group.lower()
             )
             frame_pal = palette
-            preferred = set_by_stem.get(stem) if stem else flt_pal
+            preferred = (
+                set_by_stem.get(stem)
+                if stem
+                else (flt_pal or companion_set)
+            )
             extras = set_pals
         meta = _write_one_frame(
             df, item.container, dest, frame_pal, preferred, extras

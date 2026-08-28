@@ -35,6 +35,7 @@ TARGET_CST = DUST / "DUSTCD" / "TARGET" / "TARGET.CST"
 INVEN = DUST / "DUSTCD" / "DATA" / "INVEN.PRP"
 HOUSE = DUST / "DUSTCD" / "DATA" / "HOUSE.PRP"
 SALGAMES = DUST / "DUSTCD" / "SALGAMES" / "SALGAMES.PRP"
+MINE_CST = DUST / "DUSTCD" / "UNDER" / "MINE.CST"
 
 
 class TestFrames(unittest.TestCase):
@@ -220,19 +221,19 @@ class TestFrames(unittest.TestCase):
         self.assertGreater(black / opaque, 0.7)
         self.assertLess(white / opaque, 0.05)
 
-    def test_inven_index_0_is_white_not_a_hole(self) -> None:
-        """DF.EXE 0x423e59 sar-8 of unused 0xFFFF is white, not a knockout.
+    def test_inven_index_0_is_black_not_white_salt(self) -> None:
+        """INVEN pal 0 is VGA still black. Unused→white was gun/book salt.
 
-        Pal 0 is sampled (HELP counters, gun flecks). Codec skip stays
-        alpha 0 (gun outline). CST Help legs stay unused→black
-        (SET VGA index 0).
+        Codec skip (unwritten 255) stays the outline / ring hole. GDI
+        ``sar 8`` of 0xFFFF is white; 8-bit blit onto the FLT still uses
+        index 0 = black (same as Help's legs / crow bodies).
         """
         if not INVEN.exists():
             self.skipTest("INVEN.PRP not present")
         df = read_df_file(INVEN)
-        palette = find_palette(df.containers[0].data)
+        palette = find_palette(df.containers[0].data, unused_rgb=(0, 0, 0))
         assert palette is not None
-        self.assertEqual(palette.colors[0], (255, 255, 255))
+        self.assertEqual(palette.colors[0], (0, 0, 0))
         gun = decode_trans_sprite(df.containers[407].data, palette)
         white = 0
         opaque_black = 0
@@ -245,26 +246,16 @@ class TestFrames(unittest.TestCase):
                 opaque_black += 1
             if alpha == 0:
                 trans += 1
-        self.assertGreater(white, 200)
-        self.assertEqual(opaque_black, 0)
+        self.assertEqual(white, 0)
+        self.assertGreater(opaque_black, 200)
         self.assertGreater(trans, 1000)
-        helpbut = decode_trans_sprite(df.containers[421].data, palette)
-        help_white = 0
-        help_trans = 0
-        for i in range(0, len(helpbut.rgba), 4):
-            red, green, blue, alpha = helpbut.rgba[i : i + 4]
-            if (red, green, blue, alpha) == (255, 255, 255, 255):
-                help_white += 1
-            if alpha == 0:
-                help_trans += 1
-        self.assertGreater(help_white, 20)
-        self.assertEqual(help_trans, 0)
 
     def test_minigame_prp_unused_is_white_not_inverted(self) -> None:
-        """SALGAMES/INVEN/CHECKERS RGB-composite onto FLT stills.
+        """SALGAMES.PRP ColorPalette unused slots are the card paper.
 
-        Unused 0xFFFF is white in DF.EXE. Unused-as-black (HOUSE SET blit)
-        inverts card faces and slot handles.
+        Expanding those unused indices as black inverts faces. That is
+        not pal 0 (the ace does not sample pal 0). Dump from SALGAMES.FLT.
+        GDI ``sar 8`` of 0xFFFF is white; still-blit pal 0 is VGA black.
         """
         if not SALGAMES.exists():
             self.skipTest("SALGAMES.PRP not present")
@@ -405,6 +396,36 @@ class TestFrames(unittest.TestCase):
                 self.assertEqual(rgba.getpixel((0, 0))[:3], wood, path.name)
                 self.assertEqual(rgba.getpixel((256, 192))[3], 0, f"{path.name} hole")
 
+    def test_mine_skeleton_uses_set_palette_not_cst_cube(self) -> None:
+        """MINE.CST ColorPalette is a full RGB cube. Sprites index MINE.SET."""
+        if not MINE_CST.exists():
+            self.skipTest("MINE.CST not present")
+        df = read_df_file(MINE_CST)
+        cube = cst_palette(df.containers[0].data)
+        palette = cst_frame_palette(df)
+        self.assertNotEqual(palette.colors[79], cube.colors[79])
+        sprite = decode_trans_sprite(df.containers[3].data, palette)
+        cyan = 0
+        rust = 0
+        white = 0
+        opaque = 0
+        for i in range(0, len(sprite.rgba), 4):
+            red, green, blue, alpha = sprite.rgba[i : i + 4]
+            if alpha < 255:
+                continue
+            opaque += 1
+            if (red, green, blue) == (255, 255, 255):
+                white += 1
+            if red > 140 and green > 180 and blue > 180:
+                cyan += 1
+            if 20 <= red <= 90 and green < 40 and blue < 20:
+                rust += 1
+        self.assertGreater(opaque, 1000)
+        self.assertEqual(cyan, 0)
+        self.assertGreater(rust, 500)
+        self.assertLess(white / opaque, 0.02)
+
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -7,7 +7,8 @@ extracted DreamFactory scripts (boot → `advanceday` → SET/CST/PRP). Extract 
 — it is generated; fix `dfextract/` or this playback code. This file is the **playback**
 book so we do not re-debug speech, visemes (per-PUP idle tracks), the
 Firefox audio delay, world→still (X, Y, scale, Z, pans), interior
-spawn/Z, HOUSE door overlays, EXAMINE pointer, dest-rect hits, the
+spawn/Z, HOUSE door overlays, sprite pal 0 vs codec skip 255 (white
+salt on doors / gun / skeletons), EXAMINE pointer, dest-rect hits, the
 map `cross`, the script pump that runs FLT minigames (`mousedown`
 press, `makeloop` / `pauseloop`, `forceupdate` vs idle `runQueued`,
 60 Hz `delay` / fades, `findword` / `putword` holes, params vs
@@ -137,15 +138,9 @@ so `adjscene` can walk the pen instead of falling through to the player tile.
 World sprites paint far-to-near (Leroy in front of the dog/jug). The
 held item (`#play-hand`) is a canvas stamped from decoded sprite bits
 (so a new item is not the previous bitmap stretched to the new size).
-INVEN unused palette **index 0** is 8.8 `0xFFFF`. DF.EXE `0x423e59`
-`sar r16, 8` makes that **white**, not a knockout and not CST Help-black.
-HUD holes that **sample pal 0** (HELP letter counters, gun leather flecks)
-are opaque white. DFET wrote unused as `(0,0,0)` (black spots); keying
-that through the HUD was a second wrong fix. Codec skip (unwritten
-index 255) stays transparent — Dust leaves the framebuffer there
-(gun outline, butbevel hole, ring center). World CST keeps unused→black
-because those sprites index-blit onto the SET still (VGA 0 = black;
-Help’s legs are pal 0). The held item hides during puppet UI and
+INVEN pal 0 is VGA still **black** (gun leather grain), not GDI unused
+white and not a knockout. Codec skip 255 is the outline. Full book:
+[Sprite palettes](#sprite-palettes-pal-0--codec-skip-255). The held item hides during puppet UI and
 inventory. Inventory places owned INVEN
 props via `moveyoself` on the avatar flat (`panel`, or `hilite` for
 `handitem`). Click an item to run `stdmouse` (that prop becomes the
@@ -659,7 +654,8 @@ still has forward > 0.
 | `screentoblack` / `blacktoscreen` as no-ops | Saloon exit hitch: no fade, then O7 flashes before the street cell. Dust fades 30 ticks (0.5 s) to black, swaps the SET, fades up. Do not stand at town spawn when `currentscene` is still interior `d1`. |
 | Skip SALGAMES.FLT comment-first flats / treat `openshopfile("salgames.prp")` as HOUSE | Clicking the card table fades to black and never returns. Poker/blackjack scripts start with `//`; stage `playcards*` + shop handle/cards live in `_SALGAMES`. |
 | Switch `case 0` empty then `case 1` as C without fall-through | Poker: Mez pops in and fades out (`mezphase` 0 never reaches the day body). Blackjack stay: `cardtovalue` returns 0, dealer hits until the while cap. Empty labels share the next body; a non-empty case still breaks. |
-| PRP unused→black for SALGAMES | Card faces and slot handle look inverted. Unused 0xFFFF is white except HOUSE SET overlays. |
+| PRP unused→black for SALGAMES | Card faces and slot handle look inverted if you expand the PRP ColorPalette (unused paper indices). Use the sibling FLT pal. Pal 0 itself is VGA black on still-blits. |
+| GDI unused-white (0xFFFF sar 8) for SET/FLT sprite pal 0 | Door frames, INVEN gun/books, HUB skeletons dump as salt. VGA still index 0 is black. Codec skip 255 is the hole. |
 | Colorize SALGAMES with the PRP ColorPalette | That table is unused-white; Dust indexes `SALGAMES.FLT`. Companion same-stem FLT/SET palettes, pick max chroma. |
 | `makeloop ("flat", me, "resetgame")` with button `me` | After stay/draw the next hand never starts (`me` is `flat 2:stay`). Resolve to the current flat name. |
 | Fold idle `scriptBusy` into click `talking` / dispatch world `mousedown` on `click` | First press on a door or the blackjack table is dropped (idle `makeloop` / `resetgame` holds `runQueued`). Dust does not throw away `mousedown`. Press on **pointerdown**; wait for the idle pump; ignore only `cursor ("watch")` `walktopuppet`. |
@@ -695,6 +691,58 @@ still has forward > 0.
 | `infoyoself` on every inventory `stdmouse` | Not Dust. Panel click selects `handitem`; EXAMINE inspects. |
 
 Code: interiors [`sceneName.ts`](sceneName.ts) / [`graph.ts`](../world/set/graph.ts); hits [`facing.ts`](facing.ts) `spriteDestRect`; EXAMINE [`hud.ts`](hud.ts) / [`game.ts`](game.ts); map X [`hud.ts`](hud.ts) `mapCrossHotspot`; choice idle [`host.ts`](host.ts) `waitPuppetEvent` / [`ui.ts`](ui.ts); viseme cache [`host.ts`](host.ts) `puppetClipKey`; script pump [above](#script-pump-flt-minigames-next-hand-world-idle); sleep `actionframe` / gossip tracks [`host.ts`](host.ts) / [`sndTracks.ts`](sndTracks.ts).
+
+## Sprite palettes (pal 0 / codec skip 255)
+
+**Locked.** Extract book with worked examples and the long dead-end
+list: [`dfextract/docs/images.md`](../../dfextract/docs/images.md)
+§ Pal 0 vs codec skip 255. Do not re-open GDI white vs DFET black vs
+keying pal 0. Play consumes the PNG; a white-spot dump is `dfextract/`,
+a remap in `spriteBitsFromImageData` is this file.
+
+Sprites 8-bit-blit onto the current SET/FLT still. VGA index **0 is
+black**. Trans-sprite codec skip (unwritten **255**) is transparent.
+`DF.EXE` `0x423e59` `sar 8` of unused `0xFFFF` is white **only in the
+GDI palette struct**. Using that for PNG expand, or remapping leftover
+opaque black to white at blit, is the salt on:
+
+- HOUSE `door/court` (town mission, outside)
+- HOUSE `door/rice` (china shop inside)
+- HOUSE `door/padreout` (mission interior exit)
+- INVEN gun / Yunni book
+- HUB sundial skeletons
+
+MINE maze skeletons are a second extract miss: `MINE.CST`’s ColorPalette
+is an RGB cube; plates index **MINE.SET**. SALGAMES card speckles are
+FLT cream dither, not pal 0.
+
+Play:
+
+- World CST/PRP PNGs are used as dumped. Pal 0 is already black.
+- INVEN `#play-hand` stamps decoded bits with `restoreShadow: false`
+  so the holster is not a contact-shadow matte. Do **not** walk opaque
+  black to white (`unusedWhite` was that remap).
+- Reader `*bord` page hole is codec skip (alpha 0 at the page), not
+  pal 0. Hittest uses the dumped opaque bbox.
+
+Tests: `dfextract/tests/test_palette_blit.py`,
+`src/play/occlude.test.ts` (INVEN pal 0 stays black). Re-dump
+`python cli.py --type prp,cst --frames` after a pal change. Extract
+PNGs revalidate (`no-cache` + ETag); a stale gun PNG is the browser
+cache, not play.
+
+### Dead ends (do not retry)
+
+| Approach | What we saw |
+|---|---|
+| GDI unused-white for sprite PNGs | Salt on doors, gun, books, hub skeletons. VGA 0 is black. |
+| Key pal 0 through the HUD / still | Help legless; holster moth-eaten. Pal 0 is written. Skip 255 is the hole. |
+| `unusedWhite` blit: every opaque black → white | Extract-correct grain flipped back to salt on `#play-hand`. |
+| HOUSE unused-black without SET recolor | Silhouette doors. Recolor from the mapped SET, unused-black. |
+| Companion SET pal loaded with unused-white | Pal 0 door frames salt. `_palette_from_header` unused is black. |
+| CST pal when `MINE.SET` exists, unless unused-black ≥ 0.7 | Rainbow skeletons. Companion SET always. |
+| SALGAMES PRP pal (white or black unused) | Washed or inverted faces. **SALGAMES.FLT**. Cream dither is paper. |
+| Patch `out/**` PNG specks | Re-extract wipes it. |
 
 ---
 
