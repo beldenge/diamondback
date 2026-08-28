@@ -3321,12 +3321,16 @@ export class DustHost implements OpcodeHost {
     const items = this.puzzleItems();
     const hits: string[] = [];
     for (const item of [...items].reverse()) {
-      const name = item.name.toLowerCase();
-      if (isReaderBorderProp(name) && !pointHitsReaderBorder(name, point.x, point.y)) {
+      const name = item.name;
+      if (!name) {
         continue;
       }
-      if (item.name && pointHitsFlatItem(item, point.x, point.y)) {
-        hits.push(name);
+      const key = name.toLowerCase();
+      if (isReaderBorderProp(key) && !pointHitsReaderBorder(key, point.x, point.y)) {
+        continue;
+      }
+      if (pointHitsFlatItem(item, point.x, point.y)) {
+        hits.push(key);
       }
     }
     // FIGHT fists overlay Dell. Fists have no `mousedown` (only knife
