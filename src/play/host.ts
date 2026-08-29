@@ -3136,7 +3136,7 @@ export class DustHost implements OpcodeHost {
       const x = await ctx.evalCall("scenexyz", [lit("scene g6"), n(1)]);
       const y = await ctx.evalCall("scenexyz", [lit("scene g6"), n(2)]);
       // Extracted `walkin` / `dead` park on G6 center. y-80 was hotel Z.
-      await ctx.evalCall("actorxyz", [lit("kid"), x, y, n(0)]);
+      await ctx.evalCall("actorxyz", [lit("kid"), n(num(x)), n(num(y)), n(0)]);
       await ctx.evalCall("actoris3d", [lit("kid"), n(1)]);
       await ctx.evalCall("actorpose", [lit("kid"), lit("stand")]);
       await ctx.evalCall("actordeg", [lit("kid"), n(64)]);

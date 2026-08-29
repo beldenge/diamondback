@@ -3,7 +3,6 @@ import {
   CAMERA_SETBACK,
   engineStillScale,
   PRP_SCALE_FIELD,
-  spriteDestRect,
   spriteStillTopLeft,
   STILL_CENTER_Y,
 } from "./facing";
