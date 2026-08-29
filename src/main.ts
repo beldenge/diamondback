@@ -1,12 +1,24 @@
 import "./style.css";
-import { clientMode, type ClientMode } from "./core/mode";
+import { clientMode, needsUnlockedSpoilerWarning, type ClientMode } from "./core/mode";
 import { MovieGallery } from "./play/gallery";
 import { PlayGame } from "./play/game";
 
 const landing = document.getElementById("landing");
+const unlockedSpoilers = document.getElementById("unlocked-spoilers");
 let gallery: MovieGallery | null = null;
 let storyGame: PlayGame | null = null;
 let sandboxGame: PlayGame | null = null;
+
+function spoilerDialog(): HTMLDialogElement | null {
+  return unlockedSpoilers instanceof HTMLDialogElement ? unlockedSpoilers : null;
+}
+
+function closeUnlockedSpoilers(): void {
+  const dialog = spoilerDialog();
+  if (dialog?.open) {
+    dialog.close();
+  }
+}
 
 function currentMode(): ClientMode {
   return clientMode(window.location.search);
@@ -66,6 +78,7 @@ function showUnlocked(): void {
 }
 
 function applyRoute(): void {
+  closeUnlockedSpoilers();
   switch (currentMode()) {
     case "movies":
       showMovies();
@@ -112,6 +125,15 @@ document.addEventListener("click", (event) => {
     event.preventDefault();
     return;
   }
+  const confirmedSpoilers = Boolean(anchor.closest("#unlocked-spoilers"));
+  const dialog = spoilerDialog();
+  if (dialog && needsUnlockedSpoilerWarning(hereMode, next, confirmedSpoilers)) {
+    event.preventDefault();
+    if (!dialog.open) {
+      dialog.showModal();
+    }
+    return;
+  }
   event.preventDefault();
   const nextHref = `${url.pathname}${url.search}`;
   const here = `${window.location.pathname}${window.location.search}`;
@@ -123,6 +145,12 @@ document.addEventListener("click", (event) => {
 
 window.addEventListener("popstate", () => {
   applyRoute();
+});
+
+unlockedSpoilers?.addEventListener("click", (event) => {
+  if (event.target === unlockedSpoilers) {
+    closeUnlockedSpoilers();
+  }
 });
 
 applyRoute();

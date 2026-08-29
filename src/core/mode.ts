@@ -9,3 +9,12 @@ export function clientMode(search: string): ClientMode {
   }
   return "landing";
 }
+
+/** Title-chooser click onto Unlocked, before the spoiler dialog is confirmed. */
+export function needsUnlockedSpoilerWarning(
+  from: ClientMode,
+  to: ClientMode,
+  confirmed: boolean,
+): boolean {
+  return from === "landing" && to === "unlocked" && !confirmed;
+}

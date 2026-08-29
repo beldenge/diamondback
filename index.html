@@ -63,6 +63,25 @@
             </a>
           </div>
         </div>
+        <dialog
+          id="unlocked-spoilers"
+          aria-labelledby="unlocked-spoilers-title"
+          aria-describedby="unlocked-spoilers-copy"
+        >
+          <div class="landing-dialog-panel">
+            <p class="landing-dialog-kicker">Dust: Unlocked</p>
+            <h2 id="unlocked-spoilers-title">Spoilers ahead</h2>
+            <p id="unlocked-spoilers-copy">
+              Every door in Diamondback stands open — including places, people,
+              and puzzles the story would otherwise keep for later. If you have
+              not finished Dust: Resurrected, this mode will spoil it.
+            </p>
+            <form method="dialog" class="landing-dialog-actions">
+              <button type="submit" value="cancel">Go back</button>
+              <a class="landing-dialog-enter" href="?mode=unlocked">Enter Unlocked</a>
+            </form>
+          </div>
+        </dialog>
       </div>
       <canvas id="viewport"></canvas>
       <div id="hud">

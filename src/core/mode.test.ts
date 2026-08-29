@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clientMode } from "./mode";
+import { clientMode, needsUnlockedSpoilerWarning } from "./mode";
 
 describe("clientMode", () => {
   it("opens the landing chooser with no query", () => {
@@ -21,5 +21,21 @@ describe("clientMode", () => {
     expect(clientMode("?mode=gallery&reel=intro")).toBe("landing");
     expect(clientMode("?mode=free")).toBe("landing");
     expect(clientMode("?clock=2")).toBe("landing");
+  });
+});
+
+describe("needsUnlockedSpoilerWarning", () => {
+  it("gates a chooser click onto Unlocked until confirmed", () => {
+    expect(needsUnlockedSpoilerWarning("landing", "unlocked", false)).toBe(true);
+    expect(needsUnlockedSpoilerWarning("landing", "unlocked", true)).toBe(false);
+  });
+
+  it("does not gate other chooser titles or a direct Unlocked URL", () => {
+    expect(needsUnlockedSpoilerWarning("landing", "resurrected", false)).toBe(false);
+    expect(needsUnlockedSpoilerWarning("landing", "movies", false)).toBe(false);
+    expect(needsUnlockedSpoilerWarning("landing", "landing", false)).toBe(false);
+    expect(needsUnlockedSpoilerWarning("unlocked", "unlocked", false)).toBe(false);
+    expect(needsUnlockedSpoilerWarning("resurrected", "unlocked", false)).toBe(false);
+    expect(needsUnlockedSpoilerWarning("movies", "unlocked", false)).toBe(false);
   });
 });
