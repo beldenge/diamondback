@@ -13,6 +13,18 @@ import {
   sandboxFountainOpensHub,
   sandboxFountainProc,
   sandboxHubSundialScene,
+  sandboxApothBottlesClick,
+  sandboxBankCrackClick,
+  sandboxBankSignMousedown,
+  sandboxBindApothBottles,
+  sandboxBottlesMousedown,
+  sandboxDellTownClick,
+  sandboxDellMousedown,
+  sandboxIsApoth,
+  sandboxKidTownClick,
+  sandboxKidMousedown,
+  sandboxOpenKidProc,
+  sandboxPuzzletime,
   sandboxIsMineSet,
   sandboxShowMineMask,
   SANDBOX_INVEN_LAYOUT_DAY,
@@ -70,7 +82,10 @@ describe("sandboxKeepActor", () => {
     expect(sandboxKeepActor({ name: "bird1", cast: "extra" })).toBe(true);
     expect(sandboxKeepActor({ name: "bird5", cast: "extra" })).toBe(true);
     expect(sandboxKeepActor({ name: "dog", cast: "extra" })).toBe(false);
-    expect(sandboxKeepActor({ name: "horse1", cast: "extra" })).toBe(false);
+    expect(sandboxKeepActor({ name: "horse1", cast: "extra" })).toBe(true);
+    expect(sandboxKeepActor({ name: "horse2", cast: "extra" })).toBe(true);
+    expect(sandboxKeepActor({ name: "dell", cast: "gang" })).toBe(true);
+    expect(sandboxKeepActor({ name: "kid", cast: "extra" })).toBe(true);
     expect(sandboxKeepActor({ name: "birdcage", cast: "extra" })).toBe(false);
     expect(sandboxKeepActor({ name: "skeleton", cast: "mine" })).toBe(true);
     expect(sandboxKeepActor({ name: "shaman", cast: "extra" })).toBe(true);
@@ -92,6 +107,9 @@ describe("sandbox animal seeds", () => {
       "chicken2",
       "chicken3",
       "bird1",
+      "horse1",
+      "horse2",
+      "horse3",
     ]);
     expect(sandboxTownAnimalsToSeed("target", placed)).toEqual([]);
   });
@@ -201,6 +219,39 @@ describe("sandbox advanceday", () => {
     expect(fade).toBe(0);
   });
 
+  it("swaps court/school stills on Unlocked N, not only town", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.sandbox = true;
+    let lighting = 0;
+    host.currentSet = "_SCHOOL";
+    host.view = {
+      pose: { x: 0, y: 1, facing: "W" },
+      world: "_SCHOOL",
+      graph: { scenes: new Map(), cameraTiles: new Set(), transitions: [], byFrom: new Map() },
+      walk() {},
+      async setPose() {},
+      async swapLighting() {
+        lighting += 1;
+      },
+      log() {},
+      refreshActors() {},
+    };
+    const vm = new VM({
+      async call() {
+        return 0;
+      },
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    await host.applySandboxClock(vm, 3);
+    expect(vm.globals.get("clock")).toBe(3);
+    expect(lighting).toBe(1);
+    host.currentSet = "town";
+    lighting = 0;
+    await host.applySandboxClock(vm, 2);
+    expect(lighting).toBe(0);
+  });
+
   it("marks saloon and mansion stair talks as already done", () => {
     const globals = new Map<string, number>();
     const names = new Set<string>();
@@ -244,6 +295,14 @@ describe("sandbox advanceday", () => {
       turning: false,
       route: [{ x: 1 }],
     };
+    const horse = {
+      name: "horse1",
+      cast: "extra",
+      visible: true,
+      walking: false,
+      turning: false,
+      route: [],
+    };
     const gus = {
       name: "gus",
       cast: "gang",
@@ -268,13 +327,14 @@ describe("sandbox advanceday", () => {
       turning: false,
       route: [],
     };
-    expect(hideSandboxStoryActors([dog, pig, gus, leroy, bolivar])).toEqual(["dog", "gus"]);
+    expect(hideSandboxStoryActors([dog, pig, horse, gus, leroy, bolivar])).toEqual(["dog", "gus"]);
     expect(dog.visible).toBe(false);
     expect(gus.visible).toBe(false);
     expect(gus.walking).toBe(false);
     expect(gus.route).toEqual([]);
     expect(pig.visible).toBe(true);
     expect(pig.walking).toBe(true);
+    expect(horse.visible).toBe(true);
     expect(leroy.visible).toBe(true);
     expect(bolivar.visible).toBe(true);
   });
@@ -695,6 +755,118 @@ describe("Unlocked fountain → hub", () => {
     expect(txt).toMatch(/nextroom = "flute"/);
     expect(txt).toMatch(/largedial = 12 & meddial = 4 & smalldial = 12/);
     expect(txt).toMatch(/setupprop \("hub"\)/);
+  });
+});
+
+describe("Unlocked place toys", () => {
+  it("cracks the bank from scene d1, not other bank rooms", () => {
+    expect(sandboxBankCrackClick("bank", "scene", "scene d1")).toBe(true);
+    expect(sandboxBankCrackClick("bank.set", "scene", "scene d1")).toBe(true);
+    expect(sandboxBankCrackClick("bank", "scene", "scene d3")).toBe(false);
+    expect(sandboxBankCrackClick("town", "scene", "scene d1")).toBe(false);
+    const json = JSON.stringify(sandboxBankSignMousedown());
+    expect(json).toContain("docrack");
+    expect(json).toContain("pointinsign");
+    expect(json).not.toContain("teller.pup");
+  });
+
+  it("treats apoth compounding as always in season", () => {
+    expect(sandboxIsApoth("apoth")).toBe(true);
+    expect(sandboxIsApoth("apoth.set")).toBe(true);
+    expect(sandboxIsApoth("doctor1")).toBe(false);
+    expect(sandboxPuzzletime().body).toEqual([
+      { type: "return", value: { type: "bool", value: true } },
+    ]);
+  });
+
+  it("retags apoth bottles off drugs so they blit on the shop SET", () => {
+    const bottles = { set: "drugs" };
+    expect(sandboxBindApothBottles("town", bottles)).toBe(false);
+    expect(bottles.set).toBe("drugs");
+    expect(sandboxBindApothBottles("apoth.set", bottles)).toBe(true);
+    expect(bottles.set).toBe("apoth");
+    expect(sandboxApothBottlesClick("apoth", "prop", "bottles")).toBe(true);
+    expect(sandboxApothBottlesClick("apoth", "prop", "door")).toBe(false);
+    expect(JSON.stringify(sandboxBottlesMousedown())).toContain("dodrugs");
+  });
+
+  it("starts Dell's fight from a town click, not Jones phase 8", () => {
+    expect(sandboxDellTownClick("town", "actor", "dell")).toBe(true);
+    expect(sandboxDellTownClick("town", "actor", "Dell")).toBe(true);
+    expect(sandboxDellTownClick("jail", "actor", "dell")).toBe(false);
+    expect(sandboxDellTownClick("town", "prop", "dell")).toBe(false);
+    const json = JSON.stringify(sandboxDellMousedown());
+    expect(json).toContain("scene d7");
+    expect(json).toContain("fight");
+    expect(json).not.toContain("dell1.pup");
+    expect(json).not.toContain("jones");
+  });
+
+  it("starts the Kid duel from a G6 click without walking him in or advancing day", () => {
+    expect(sandboxKidTownClick("town", "actor", "kid")).toBe(true);
+    expect(sandboxKidTownClick("town", "actor", "dell")).toBe(false);
+    const click = JSON.stringify(sandboxKidMousedown());
+    expect(click).toContain("openkid");
+    expect(click).toContain("scene g5");
+    const json = JSON.stringify(sandboxOpenKidProc());
+    expect(json).toContain("kid.pup");
+    expect(json).toContain("kiddie.mov");
+    expect(json).toContain("kidinv.mov");
+    expect(json).toContain("by kid");
+    expect(json).not.toContain("walkin");
+    expect(json).not.toContain("advanceday");
+  });
+
+  it("replaces those procs on the Unlocked host", () => {
+    const host = new DustHost({} as PuppetUi);
+    host.sandbox = true;
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    host.currentSet = "bank";
+    vm.object = "scene";
+    vm.me = "scene d1";
+    expect(JSON.stringify(host.lookup("mousedown", vm))).toContain("docrack");
+    host.currentSet = "apoth";
+    vm.object = "prop";
+    vm.me = "bottles";
+    expect(host.lookup("puzzletime", vm)?.name).toBe("puzzletime");
+    expect(JSON.stringify(host.lookup("mousedown", vm))).toContain("dodrugs");
+    expect(JSON.stringify(host.lookup("setcursor", vm))).toContain("touch");
+    host.currentSet = "town";
+    vm.object = "actor";
+    vm.me = "dell";
+    expect(JSON.stringify(host.lookup("mousedown", vm))).toContain("scene d7");
+    vm.me = "kid";
+    expect(JSON.stringify(host.lookup("mousedown", vm))).toContain("openkid");
+    expect(JSON.stringify(host.lookup("openkid", vm))).toContain("kid.pup");
+    host.sandbox = false;
+    expect(host.lookup("openkid", vm)).toBeUndefined();
+  });
+
+  it("leaves Resurrected bank / Dell / Kid scripts in place", () => {
+    const host = new DustHost({} as PuppetUi);
+    host.index.add(
+      "scene:scene d1",
+      {
+        name: "mousedown",
+        params: ["arg"],
+        body: [{ type: "call", call: { type: "call", name: "teller", args: [] } }],
+      },
+      "bank",
+    );
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    host.currentSet = "bank";
+    vm.object = "scene";
+    vm.me = "scene d1";
+    expect(JSON.stringify(host.lookup("mousedown", vm))).toContain("teller");
+    expect(JSON.stringify(host.lookup("mousedown", vm))).not.toContain("docrack");
   });
 });
 

@@ -336,9 +336,11 @@ u16 B playlist[]                  @ 0x83E # 1-based indices into the B clips
 80-byte frame records             @ 0x8C2 # count × 80; MOVPLAY rep movsd ecx=20
     u16 cmd count                 @ rec+0 # DF.EXE in-engine command count (MOVPLAY ignores). 1 on inspect stills (WARNING/BONE). grocpots/bells use 2–4. Not a wait boolean.
     u32 extra hold                @ rec+2 # hold = max(default, extra); 0 → default
+    u16 end-kind                  @ rec+0x16 # when cmd count is 0: 1 = stop, 3 = playmovie Pascal at rec+0x30 (0x419a24)
     u16 still container           @ rec+28 # relative to this scene header’s index
     u16 group-A slot              @ rec+32 # 0 = none; else 1-based, retrigger restarts
     u32 cmd stream                @ rec+0x24 # offset in the scene header of DF.EXE commands
+    Pascal next .mov              @ rec+0x30 # towerup→towertop, towertop→towerdn, intro2→intro3
 ```
 
 Tick = `timeGetTime() * 3 / 50` = **60 Hz**. Duplicate each still
@@ -357,6 +359,12 @@ still, and not again when a later still repeats the same jump (store
 pots rec 9 last=2 is “clang again”, not a second timed clang). Drop
 command SFX when a reel has more than 32 last>1 A-slot commands (`INFO/MAIN`).
 Type 2 slot 0 last 2 with cmd count 1 is inspect wait-for-click.
+Type 4 (48 bytes) is a Mac rect plus a Pascal `.mov` at +16: click
+pushes a nested playmovie (`0x419ba3`, depth < 5). `TOWERTOP.MOV` rec 2
+is the bell-tower examine: type-4 windows (`bellmoon` / `bellbarn` /
+`belltown`), type-2 bell (A1 → rec 3), type-2 ladder dismiss (→ rec 24).
+When cmd count is 0, rec+0x16 kind 3 copies rec+0x30 into the current
+movie name and `playmovie` continues — scripts name only `towerup.mov`.
 MOVPLAY stubs this stream (`0x40B820`); dog1/intros cue audio with
 rec+32 instead.
 

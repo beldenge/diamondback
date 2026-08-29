@@ -11,7 +11,7 @@
  */
 
 import { parseDir, resolveSpawn, sceneByName, tileKey } from "../world/set/graph";
-import type { SetGraph, WalkerPose } from "../world/set/types";
+import type { Dir, SetGraph, WalkerPose } from "../world/set/types";
 
 const LETTERS = "abcdefghijklmno";
 
@@ -46,6 +46,42 @@ export function scriptSceneName(x: number, y: number): string {
 export function pascalSceneName(x: number, y: number): string {
   const letter = LETTERS[y] ?? "a";
   return `scene ${letter}${x + 1}`;
+}
+
+const FACE_WORD: Record<Dir, string> = {
+  N: "North",
+  S: "South",
+  E: "East",
+  W: "West",
+};
+
+function worldLabel(world: string): string {
+  return world.replace(/^_/, "").replace(/\.set$/i, "").toUpperCase() || "TOWN";
+}
+
+function shortSceneName(name: string, x: number, y: number): string {
+  const match = name.trim().match(/^(?:scene\s+)?([a-o])\s*(\d{1,2})$/i);
+  if (match) {
+    return `${match[1]!.toUpperCase()}${Number(match[2])}`;
+  }
+  return `Tile ${x},${y}`;
+}
+
+/**
+ * Pose line under the 512×384 stage (not inside the still). Town shows
+ * filmed Pascal + script `g15` because those grids are transposed.
+ */
+export function poseReadout(graph: SetGraph, pose: WalkerPose, world: string): string {
+  const scene = graph.scenes.get(tileKey(pose.x, pose.y));
+  const face = FACE_WORD[pose.facing] ?? pose.facing;
+  const place = worldLabel(world);
+  if (isTownGridSize(graph.scenes.size)) {
+    const filmed = shortSceneName(pascalSceneName(pose.x, pose.y), pose.x, pose.y);
+    const script = shortSceneName(scriptSceneName(pose.x, pose.y), pose.x, pose.y);
+    return `${place} · ${filmed} (${script}) · ${face}`;
+  }
+  const named = shortSceneName(scene?.name ?? "", pose.x, pose.y);
+  return `${place} · ${named} · ${face}`;
 }
 
 /**

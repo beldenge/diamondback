@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import struct
 import sys
 import unittest
 from pathlib import Path
@@ -13,15 +14,20 @@ if str(HERE) not in sys.path:
 from container import read_df_file
 from image import decode_indexed_image
 from mov import (
+    END_KIND_CHAIN,
     FRAME_AUDIO_OFF,
     FRAME_REC_SIZE,
     FRAME_TABLE_OFF,
     PLAYLIST_OFF,
+    REC_END_KIND_OFF,
+    REC_NEXT_NAME_OFF,
     TICK_HZ,
     AudioCue,
     mix_cues,
     parse_reel_timeline,
     _collect_reel,
+    _pascal_mov_name,
+    _rec_next_movie,
 )
 
 REPO = HERE.parent
@@ -38,11 +44,40 @@ BONE = DUST / "INVEN" / "BONE.MOV"
 GROCPOTS = DUST / "MOVIES" / "GROCPOTS.MOV"
 BELL = DUST / "MOVIES" / "BELL.MOV"
 NITEBELL = DUST / "MOVIES" / "NITEBELL.MOV"
+TOWERUP = DUST / "MOVIES" / "TOWERUP.MOV"
+TOWERTOP = DUST / "MOVIES" / "TOWERTOP.MOV"
+TOWERDN = DUST / "MOVIES" / "TOWERDN.MOV"
+BELLBARN = DUST / "MOVIES" / "BELLBARN.MOV"
+BELLMOON = DUST / "MOVIES" / "BELLMOON.MOV"
+BELLTOWN = DUST / "MOVIES" / "BELLTOWN.MOV"
+MARIEEND = DUST / "MOVIES" / "MARIEEND.MOV"
 KETTLE = DUST / "MOVIES" / "KETTLE.MOV"
 HARMON = DUST / "INVEN" / "HARMON.MOV"
 MAIN = DUST / "INFO" / "MAIN.MOV"
 HWIN = DUST / "MOVIES" / "HWIN.MOV"
 SKIP = "Dust CD MOV not present"
+
+
+class TestPascalNextMovie(unittest.TestCase):
+    def test_pascal_mov_name_accepts_clean_stem(self) -> None:
+        raw = bytes([12]) + b"towertop.mov" + b"\x80" * 8
+        self.assertEqual(_pascal_mov_name(raw, 0), "towertop.mov")
+
+    def test_pascal_mov_name_rejects_header_junk(self) -> None:
+        padded = b"intro2.mov''''''''"
+        raw = bytes([len(padded)]) + padded
+        self.assertEqual(_pascal_mov_name(raw, 0), "")
+        self.assertEqual(_pascal_mov_name(b"", 0), "")
+
+    def test_rec_next_movie_only_when_end_kind_3(self) -> None:
+        rec = bytearray(80)
+        rec[REC_NEXT_NAME_OFF] = 12
+        rec[REC_NEXT_NAME_OFF + 1 : REC_NEXT_NAME_OFF + 13] = b"towertop.mov"
+        self.assertEqual(_rec_next_movie(bytes(rec)), "")
+        struct.pack_into("<H", rec, REC_END_KIND_OFF, END_KIND_CHAIN)
+        self.assertEqual(_rec_next_movie(bytes(rec)), "towertop.mov")
+        struct.pack_into("<H", rec, 0, 5)
+        self.assertEqual(_rec_next_movie(bytes(rec)), "")
 
 
 class TestTickConstants(unittest.TestCase):
@@ -221,7 +256,8 @@ class TestSpotmovieCommandSfx(unittest.TestCase):
         tl = parse_reel_timeline(read_df_file(GROCPOTS))
         self.assertIsNotNone(tl)
         assert tl is not None
-        self.assertFalse(any(f.wait for f in tl.frames))
+        self.assertTrue(tl.frames[1].wait)
+        self.assertEqual(len(tl.frames[1].hotspots), 2)
         self.assertEqual(tl.frames[2].start_tick, 42)
         clips = [(c.start_tick, c.container, c.channel) for c in tl.clip_starts]
         self.assertEqual(clips, [(42, 1, "A1")])
@@ -231,7 +267,12 @@ class TestSpotmovieCommandSfx(unittest.TestCase):
         tl = parse_reel_timeline(read_df_file(BELL))
         self.assertIsNotNone(tl)
         assert tl is not None
-        self.assertFalse(any(f.wait for f in tl.frames))
+        self.assertTrue(tl.frames[1].wait)
+        self.assertEqual(len(tl.frames[1].hotspots), 4)
+        self.assertEqual(tl.frames[1].hotspots[0].dest, 2)
+        self.assertEqual(tl.frames[1].hotspots[1].dest, 22)
+        self.assertEqual(tl.frames[1].hotspots[2].dest, 43)
+        self.assertEqual(tl.frames[1].hotspots[3].dest, 64)
         self.assertEqual(tl.frames[2].start_tick, 18)
         self.assertEqual(tl.frames[22].start_tick, 78)
         self.assertEqual(tl.frames[43].start_tick, 141)
@@ -247,6 +288,8 @@ class TestSpotmovieCommandSfx(unittest.TestCase):
         tl = parse_reel_timeline(read_df_file(NITEBELL))
         self.assertIsNotNone(tl)
         assert tl is not None
+        self.assertTrue(tl.frames[1].wait)
+        self.assertEqual(len(tl.frames[1].hotspots), 4)
         clips = [(c.container, c.channel, c.start_tick) for c in tl.clip_starts]
         self.assertEqual(
             clips,
@@ -290,6 +333,79 @@ class TestSpotmovieCommandSfx(unittest.TestCase):
         assert tl is not None
         clips = [(c.start_tick, c.channel) for c in tl.clip_starts]
         self.assertEqual(clips, [(33, "A1"), (36, "A2")])
+
+
+@unittest.skipUnless(TOWERUP.is_file() and TOWERTOP.is_file() and TOWERDN.is_file(), SKIP)
+class TestTowerChain(unittest.TestCase):
+    def test_towerup_chains_to_towertop(self) -> None:
+        """Last rec kind 3 (DF.EXE 0x419a24) names towertop.mov. Scripts only say towerup."""
+        tl = parse_reel_timeline(read_df_file(TOWERUP))
+        self.assertIsNotNone(tl)
+        assert tl is not None
+        self.assertEqual(tl.next_movie, "towertop.mov")
+        self.assertTrue(all(not f.wait for f in tl.frames))
+
+    def test_towertop_is_the_examine_still(self) -> None:
+        """Rec 2: type-4 windows + type-2 bell + ladder dismiss. Last rec chains down."""
+        tl = parse_reel_timeline(read_df_file(TOWERTOP))
+        self.assertIsNotNone(tl)
+        assert tl is not None
+        self.assertTrue(tl.frames[2].wait)
+        spots = tl.frames[2].hotspots
+        self.assertEqual(len(spots), 5)
+        self.assertEqual(spots[0].movie, "bellmoon.mov")
+        self.assertEqual(spots[0].dest, 0)
+        self.assertEqual((spots[0].top, spots[0].left, spots[0].bottom, spots[0].right), (0, 374, 253, 512))
+        self.assertEqual(spots[1].movie, "bellbarn.mov")
+        self.assertEqual((spots[1].top, spots[1].left, spots[1].bottom, spots[1].right), (0, 0, 189, 72))
+        self.assertEqual(spots[2].dest, 24)
+        self.assertEqual(spots[2].channel, "")
+        self.assertEqual((spots[2].top, spots[2].left, spots[2].bottom, spots[2].right), (198, 7, 264, 367))
+        self.assertEqual(spots[3].dest, 3)
+        self.assertEqual(spots[3].channel, "A1")
+        self.assertEqual((spots[3].top, spots[3].left, spots[3].bottom, spots[3].right), (56, 203, 129, 278))
+        self.assertEqual(spots[4].movie, "belltown.mov")
+        self.assertEqual((spots[4].top, spots[4].left, spots[4].bottom, spots[4].right), (7, 129, 195, 344))
+        self.assertEqual(tl.next_movie, "towerdn.mov")
+        clips = [(c.container, c.channel) for c in tl.clip_starts]
+        self.assertEqual(clips, [(1, "A1")])
+
+    def test_towerdn_does_not_chain(self) -> None:
+        tl = parse_reel_timeline(read_df_file(TOWERDN))
+        self.assertIsNotNone(tl)
+        assert tl is not None
+        self.assertEqual(tl.next_movie, "")
+        self.assertTrue(all(not f.wait for f in tl.frames))
+
+    def test_tower_windows_are_inspect_stills(self) -> None:
+        if not (BELLBARN.is_file() and BELLMOON.is_file() and BELLTOWN.is_file()):
+            self.skipTest("tower window MOVs not present")
+        barn = parse_reel_timeline(read_df_file(BELLBARN))
+        moon = parse_reel_timeline(read_df_file(BELLMOON))
+        town = parse_reel_timeline(read_df_file(BELLTOWN))
+        assert barn is not None and moon is not None and town is not None
+        self.assertTrue(any(f.wait for f in barn.frames))
+        self.assertTrue(any(f.wait for f in moon.frames))
+        self.assertTrue(any(f.wait for f in town.frames))
+        self.assertEqual(barn.next_movie, "")
+        self.assertEqual(moon.next_movie, "")
+        self.assertEqual(town.next_movie, "")
+
+    def test_intro_does_not_chain_but_intro2_plays_intro3(self) -> None:
+        """Boot names intro then intro2. intro2's last rec kind 3 is intro3.mov."""
+        intro = parse_reel_timeline(read_df_file(INTRO))
+        intro2 = parse_reel_timeline(read_df_file(INTRO2))
+        assert intro is not None and intro2 is not None
+        self.assertEqual(intro.next_movie, "")
+        self.assertEqual(intro2.next_movie, "intro3.mov")
+
+    def test_marieend_chains_finalend(self) -> None:
+        if not MARIEEND.is_file():
+            self.skipTest("MARIEEND.MOV not present")
+        tl = parse_reel_timeline(read_df_file(MARIEEND))
+        self.assertIsNotNone(tl)
+        assert tl is not None
+        self.assertEqual(tl.next_movie, "finalend.mov")
 
 
 @unittest.skipUnless(SALUP.is_file(), SKIP)

@@ -57,6 +57,7 @@ LIBRARY = {
         "notes": [
             "Not an opcode. SET scripts write sendtostage (spotmovie (\"….mov\")).",
             "Engine verb underneath is playmovie.",
+            "One premovie/postmovie wrap. playmovie itself follows MOV rec+0x16==3 (towerup → towertop → towerdn) so the fades bracket the whole chain, not each reel.",
         ],
     },
     "gototown": {
@@ -202,6 +203,8 @@ OPCODES: list[dict] = [
             "Group B (header+0x1C): sequential theme playlist at +0x83E; a scene with n_b=0 keeps the previous bed.",
             "Stills are deltas into one framebuffer. Scene headers are not images — keep prior pixels.",
             "Each scene header loads a 256-entry palette at +0x3E. RGB/PNG must use that palette.",
+            "When rec+0 cmd count is 0, rec+0x16==3 copies rec+0x30 Pascal and continues (0x419a24). Scripts name only towerup.mov; playmovie chains towertop.mov then towerdn.mov. intro2.mov chains intro3.mov the same way; intro.mov does not (boot names intro2).",
+            "Type-4 command (48 bytes, Mac rect + Pascal .mov at +16) pushes a nested playmovie (0x419ba3, depth < 5). TOWERTOP rec 2 windows are bellmoon / bellbarn / belltown.",
         ],
     },
     {

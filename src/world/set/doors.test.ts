@@ -138,6 +138,34 @@ describe("catalog", () => {
     expect(overlaySprite(townDoor("hotel-out"), false)).toContain("/door/hotout/");
   });
 
+  it("keeps school A2 west on one night-authored padre overlay", () => {
+    // lockpadre is day<4 or clock<3. schoolout has schooloutnite; padre does not.
+    const schoolOut = townDoor("school-out");
+    const schoolPadre = townDoor("school-padre");
+    const nitePadre = townDoor("nitescho-padre");
+    const padreOut = townDoor("padre-out");
+    expect(schoolOut.sprite).toBe("schoolout");
+    expect(schoolOut.spriteNight).toBe("schooloutnite");
+    expect(overlaySprite(schoolOut, false)).toContain("/door/schoolout/");
+    expect(overlaySprite(schoolOut, true)).toContain("/door/schooloutnite/");
+    expect(schoolPadre).toMatchObject({
+      world: "_SCHOOL",
+      scene: "scene a2",
+      facing: "W",
+      sprite: "padre",
+      go: { kind: "set", world: "_PADRE", scene: "scene a2", facing: "W" },
+    });
+    expect(schoolPadre.spriteNight).toBeUndefined();
+    expect(nitePadre.sprite).toBe("padre");
+    expect(nitePadre.spriteNight).toBeUndefined();
+    expect(overlaySprite(schoolPadre, false)).toContain("/door/padre/");
+    expect(overlaySprite(schoolPadre, true)).toContain("/door/padre/");
+    expect(overlaySprite(nitePadre, true)).toContain("/door/padre/");
+    expect(padreOut.sprite).toBe("padreout");
+    expect(padreOut.spriteNight).toBeUndefined();
+    expect(overlaySprite(padreOut, false)).toContain("/door/padreout/");
+  });
+
   it("sends court to NITECOUR at night", () => {
     const court = townDoor("town-court");
     expect(goWorld(court.go, false)).toBe("_COURT");

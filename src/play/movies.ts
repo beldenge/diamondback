@@ -1,5 +1,19 @@
 import { extractUrl } from "../world/set/extract";
 
+export interface MovieHotspot {
+  /** Mac rect on the 512×264 still (top, left, bottom, right). */
+  top: number;
+  left: number;
+  bottom: number;
+  right: number;
+  /** 0-based frame index to jump to (DF.EXE last>=2). */
+  dest: number;
+  /** Group-A channel to play (`A1`…). Empty = dismiss. */
+  channel?: string;
+  /** Type-4 nested playmovie (`bellmoon.mov` from towertop). */
+  movie?: string;
+}
+
 export interface MovieFrame {
   container: number;
   hold_ticks: number;
@@ -8,6 +22,8 @@ export interface MovieFrame {
   action?: number;
   /** Type-2 slot-0 last=2 with cmd count 1: hold this still until click. */
   wait?: boolean;
+  /** bell.mov / grocpots: click rects on a wait still. */
+  hotspots?: MovieHotspot[];
 }
 
 export interface MovieClip {
@@ -22,6 +38,8 @@ export interface MovieTimeline {
   duration_seconds?: number;
   frames: MovieFrame[];
   clips?: MovieClip[];
+  /** Rec+0x16==3 Pascal at rec+0x30. playmovie loads this when the reel ends. */
+  next?: string;
 }
 
 /** Still-table length in seconds (timeline sidecar, else sum of holds). */
@@ -51,6 +69,23 @@ export function movieFolder(name: string): string {
   return `MOV/_${stem}`;
 }
 
+/** `towertop.mov` / `TOWERTOP` → `towertop.mov`. Reject leftover header junk. */
+export function movieChainName(raw: string | undefined): string | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  const match = /^([A-Za-z0-9_]+(?:\.mov)?)$/i.exec(trimmed);
+  if (!match) {
+    return undefined;
+  }
+  const stem = match[1]!.replace(/\.mov$/i, "");
+  if (!stem) {
+    return undefined;
+  }
+  return `${stem.toLowerCase()}.mov`;
+}
+
 export function isIntroMovie(name: string): boolean {
   const stem = name.replace(/\.mov$/i, "").toLowerCase();
   return stem === "intro" || stem === "intro2" || stem === "intro3";
@@ -72,6 +107,56 @@ export function movieFrameWaitsForClick(
     return false;
   }
   return action === 1;
+}
+
+export function macRectContains(
+  x: number,
+  y: number,
+  box: { top: number; left: number; bottom: number; right: number },
+): boolean {
+  return x >= box.left && x < box.right && y >= box.top && y < box.bottom;
+}
+
+export function pickMovieHotspot(
+  x: number,
+  y: number,
+  spots: readonly MovieHotspot[],
+): MovieHotspot | undefined {
+  return spots.find((spot) => macRectContains(x, y, spot));
+}
+
+/** CSS `object-fit: contain` → still pixels. */
+export function movieClickToStill(
+  clientX: number,
+  clientY: number,
+  box: { left: number; top: number; width: number; height: number },
+  srcW: number,
+  srcH: number,
+): { x: number; y: number } | null {
+  if (box.width <= 0 || box.height <= 0 || srcW <= 0 || srcH <= 0) {
+    return null;
+  }
+  const scale = Math.min(box.width / srcW, box.height / srcH);
+  const dispW = srcW * scale;
+  const dispH = srcH * scale;
+  const ox = box.left + (box.width - dispW) / 2;
+  const oy = box.top + (box.height - dispH) / 2;
+  return {
+    x: (clientX - ox) / scale,
+    y: (clientY - oy) / scale,
+  };
+}
+
+export function movieHotspotSegmentEnd(
+  dest: number,
+  spots: readonly MovieHotspot[],
+  frameCount: number,
+): number {
+  const later = spots
+    .map((spot) => spot.dest)
+    .filter((value) => value > dest)
+    .sort((a, b) => a - b);
+  return later[0] ?? frameCount;
 }
 
 /**

@@ -3,6 +3,9 @@ import {
   CAMERA_SETBACK,
   engineStillScale,
   PRP_SCALE_FIELD,
+  spriteDestRect,
+  spriteStillTopLeft,
+  STILL_CENTER_Y,
 } from "./facing";
 
 /**
@@ -177,6 +180,47 @@ export function propStillScale(
     return 1;
   }
   return engineStillScale(prop.scale || 1450, lensForward, PRP_SCALE_FIELD);
+}
+
+/**
+ * Full-still-height door PNGs (`rice`, `underout`) are still replacements.
+ * Authored z a few units off camZ shifts dest ~5px and leaves a closed
+ * strip above the HUD. Pin Y to the still center. Shorter leaves
+ * (`salout` 252, `padre` 212) keep projected Y (`0x415271`).
+ *
+ * `padre` header is origin (256,192): dest TL is the projected hotspot
+ * of `propxyz (32, 412, 157)` on school A2 west → ~202,51. The 28px
+ * above `pointindoor` y=79 is the T lintel. Do not pin to the hitbox.
+ */
+export function doorOverlayHotspotY(placeH: number, projectedY: number): number {
+  if (placeH >= STILL_HEIGHT) {
+    return STILL_CENTER_Y;
+  }
+  return projectedY;
+}
+
+export function doorOverlayTopLeft(
+  hx: number,
+  hy: number,
+  place: { x: number; y: number; w: number; h: number },
+  stillScale: number,
+): { x: number; y: number } {
+  return spriteStillTopLeft(hx, doorOverlayHotspotY(place.h, hy), place, stillScale);
+}
+
+export function doorOverlayDestRect(
+  hx: number,
+  hy: number,
+  place: { x: number; y: number; w: number; h: number },
+  stillScale: number,
+): { left: number; top: number; right: number; bottom: number } {
+  const tl = doorOverlayTopLeft(hx, hy, place, stillScale);
+  return {
+    left: tl.x,
+    top: tl.y,
+    right: tl.x + place.w * stillScale,
+    bottom: tl.y + place.h * stillScale,
+  };
 }
 
 /** Painter’s algorithm: farther still-forward first, nearer last (on top). */

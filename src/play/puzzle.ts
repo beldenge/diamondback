@@ -98,7 +98,13 @@ export function isPuzzleStage(stage: string): boolean {
 }
 
 /** HOUSE chrome around FLT readers. 512×384; page hole is codec skip 255, not pal 0. */
-export const READER_BORDER_PROPS = ["diarybord", "histbord", "pagebord", "yunnibord"] as const;
+export const READER_BORDER_PROPS = [
+  "diarybord",
+  "histbord",
+  "pagebord",
+  "yunnibord",
+  "curebord",
+] as const;
 
 export const READER_STAGES: Readonly<Record<string, (typeof READER_BORDER_PROPS)[number]>> = {
   diary: "diarybord",
@@ -109,6 +115,9 @@ export const READER_STAGES: Readonly<Record<string, (typeof READER_BORDER_PROPS)
   yunnibook: "yunnibord",
   torn: "pagebord",
   dbhist: "histbord",
+  // DRUG `drugbook` opens CURE.FLT (`stage` = drugbook.flt).
+  cure: "curebord",
+  drugbook: "curebord",
 };
 
 export function readerStageName(stage: string): string {
@@ -141,6 +150,7 @@ export const READER_BORDER_HOLE: Readonly<
   histbord: { left: 32, top: 24, right: 480, bottom: 367 },
   pagebord: { left: 171, top: 30, right: 365, bottom: 353 },
   diarybord: { left: 30, top: 31, right: 478, bottom: 351 },
+  curebord: { left: 32, top: 28, right: 480, bottom: 348 },
 };
 
 export function pointHitsReaderBorder(name: string, x: number, y: number): boolean {

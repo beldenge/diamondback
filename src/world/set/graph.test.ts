@@ -13,6 +13,7 @@ import {
   SET_SPAWN,
   setFolderFromWorld,
   setNamesEqual,
+  framesFolder,
   zUrlFromStill,
 } from "./graph";
 import {
@@ -234,6 +235,18 @@ describe("extracted interior graphs", () => {
     expect(setFolderFromWorld("sallower")).toBe("_SALLOWER");
     expect(setNamesEqual("sallower", "_SALLOWER")).toBe(true);
     expect(setNamesEqual("sallower", "sallower.set")).toBe(true);
+    expect(setNamesEqual("school", "nitescho")).toBe(true);
+    expect(setNamesEqual("court", "nitecour.set")).toBe(true);
+    expect(setNamesEqual("school", "court")).toBe(false);
+    expect(setNamesEqual("town", "nite")).toBe(true);
+    expect(framesFolder("town", false)).toBe("_TOWN");
+    expect(framesFolder("town", true)).toBe("_NITE");
+    expect(framesFolder("_SCHOOL", true)).toBe("_NITESCHO");
+    expect(framesFolder("_NITESCHO", false)).toBe("_SCHOOL");
+    expect(framesFolder("_COURT", true)).toBe("_NITECOUR");
+    expect(framesFolder("_NITECOUR", false)).toBe("_COURT");
+    expect(framesFolder("_PADRE", true)).toBe("_PADRE");
+    expect(framesFolder("_PADRE", false)).toBe("_PADRE");
     expect(zUrlFromStill("/extract/SET/_SALLOWER/FRAMES/172_5.png")).toBe(
       "/extract/SET/_SALLOWER/FRAMES/z/172_5.png",
     );

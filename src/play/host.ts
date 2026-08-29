@@ -4,6 +4,7 @@ import { extractUrl } from "../world/set/extract";
 import type { Dir, SetGraph, WalkerPose } from "../world/set/types";
 import {
   cameraZOf,
+  lightingFamily,
   loadSetGraph,
   parseDir,
   sceneByName,
@@ -35,7 +36,12 @@ import {
   type StillHit,
 } from "./facing";
 import type { ViewCamera } from "./facing";
-import { doorOpenedStillMatches, isDoorOverlay, propStillScale } from "./occlude";
+import {
+  doorOpenedStillMatches,
+  doorOverlayDestRect,
+  isDoorOverlay,
+  propStillScale,
+} from "./occlude";
 import { ScriptIndex, loadScriptJson } from "./scripts";
 import {
   dustIdleInterval,
@@ -88,7 +94,9 @@ import {
   fallbackTimeline,
   frameUrl,
   isIntroMovie,
+  movieChainName,
   movieFolder,
+  type MovieHotspot,
   type MovieTimeline,
 } from "./movies";
 import {
@@ -119,6 +127,19 @@ import {
   sandboxLeroyRangeRunyoself,
   sandboxLeroyRangeTalk,
   sandboxInventoryToSeed,
+  sandboxIsApoth,
+  sandboxApothBottlesClick,
+  sandboxBankCrackClick,
+  sandboxBankSignMousedown,
+  sandboxBindApothBottles,
+  sandboxBottlesMousedown,
+  sandboxBottlesSetcursor,
+  sandboxDellMousedown,
+  sandboxDellTownClick,
+  sandboxKidMousedown,
+  sandboxKidTownClick,
+  sandboxOpenKidProc,
+  sandboxPuzzletime,
   sandboxRangeAnimalsToSeed,
   sandboxSkipRangeWalkWait,
   sandboxTownAnimalsToSeed,
@@ -223,6 +244,8 @@ export interface WorldView {
   graph: SetGraph;
   walk(kind: "strait" | "left" | "right"): void;
   setPose(world: string, pose: WalkerPose): Promise<void>;
+  /** Unlocked N: swap court/school day↔night stills; keep pose. */
+  swapLighting?(): Promise<void>;
   log(message: string): void;
   refreshActors(): void;
   /** Camera during a SET filmstrip; defaults to the standing pose. */
@@ -230,9 +253,18 @@ export interface WorldView {
   /** Sprite still-position; filmstrips reproject with the SET camera. */
   projectWorld?(obj: { x: number; y: number; z?: number; screen?: boolean }): StillHit | null;
   playMovie?(
-    frames: { url: string; holdSec: number; action?: number; wait?: boolean }[],
+    frames: {
+      url: string;
+      holdSec: number;
+      action?: number;
+      wait?: boolean;
+      hotspots?: MovieHotspot[];
+    }[],
     clips: { url: string; startSec: number; channel?: string }[],
+    opts?: { keepLayer?: boolean },
   ): Promise<void>;
+  /** Hide the movie layer after a `keepLayer` chain (towerup → towertop → towerdn). */
+  endMovie?(): void;
   /** Dust `screentoblack` / `blacktoscreen` ticks (60 Hz). */
   fadeToBlack?(ticks: number): Promise<void>;
   fadeFromBlack?(ticks: number): Promise<void>;
@@ -380,6 +412,12 @@ export class DustHost implements OpcodeHost {
    * movies are skipped, keep the spawn still up instead of wiping it.
    */
   skipBootBlack = false;
+  /**
+   * Last `mixclut` fade 0–1. Hub `mixclut ("set", "black", …, count)` is
+   * an absolute plate. Fight `fadetoblack` is `("current", "black", …, 20)`
+   * stepped from this value; treating 20/255 as the whole plate never KO'd.
+   */
+  private fadeMix = 0;
   /** Escape during `puppetspeak` skips remaining lines until choices. */
   skipSpeech = false;
   currentVoice = "none";
@@ -457,6 +495,10 @@ export class DustHost implements OpcodeHost {
     if (sundial) {
       return sundial;
     }
+    const toy = this.sandboxPlaceToy(name, ctx);
+    if (toy) {
+      return toy;
+    }
     return this.index.lookup(this.lookupKeys(ctx), name);
   }
 
@@ -475,6 +517,13 @@ export class DustHost implements OpcodeHost {
     const sundial = this.sandboxHubSundial(name);
     if (sundial) {
       return [sundial, ...this.index.lookupAll(this.lookupKeys(ctx), name)];
+    }
+    const toy = this.sandboxPlaceToy(name, ctx);
+    if (toy) {
+      if (name.toLowerCase() === "mousedown" && sandboxBankCrackClick(this.currentSet, ctx.object, ctx.me)) {
+        return [toy, ...this.index.lookupAll(this.lookupKeys(ctx), name)];
+      }
+      return [toy];
     }
     return this.index.lookupAll(this.lookupKeys(ctx), name);
   }
@@ -516,6 +565,45 @@ export class DustHost implements OpcodeHost {
     }
     if (op === "mousedown") {
       return sandboxHubSundialMousedown();
+    }
+    return undefined;
+  }
+
+  /**
+   * Unlocked place-toys: bank crack, apoth compounding, Dell fight, Kid
+   * duel. Fake only the story gate; extracted FLT/SET procs still run.
+   */
+  private sandboxPlaceToy(name: string, ctx: VM): Proc | undefined {
+    if (!this.sandbox) {
+      return undefined;
+    }
+    const op = name.toLowerCase();
+    if (op === "puzzletime" && sandboxIsApoth(this.currentSet)) {
+      return sandboxPuzzletime();
+    }
+    if (op === "openkid") {
+      return sandboxOpenKidProc();
+    }
+    if (
+      sandboxApothBottlesClick(this.currentSet, ctx.object, ctx.me) &&
+      (op === "mousedown" || op === "setcursor")
+    ) {
+      return op === "setcursor" ? sandboxBottlesSetcursor() : sandboxBottlesMousedown();
+    }
+    if (op !== "mousedown") {
+      return undefined;
+    }
+    if (sandboxBankCrackClick(this.currentSet, ctx.object, ctx.me)) {
+      return sandboxBankSignMousedown();
+    }
+    if (
+      sandboxDellTownClick(this.currentSet, ctx.object, ctx.me) &&
+      !this.currentStageName.toLowerCase().includes("fight")
+    ) {
+      return sandboxDellMousedown();
+    }
+    if (sandboxKidTownClick(this.currentSet, ctx.object, ctx.me)) {
+      return sandboxKidMousedown();
     }
     return undefined;
   }
@@ -598,9 +686,11 @@ export class DustHost implements OpcodeHost {
           // `blackscreen`. Unlocked never runs extracted `postmovie`
           // (`blacktoscreen`) so a real cut here stuck on a black plate.
           if (!this.skipBootBlack) {
+            this.fadeMix = 1;
             this.view?.cutToBlack?.();
           }
         } else if (which === "set" || which === "current" || which === "stage") {
+          this.fadeMix = 0;
           this.view?.setFadeOpacity?.(0);
         }
         if (isPuzzleStage(this.currentStageName)) {
@@ -615,6 +705,7 @@ export class DustHost implements OpcodeHost {
         return 0;
       case "blackscreen":
         if (!this.skipBootBlack) {
+          this.fadeMix = 1;
           this.view?.cutToBlack?.();
         }
         return 0;
@@ -626,6 +717,7 @@ export class DustHost implements OpcodeHost {
         if (this.view?.fadeToBlack) {
           await this.view.fadeToBlack(ticks);
         }
+        this.fadeMix = 1;
         return 0;
       }
       case "blacktoscreen": {
@@ -633,6 +725,7 @@ export class DustHost implements OpcodeHost {
         if (this.view?.fadeFromBlack) {
           await this.view.fadeFromBlack(ticks);
         }
+        this.fadeMix = 0;
         return 0;
       }
       case "halttheme":
@@ -678,7 +771,19 @@ export class DustHost implements OpcodeHost {
         const from = str(args[0]).toLowerCase();
         const to = str(args[1]).toLowerCase();
         const amount = Math.min(1, Math.max(0, num(args[4]) / 255));
-        const opacity = to === "black" ? amount : from === "black" ? 1 - amount : amount;
+        // Hub `gotoblack` walks count 0…255 with from=`set` (absolute).
+        // FIGHT `fadetoblack` repeats from=`current` amount 20 (step).
+        let opacity: number;
+        if (to === "black" && from === "current") {
+          opacity = Math.min(1, this.fadeMix + amount);
+        } else if (to === "black") {
+          opacity = amount;
+        } else if (from === "black") {
+          opacity = 1 - amount;
+        } else {
+          opacity = amount;
+        }
+        this.fadeMix = opacity;
         this.view?.setFadeOpacity?.(opacity);
         return 0;
       }
@@ -1057,6 +1162,14 @@ export class DustHost implements OpcodeHost {
         await this.openStage(str(args[0]));
         // Engine shows the default flat (`openflat` → mainpanel `noface`).
         await this.activateFlat(ctx, this.currentFlatName);
+        // Same hook as `openset` / `opencast`. CRACK parks `spin`; SCORP
+        // starts the drawer `trigger`. NEW.FLT has no `openstage`.
+        {
+          const hook = this.index.lookup(["stage"], "openstage");
+          if (hook) {
+            await ctx.inObject("stage", this.currentStageName, () => ctx.runProc(hook));
+          }
+        }
         return 0;
       case "closestagefile":
         this.closeStage();
@@ -1081,8 +1194,14 @@ export class DustHost implements OpcodeHost {
           sandboxShowMineMask(this.currentSet, this.namedProp("mask"));
           // Town livestock is seeded after `initall`'s `initactors` (that
           // loop putdowns everyone). TARGET `opencast` already ran here.
-          if (this.currentSet === "target") {
+          if (this.currentSet === "target" || this.currentSet === "town") {
             await this.seedSandboxAnimals(ctx);
+          }
+          if (this.currentSet === "town") {
+            await this.seedSandboxTownPeople(ctx);
+          }
+          if (sandboxIsApoth(this.currentSet)) {
+            await this.seedSandboxApothBottles(ctx);
           }
         }
         return 0;
@@ -2775,7 +2894,7 @@ export class DustHost implements OpcodeHost {
       return;
     }
     const logical = name.replace(/\.set$/i, "").toLowerCase();
-    this.currentSet = logical === "nite" ? "town" : logical;
+    this.currentSet = lightingFamily(logical) || logical;
     this.currentSetFile = name.toLowerCase();
     let graph = this.setGraphs.get(folder);
     if (!graph) {
@@ -2892,6 +3011,7 @@ export class DustHost implements OpcodeHost {
     await ctx.evalCall("currentview", [lit("north")]);
     this.settleSandboxWorld(ctx);
     await this.seedSandboxAnimals(ctx);
+    await this.seedSandboxTownPeople(ctx);
     await ctx.inObject("actor", "leroy", () => ctx.evalCall("setupactor", [lit("range")]));
     this.view?.refreshActors();
     // Extracted day-1 `advanceday` ends in `postmovie` → `blacktoscreen`.
@@ -2913,7 +3033,7 @@ export class DustHost implements OpcodeHost {
     }
   }
 
-  /** N in Unlocked: swap town/nite stills without advancing `day`. */
+  /** N in Unlocked: swap town/nite (and court/school twins) without advancing `day`. */
   async applySandboxClock(ctx: VM, clock: ClockSlot): Promise<void> {
     if (!this.sandbox) {
       return;
@@ -2922,6 +3042,7 @@ export class DustHost implements OpcodeHost {
     ctx.globals.set("clock", clock);
     ctx.globalNames.add("clock");
     if (this.currentSet !== "town") {
+      await this.view?.swapLighting?.();
       this.view?.refreshActors();
       return;
     }
@@ -2931,6 +3052,7 @@ export class DustHost implements OpcodeHost {
     );
     this.settleSandboxWorld(ctx);
     await this.seedSandboxAnimals(ctx);
+    await this.seedSandboxTownPeople(ctx);
     await this.seedSandboxInventory(ctx);
     await ctx.inObject("actor", "leroy", () => ctx.evalCall("setupactor", [lit("range")]));
     this.view?.refreshActors();
@@ -2968,6 +3090,7 @@ export class DustHost implements OpcodeHost {
     const lit = (value: string) => ({ type: "str" as const, value });
     const n = (value: number) => ({ type: "num" as const, value });
     for (const row of sandboxTownAnimalsToSeed(this.currentSet, this.actors.values())) {
+      await this.ensureActor(row.name);
       if (!this.index.lookup([`actor:${row.name}`], "setupactor")) {
         continue;
       }
@@ -2986,6 +3109,50 @@ export class DustHost implements OpcodeHost {
       }
       await ctx.inObject("actor", row.name, () => ctx.evalCall("endwalk", []));
     }
+    this.view?.refreshActors();
+  }
+
+  /**
+   * Dell at `town.dell2` (D7 south). Kid standing at scene G6. Extracted
+   * `setupactor("fight")` / `walkin` would auto-start those set pieces.
+   */
+  private async seedSandboxTownPeople(ctx: VM): Promise<void> {
+    if (!this.sandbox || this.currentSet !== "town") {
+      return;
+    }
+    const lit = (value: string) => ({ type: "str" as const, value });
+    const n = (value: number) => ({ type: "num" as const, value });
+    if (!this.namedActor("dell").visible) {
+      await this.ensureActor("dell");
+      await ctx.inObject("actor", "dell", () => ctx.evalCall("setupactor", [lit("shack")]));
+      await ctx.evalCall("actorstar", [lit("dell"), lit("town.dell2")]);
+      // Face south so D7 north (the fight camera) sees his front, not a profile.
+      await ctx.evalCall("actordeg", [lit("dell"), n(64)]);
+    }
+    if (!this.namedActor("kid").visible) {
+      await this.ensureActor("kid");
+      await ctx.evalCall("actorset", [lit("kid"), lit("town")]);
+      await ctx.inObject("actor", "kid", () => ctx.evalCall("stdactor", [lit("kid")]));
+      const x = await ctx.evalCall("scenexyz", [lit("scene g6"), n(1)]);
+      const y = await ctx.evalCall("scenexyz", [lit("scene g6"), n(2)]);
+      // Extracted `walkin` / `dead` park on G6 center. y-80 was hotel Z.
+      await ctx.evalCall("actorxyz", [lit("kid"), x, y, n(0)]);
+      await ctx.evalCall("actoris3d", [lit("kid"), n(1)]);
+      await ctx.evalCall("actorpose", [lit("kid"), lit("stand")]);
+      await ctx.evalCall("actordeg", [lit("kid"), n(64)]);
+      await ctx.evalCall("actorvisible", [lit("kid"), n(1)]);
+    }
+    this.view?.refreshActors();
+  }
+
+  /** Apoth `openset` only `setupprop("apoth")` on day 3 afternoon. */
+  private async seedSandboxApothBottles(ctx: VM): Promise<void> {
+    if (!this.sandbox || !sandboxIsApoth(this.currentSet)) {
+      return;
+    }
+    const lit = (value: string) => ({ type: "str" as const, value });
+    await ctx.inObject("prop", "bottles", () => ctx.evalCall("setupprop", [lit("apoth")]));
+    sandboxBindApothBottles(this.currentSet, this.namedProp("bottles"));
     this.view?.refreshActors();
   }
 
@@ -3452,6 +3619,13 @@ export class DustHost implements OpcodeHost {
         PRP_SCALE_FIELD,
       );
     }
+    if (isDoorOverlay(prop.name)) {
+      return pointInSpriteDest(
+        point.x,
+        point.y,
+        doorOverlayDestRect(still.x, still.y, frame, stillScale),
+      );
+    }
     return pointInSpriteDest(
       point.x,
       point.y,
@@ -3750,7 +3924,7 @@ export class DustHost implements OpcodeHost {
     return pointInSpriteDest(
       point.x,
       point.y,
-      spriteDestRect(still.x, still.y, frame, 1),
+      doorOverlayDestRect(still.x, still.y, frame, 1),
     );
   }
 
@@ -3832,32 +4006,50 @@ export class DustHost implements OpcodeHost {
 
   private async playMovie(name: string): Promise<void> {
     this.lastActionFrame = 0;
-    if (this.skipMovies && isIntroMovie(name)) {
-      this.view?.log(`skip ${name}`);
-      return;
+    const seen = new Set<string>();
+    let current: string | undefined = name;
+    let played = false;
+    try {
+      while (current) {
+        const key = current.toLowerCase();
+        if (seen.has(key)) {
+          break;
+        }
+        seen.add(key);
+        if (this.skipMovies && isIntroMovie(current)) {
+          this.view?.log(`skip ${current}`);
+          break;
+        }
+        const folder = movieFolder(current);
+        const timeline = await fetchJson<MovieTimeline>(extractUrl(`${folder}/timeline.json`)).catch(
+          () => fallbackTimeline(8),
+        );
+        const hz = timeline.tick_hz || 60;
+        const frames = timeline.frames.map((frame) => ({
+          url: frameUrl(folder, frame.container),
+          holdSec: Math.max(1, frame.hold_ticks || 0) / hz,
+          action: frame.action ?? 0,
+          wait: frame.wait,
+          hotspots: frame.hotspots,
+        }));
+        const clips = (timeline.clips ?? []).map((clip) => ({
+          url: clipUrl(folder, clip.container),
+          startSec: clip.start_tick / hz,
+          channel: clip.channel,
+        }));
+        if (this.view?.playMovie && frames.length) {
+          await this.view.playMovie(frames, clips, { keepLayer: true });
+          played = true;
+        } else {
+          this.view?.log(`movie ${current}`);
+          played = played || frames.length > 0;
+        }
+        current = movieChainName(timeline.next);
+      }
+    } finally {
+      this.view?.endMovie?.();
     }
-    const folder = movieFolder(name);
-    const timeline = await fetchJson<MovieTimeline>(extractUrl(`${folder}/timeline.json`)).catch(
-      () => fallbackTimeline(8),
-    );
-    const hz = timeline.tick_hz || 60;
-    const frames = timeline.frames.map((frame) => ({
-      url: frameUrl(folder, frame.container),
-      holdSec: Math.max(1, frame.hold_ticks || 0) / hz,
-      action: frame.action ?? 0,
-      wait: frame.wait,
-    }));
-    const clips = (timeline.clips ?? []).map((clip) => ({
-      url: clipUrl(folder, clip.container),
-      startSec: clip.start_tick / hz,
-      channel: clip.channel,
-    }));
-    if (this.view?.playMovie && frames.length) {
-      await this.view.playMovie(frames, clips);
-    } else {
-      this.view?.log(`movie ${name}`);
-    }
-    this.lastActionFrame = actionFrameAfterPlay(frames.length > 0);
+    this.lastActionFrame = actionFrameAfterPlay(played);
   }
 
   private openTrack(name: string): void {

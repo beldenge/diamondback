@@ -1,5 +1,8 @@
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ActorState } from "./host";
+import { buildSetGraph, SET_SPAWN } from "../world/set/graph";
 import {
   actorCssHeight,
   actorStillHeight,
@@ -41,7 +44,8 @@ import {
 } from "./facing";
 import { TILE_SPAN } from "../world/set/path";
 import { STILL_HEIGHT } from "../world/set/types";
-import { playStageRect, STAGE_HEIGHT, STAGE_WIDTH } from "./stage";
+import { doorOverlayDestRect } from "./occlude";
+import { PLAY_CAPTION_RESERVE, playStageRect, STAGE_HEIGHT, STAGE_WIDTH } from "./stage";
 
 function actor(x: number, y: number, deg = 0): ActorState {
   return {
@@ -402,6 +406,62 @@ describe("worldToStill", () => {
     expect(worldToStill(salout, cameraFromPose({ x: 3, y: 0, facing: "N" }, 180))).toBeNull();
   });
 
+  it("lands chin rice overlay on the A2 west still at scale 1", () => {
+    const scenesPath = resolve("dfextract/out/SET/_CHIN/scenes.json");
+    const transPath = resolve("dfextract/out/SET/_CHIN/transitions.json");
+    if (!existsSync(scenesPath) || !existsSync(transPath)) {
+      return;
+    }
+    const scenes = JSON.parse(readFileSync(scenesPath, "utf8"));
+    const records = JSON.parse(readFileSync(transPath, "utf8"));
+    const graph = buildSetGraph(scenes, records, SET_SPAWN._CHIN);
+    const a2 = [...graph.scenes.values()].find((s) => s.name.toLowerCase() === "scene a2");
+    expect(a2).toBeDefined();
+    // setupprop("rice"): (36, 384, 233) on chin. Header +26 is 230.
+    const rice = { x: 36, y: 384, z: 233 };
+    const pose = { x: a2!.x, y: a2!.y, facing: "W" as const };
+    const hit = worldToStill(rice, cameraFromPose(pose, 230));
+    expect(hit).not.toBeNull();
+    const place = { x: 102, y: 60, w: 308, h: 264 };
+    expect({
+      tile: `${a2!.x},${a2!.y}`,
+      hit: { x: hit!.x, y: hit!.y, lensForward: hit!.lensForward },
+      dest: doorOverlayDestRect(hit!.x, hit!.y, place, 1),
+    }).toEqual({
+      tile: "0,1",
+      hit: { x: 256, y: 127, lensForward: 156 },
+      dest: { left: 102, top: 0, right: 410, bottom: 264 },
+    });
+  });
+
+  it("lands school padre overlay on A2 west at the projector dest", () => {
+    const scenesPath = resolve("dfextract/out/SET/_SCHOOL/scenes.json");
+    const transPath = resolve("dfextract/out/SET/_SCHOOL/transitions.json");
+    if (!existsSync(scenesPath) || !existsSync(transPath)) {
+      return;
+    }
+    const scenes = JSON.parse(readFileSync(scenesPath, "utf8"));
+    const records = JSON.parse(readFileSync(transPath, "utf8"));
+    const graph = buildSetGraph(scenes, records, SET_SPAWN._SCHOOL);
+    const a2 = [...graph.scenes.values()].find((s) => s.name.toLowerCase() === "scene a2");
+    expect(a2).toBeDefined();
+    // setupprop("padre"): (32, 412, 157) on school. Header +26 is 115.
+    const padre = { x: 32, y: 412, z: 157 };
+    const pose = { x: a2!.x, y: a2!.y, facing: "W" as const };
+    const hit = worldToStill(padre, cameraFromPose(pose, 115));
+    expect(hit).not.toBeNull();
+    const place = { x: 256, y: 192, w: 123, h: 212 };
+    expect({
+      tile: `${a2!.x},${a2!.y}`,
+      hit: { x: hit!.x, y: hit!.y, lensForward: hit!.lensForward },
+      dest: doorOverlayDestRect(hit!.x, hit!.y, place, 1),
+    }).toEqual({
+      tile: "0,1",
+      hit: { x: 202, y: 51, lensForward: 160 },
+      dest: { left: 202, top: 51, right: 325, bottom: 263 },
+    });
+  });
+
   it("keeps someone 4 tiles down the street in view", () => {
     // K7 looking east: Leroy on the range road at K11 (10,10).
     const k7e = { x: 6, y: 10, facing: "E" as const };
@@ -565,6 +625,14 @@ describe("play stage", () => {
     expect(rect.worldH).toBeGreaterThan(100);
     expect(rect.h).toBeLessThanOrEqual(700);
     expect(rect.w).toBeLessThanOrEqual(390);
+  });
+
+  it("still letterboxes when the pose line reserves the bottom strip", () => {
+    const full = playStageRect(1280, 800);
+    const fitted = playStageRect(1280, 800 - PLAY_CAPTION_RESERVE);
+    expect(fitted.h + PLAY_CAPTION_RESERVE).toBeLessThanOrEqual(800);
+    expect(fitted.scale).toBeGreaterThan(0);
+    expect(fitted.w).toBeLessThanOrEqual(full.w);
   });
 });
 

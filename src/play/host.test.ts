@@ -17,6 +17,7 @@ import {
   puppetFolder,
   resolveFlatLoopWho,
   soundFileUrl,
+  type WorldView,
 } from "./host";
 import type { PuppetUi, VisemeLine } from "./ui";
 
@@ -2696,6 +2697,57 @@ describe("Day 1 sleep / lodging opcodes", () => {
     expect(await host.call("actionframe", [1], vm)).toBe(0);
   });
 
+  it("playmovie follows towerup → towertop → towerdn on one layer", async () => {
+    const up = resolve("dfextract/out/MOV/_TOWERUP/timeline.json");
+    const top = resolve("dfextract/out/MOV/_TOWERTOP/timeline.json");
+    const down = resolve("dfextract/out/MOV/_TOWERDN/timeline.json");
+    if (![up, top, down].every((p) => existsSync(p))) {
+      return;
+    }
+    const climb = JSON.parse(readFileSync(up, "utf8")) as { next?: string };
+    const examine = JSON.parse(readFileSync(top, "utf8")) as { next?: string };
+    if (climb.next !== "towertop.mov" || examine.next !== "towerdn.mov") {
+      return;
+    }
+    const { host, vm } = dayHost();
+    host.skipMovies = false;
+    const played: string[] = [];
+    let ended = 0;
+    host.view = {
+      pose: { x: 0, y: 0, facing: "N" },
+      world: "padre",
+      graph: {},
+      walk() {},
+      async setPose() {},
+      log() {},
+      refreshActors() {},
+      async playMovie(frames, _clips, opts) {
+        const url = frames[0]?.url ?? "";
+        const name = url.includes("_TOWERUP")
+          ? "towerup"
+          : url.includes("_TOWERTOP")
+            ? "towertop"
+            : url.includes("_TOWERDN")
+              ? "towerdn"
+              : url;
+        played.push(name);
+        expect(opts?.keepLayer).toBe(true);
+      },
+      endMovie() {
+        ended += 1;
+      },
+    } as unknown as WorldView;
+    const restore = mockExtractDisk();
+    try {
+      await host.call("playmovie", ["towerup.mov"], vm);
+    } finally {
+      restore();
+    }
+    expect(played).toEqual(["towerup", "towertop", "towerdn"]);
+    expect(ended).toBe(1);
+    expect(host.lastActionFrame).toBe(1);
+  });
+
   it("Day 1 advanceday grants $5; Help loans $5 only when broke", async () => {
     const advanceday = resolve("dfextract/out/FLT/_NEW/setcursor _arg_.txt");
     const help1 = resolve("dfextract/out/PUP/_HELP1/day1.json");
@@ -2822,6 +2874,29 @@ describe("Day 1 sleep / lodging opcodes", () => {
     expect(fade).toBe(0);
   });
 
+  it("mixclut from current steps toward black (FIGHT fadetoblack)", async () => {
+    const { host, vm } = dayHost();
+    let fade = 0;
+    host.view = {
+      pose: { x: 6, y: 14, facing: "N" },
+      world: "town",
+      graph: { scenes: new Map(), cameraTiles: new Set(), transitions: [], byFrom: new Map() },
+      walk() {},
+      async setPose() {},
+      log() {},
+      refreshActors() {},
+      setFadeOpacity(opacity: number) {
+        fade = opacity;
+      },
+    };
+    await host.call("mixclut", ["current", "black", 0, 255, 20], vm);
+    expect(fade).toBeCloseTo(20 / 255);
+    await host.call("mixclut", ["current", "black", 0, 255, 20], vm);
+    expect(fade).toBeCloseTo(40 / 255);
+    await host.call("mixclut", ["set", "black", 0, 127, 20], vm);
+    expect(fade).toBeCloseTo(20 / 255);
+  });
+
   it("loads FIGHT flat punch / quit and Dell mousedown", () => {
     const fight = resolve("dfextract/out/FLT/_FIGHT/openflat_2.json");
     const dell = resolve("dfextract/out/PRP/_FIGHT/setcursor _arg__54.json");
@@ -2833,6 +2908,20 @@ describe("Day 1 sleep / lodging opcodes", () => {
     );
     expect(loadProcs("PRP/_FIGHT/setcursor _arg__54.json").map((proc) => proc.name)).toEqual(
       expect.arrayContaining(["mousedown", "punch", "damage", "getpunch"]),
+    );
+  });
+
+  it("CRACK and SCORP dumps define openstage", () => {
+    const crack = resolve("dfextract/out/FLT/_CRACK/setcursor _arg_.json");
+    const scorp = resolve("dfextract/out/FLT/_SCORP/setcursor _arg_.json");
+    if (!existsSync(crack) || !existsSync(scorp)) {
+      return;
+    }
+    expect(loadProcs("FLT/_CRACK/setcursor _arg_.json").map((proc) => proc.name)).toContain(
+      "openstage",
+    );
+    expect(loadProcs("FLT/_SCORP/setcursor _arg_.json").map((proc) => proc.name)).toContain(
+      "openstage",
     );
   });
 });

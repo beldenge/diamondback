@@ -86,6 +86,7 @@ class TestHandbook(unittest.TestCase):
             "PlugProc",
             "checkmove",
             "Do not mix Titanic",
+            "towertop",
         ):
             self.assertIn(needle, md, needle)
 

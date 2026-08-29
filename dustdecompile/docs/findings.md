@@ -514,6 +514,12 @@ full-frame dismiss to rec 64. Rec 1 and rec 9 of `grocpots.mov` both
 jump A1 to rec 2 — rec 9 is replay, not a second clang. Linear extract
 schedules each unique `(slot, dest)` at the dest rec’s start tick.
 Inspect wait is type 2 slot 0 last 2, not rec+0≠0.
+Type 4 (48 bytes, Mac rect + Pascal `.mov` at +16) pushes a nested
+playmovie (`0x419ba3`) while depth `< 5`. When rec+0 cmd count is 0,
+rec+0x16 is an end-kind: **3** copies rec+0x30 into the current movie
+name (`0x419a24`) so `playmovie("towerup.mov")` continues through
+`towertop.mov` then `towerdn.mov`. `intro2.mov` chains `intro3.mov`
+the same way; `intro.mov` does not (boot names intro2).
 
 `singlesound` / `dualsound` / `multiplesound` are VM opcodes in the
 shared table; reel playback does not dispatch them. The reel mixer is

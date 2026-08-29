@@ -4,11 +4,15 @@ import { describe, expect, it } from "vitest";
 import {
   actionFrameAfterPlay,
   formatMovieClock,
+  movieChainName,
+  movieClickToStill,
   movieClipsStarting,
   movieDurationSec,
   movieFrameWaitsForClick,
+  movieHotspotSegmentEnd,
   movieIndexAt,
   movieWaitSetsSkipClick,
+  pickMovieHotspot,
   planMoviePasses,
   type MovieTimeline,
 } from "./movies";
@@ -98,9 +102,8 @@ describe("spotmovie SFX commands", () => {
       return;
     }
     const timeline = JSON.parse(readFileSync(path, "utf8")) as MovieTimeline;
-    expect(timeline.frames.some((frame) => movieFrameWaitsForClick(frame.action, frame.wait))).toBe(
-      false,
-    );
+    expect(timeline.frames[1]?.wait).toBe(true);
+    expect((timeline.frames[1]?.hotspots ?? []).length).toBe(2);
     expect(timeline.clips ?? []).toEqual([{ container: 1, start_tick: 42, channel: "A1" }]);
   });
 
@@ -110,14 +113,86 @@ describe("spotmovie SFX commands", () => {
       return;
     }
     const timeline = JSON.parse(readFileSync(path, "utf8")) as MovieTimeline;
-    expect(timeline.frames.some((frame) => movieFrameWaitsForClick(frame.action, frame.wait))).toBe(
-      false,
-    );
+    expect(timeline.frames[1]?.wait).toBe(true);
+    expect(timeline.frames[1]?.hotspots).toEqual([
+      { top: 11, left: 85, bottom: 188, right: 223, dest: 2, channel: "A1" },
+      { top: 11, left: 222, bottom: 190, right: 377, dest: 22, channel: "A2" },
+      { top: 11, left: 377, bottom: 155, right: 462, dest: 43, channel: "A3" },
+      { top: 0, left: 0, bottom: 264, right: 512, dest: 64, channel: "" },
+    ]);
     expect(timeline.clips ?? []).toEqual([
       { container: 1, start_tick: 18, channel: "A1" },
       { container: 2, start_tick: 78, channel: "A2" },
       { container: 3, start_tick: 141, channel: "A3" },
     ]);
+  });
+
+  it("picks mission-bell rects in command order", () => {
+    const spots = [
+      { top: 11, left: 85, bottom: 188, right: 223, dest: 2, channel: "A1" },
+      { top: 11, left: 222, bottom: 190, right: 377, dest: 22, channel: "A2" },
+      { top: 11, left: 377, bottom: 155, right: 462, dest: 43, channel: "A3" },
+      { top: 0, left: 0, bottom: 264, right: 512, dest: 64, channel: "" },
+    ];
+    expect(pickMovieHotspot(150, 100, spots)?.channel).toBe("A1");
+    expect(pickMovieHotspot(300, 100, spots)?.channel).toBe("A2");
+    expect(pickMovieHotspot(400, 80, spots)?.channel).toBe("A3");
+    expect(pickMovieHotspot(10, 200, spots)?.dest).toBe(64);
+    expect(movieHotspotSegmentEnd(2, spots, 66)).toBe(22);
+    expect(movieHotspotSegmentEnd(22, spots, 66)).toBe(43);
+    expect(movieHotspotSegmentEnd(43, spots, 66)).toBe(64);
+    expect(movieClickToStill(10, 10, { left: 0, top: 0, width: 512, height: 264 }, 512, 264)).toEqual(
+      { x: 10, y: 10 },
+    );
+  });
+
+  it("padre A2 script names only towerup.mov", () => {
+    const path = resolve("dfextract/out/SET/_PADRE/Scene A2.txt");
+    if (!existsSync(path)) {
+      return;
+    }
+    const text = readFileSync(path, "utf8");
+    expect(text).toMatch(/spotmovie \("towerup\.mov"\)/);
+    expect(text).not.toMatch(/towertop/i);
+    expect(text).not.toMatch(/towerdn/i);
+    expect(text).not.toMatch(/bell\.mov/i);
+  });
+
+  it("follows towerup → towertop → towerdn from the MOV next field", () => {
+    const up = resolve("dfextract/out/MOV/_TOWERUP/timeline.json");
+    const top = resolve("dfextract/out/MOV/_TOWERTOP/timeline.json");
+    const down = resolve("dfextract/out/MOV/_TOWERDN/timeline.json");
+    if (![up, top, down].every((p) => existsSync(p))) {
+      return;
+    }
+    const climb = JSON.parse(readFileSync(up, "utf8")) as MovieTimeline;
+    const examine = JSON.parse(readFileSync(top, "utf8")) as MovieTimeline;
+    const descend = JSON.parse(readFileSync(down, "utf8")) as MovieTimeline;
+    expect(movieChainName(climb.next)).toBe("towertop.mov");
+    expect(movieChainName(examine.next)).toBe("towerdn.mov");
+    expect(movieChainName(descend.next)).toBeUndefined();
+    expect(examine.frames[2]?.wait).toBe(true);
+    const spots = examine.frames[2]?.hotspots ?? [];
+    expect(spots).toHaveLength(5);
+    expect(spots[0]?.movie).toBe("bellmoon.mov");
+    expect(spots[1]?.movie).toBe("bellbarn.mov");
+    expect(spots[2]?.dest).toBe(24);
+    expect(spots[3]?.dest).toBe(3);
+    expect(spots[3]?.channel).toBe("A1");
+    expect(spots[4]?.movie).toBe("belltown.mov");
+    expect(pickMovieHotspot(230, 90, spots)?.channel).toBe("A1");
+    expect(pickMovieHotspot(400, 100, spots)?.movie).toBe("bellmoon.mov");
+    expect(pickMovieHotspot(20, 80, spots)?.movie).toBe("bellbarn.mov");
+    expect(pickMovieHotspot(200, 160, spots)?.movie).toBe("belltown.mov");
+    expect(pickMovieHotspot(200, 220, spots)?.dest).toBe(24);
+    expect(movieHotspotSegmentEnd(3, spots, 25)).toBe(24);
+  });
+
+  it("accepts only a clean .mov chain name", () => {
+    expect(movieChainName("towertop.mov")).toBe("towertop.mov");
+    expect(movieChainName("TOWERDN")).toBe("towerdn.mov");
+    expect(movieChainName("intro2.mov''''''''")).toBeUndefined();
+    expect(movieChainName("")).toBeUndefined();
   });
 
   it("does not dump harmonica notes on inspect open", () => {

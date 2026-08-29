@@ -75,7 +75,13 @@ DOOR_VIEW_SET = {
     "salroom": "SALROOM",
     "underout": "UNDERTAK",
     "flipout": "PAPER",
-    "padre": "SCHOOL",
+    # Night-authored. `lockpadre` is `day < 4` or `clock < 3`, so Dust
+    # only blits this onto NITESCHO. Unlocked daytime school is tan
+    # SCHOOL; the dark inward photo looks out of place there — leave it.
+    # No day `propview` (`schoolout` has `schooloutnite`; padre does not).
+    # SCHOOL pal is the gray slab (wood is 111–118; this leaf is 0/22/32).
+    # Do not chroma-max, skip, or recolor wall slots 62/97/64.
+    "padre": "NITESCHO",
     "courtout": "COURT",
     "schoolin": "COURT",
     "schoolout": "SCHOOL",
@@ -516,7 +522,12 @@ def _write_frames(df: DFFile, out_dir: Path) -> int:
             )
             extras = set_pals
         meta = _write_one_frame(
-            df, item.container, dest, frame_pal, preferred, extras
+            df,
+            item.container,
+            dest,
+            frame_pal,
+            preferred,
+            extras,
         )
         if meta is not None:
             written += 1

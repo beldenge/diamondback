@@ -69,7 +69,7 @@ the default if you only have the name.
 | `puppetclear` | Clears speech, bevels, or both? |
 | `sendtoactor` / `sendtopuppet` / `sendtocast` / `sendtoset` / `sendtostage` / `sendtoshop` | Target namespace (`"JENIX"` vs `"jenix.pup"` vs `"gang"`) |
 | `actorowner` / `actorstar` / `actorxyz` / `walktostar` | Units, facing, async walk. Named `walktostar` follows the SET polyline on the from/to star pair (`DF.EXE` `0x424000`, container id at waypoint +0x18). Reverse B→A. No pair, or explicit `"x,y,z"`, is a beeline. `actorspeed` is units per 20 Hz game frame (boot `framerate (3)`). CST walk poses use setInfo +0x2e / +0x70, not distance. |
-| `spotmovie` / `playmovie` / `opensetfile` | Overlay vs navigate; who owns the movie |
+| `spotmovie` / `playmovie` / `opensetfile` | Overlay vs navigate. **Pinned:** `spotmovie` is fade + `playmovie` + fade. `playmovie` follows rec+0x16==3 (`towerup`→`towertop`→`towerdn`; `intro2`→`intro3`) and type-4 nested `.mov` (`bellmoon` / `bellbarn` / `belltown`). Do not invent a tower SET. |
 | `mousedown` / `setcursor` / `pointin*` / `pointx` / `pointy` | Screen space vs 512×264 still space |
 | `me` / `passcode` / `exitcode` / `error` | Control-flow meaning |
 | `@` | String concat (confirmed in dumps); any other use? |
@@ -136,7 +136,9 @@ happens, not the frame rate.
 
 There are **no DreamFactory scripts inside** INTRO / INTRO2 / INTRO3.
 Boot: `playmovie ("intro.mov")` then `playmovie ("intro2.mov")`. INTRO3
-is not named in scripts. Spotmovies (`dog1.mov`, `apothpig.mov`, …) use
+is not named in scripts — `intro2.mov` last rec kind 3 chains it
+(`towertop.mov` / `towerdn.mov` are the same rec+0x16==3 field; Padre
+scripts only name `towerup.mov`). Spotmovies (`dog1.mov`, `apothpig.mov`, …) use
 the **same** v1 table; `spotmovie` in `new.flt` is just `playmovie` plus
 fades.
 

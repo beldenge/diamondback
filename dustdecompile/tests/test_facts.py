@@ -66,6 +66,17 @@ class TestFactsStatic(unittest.TestCase):
         self.assertIn("start cash is 5", blob)
         self.assertIn("playercash <= 0", blob)
 
+    def test_playmovie_notes_tower_chain(self) -> None:
+        play = next(row for row in OPCODES if row["name"] == "playmovie")
+        blob = " ".join(play["notes"])
+        self.assertIn("towertop.mov", blob)
+        self.assertIn("towerdn.mov", blob)
+        self.assertIn("0x419a24", blob)
+        self.assertIn("bellmoon", blob)
+        self.assertIn("intro3.mov", blob)
+        spot = " ".join(LIBRARY["spotmovie"]["notes"])
+        self.assertIn("towerup", spot)
+
 
 @unittest.skipUnless(default_dust_root() is not None, SKIP)
 class TestFactsAgainstDfExe(unittest.TestCase):

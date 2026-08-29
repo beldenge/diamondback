@@ -96,9 +96,31 @@ export function setFolderKey(name: string): string {
   return lower.replace(/^_/, "");
 }
 
+/**
+ * Day/night twins Dust filmed as separate SETs. `nite` already folds into
+ * `town` via `setFolderKey`. Court and school keep distinct folder keys
+ * (`nitecour` / `nitescho`) so `setFolderFromWorld` still loads the night
+ * file; this family is only for equality and `framesFolder`.
+ */
+const LIGHTING_FAMILY: Record<string, string> = {
+  nitecour: "court",
+  nitescho: "school",
+};
+
+const LIGHTING_FOLDER: Record<string, { day: string; night: string }> = {
+  town: { day: "_TOWN", night: "_NITE" },
+  court: { day: "_COURT", night: "_NITECOUR" },
+  school: { day: "_SCHOOL", night: "_NITESCHO" },
+};
+
+export function lightingFamily(name: string): string {
+  const key = setFolderKey(name);
+  return LIGHTING_FAMILY[key] ?? key;
+}
+
 export function setNamesEqual(a: string, b: string): boolean {
-  const left = setFolderKey(a);
-  const right = setFolderKey(b);
+  const left = lightingFamily(a);
+  const right = lightingFamily(b);
   return Boolean(left) && left === right;
 }
 
@@ -342,10 +364,11 @@ export function resolveSpawn(graph: SetGraph): WalkerPose {
 }
 
 export function framesFolder(world: string, night: boolean): string {
-  if (world === WORLD_TOWN) {
-    return night ? "_NITE" : "_TOWN";
+  const pair = LIGHTING_FOLDER[lightingFamily(world)];
+  if (pair) {
+    return night ? pair.night : pair.day;
   }
-  return world;
+  return setFolderFromWorld(world);
 }
 
 export function extractSetUrls(folder: string): { scenes: string; transitions: string } {

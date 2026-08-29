@@ -330,6 +330,74 @@ class TestPaletteBlit(unittest.TestCase):
             self, indices, sprite.rgba, written, min_pal0=1000
         )
 
+    def test_padre_door_nitescho_not_school_gray(self) -> None:
+        """Night-only overlay. Plain NITESCHO expand; do not recolor.
+
+        `lockpadre` is `day < 4` or `clock < 3`. Dust only blits this on
+        NITESCHO. Unlocked daytime school is tan; the dark inward photo
+        looks out of place — leave it. SCHOOL pal 22/32 is classroom gray
+        (the inverted slab). `schoolout` has `schooloutnite`; padre does
+        not. Skip/crush/hue-finish are dead ends. Dest is play, not extract.
+        """
+        if not HOUSE.exists():
+            self.skipTest("HOUSE.PRP not present")
+        self.assertEqual(DOOR_VIEW_SET["padre"], "NITESCHO")
+        self.assertEqual(DOOR_VIEW_SET["padreout"], "PADRE")
+        self.assertEqual(DOOR_VIEW_SET["schoolout"], "SCHOOL")
+        self.assertEqual(DOOR_VIEW_SET["schooloutnite"], "NITESCHO")
+        self.assertNotIn("padrenite", DOOR_VIEW_SET)
+        sprite, indices, written, width, height, item = _house_door_sprite("padre")
+        self.assertEqual(item.container, 649)
+        padreout, *_rest = _house_door_sprite("padreout")
+        self.assertNotEqual(sprite.rgba, padreout.rgba)
+        _assert_pal0_black_skip_trans(
+            self, indices, sprite.rgba, written, min_pal0=1000
+        )
+        nitescho = _palette_from_header(DATA / "NITESCHO.SET", unused_rgb=(0, 0, 0))
+        school = _palette_from_header(DATA / "SCHOOL.SET", unused_rgb=(0, 0, 0))
+        assert nitescho is not None and school is not None
+        night = colorize_sprite(
+            width, height, 0, 0, indices, nitescho, written=written
+        )
+        washed = colorize_sprite(
+            width, height, 0, 0, indices, school, written=written
+        )
+        self.assertEqual(sprite.rgba, night.rgba)
+
+        def luma(rgba: bytes) -> float:
+            total = 0.0
+            n = 0
+            for i in range(0, len(rgba), 4):
+                if rgba[i + 3] < 255:
+                    continue
+                total += 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2]
+                n += 1
+            return total / n if n else 0.0
+
+        self.assertLess(luma(sprite.rgba), luma(washed.rgba) - 15)
+        holes = sum(1 for a in sprite.rgba[3::4] if a == 0)
+        self.assertEqual(holes, 0, "skip holes showed the closed doorknob")
+        self.assertEqual(nitescho.colors[22], (8, 6, 8))
+        self.assertEqual(school.colors[22], (86, 78, 68))
+        found22 = False
+        for i, index in enumerate(indices):
+            if not written[i] or index != 22:
+                continue
+            self.assertEqual(
+                sprite.rgba[i * 4 : i * 4 + 3],
+                bytes((8, 6, 8)),
+                "hue-finish to padreout (8,7,8) is a dead end",
+            )
+            found22 = True
+            break
+        self.assertTrue(found22)
+        dump = OUT / "PRP" / "_HOUSE" / "FRAMES" / "door" / "padre" / "00_c649.png"
+        if dump.exists():
+            _png_matches_indices(self, dump, indices, written, width, height)
+            with Image.open(dump) as image:
+                dumped = bytes(c for pixel in image.convert("RGBA").getdata() for c in pixel)
+            self.assertEqual(dumped, sprite.rgba, "re-extract HOUSE door/padre")
+
     def test_hub_skeleton_uses_set_pal_pal0_black(self) -> None:
         if not HUB.exists():
             self.skipTest("HUB.PRP not present")
@@ -571,6 +639,12 @@ class TestPaletteBlit(unittest.TestCase):
                 HOUSE,
                 "door",
                 "padreout",
+            ),
+            (
+                OUT / "PRP" / "_HOUSE" / "FRAMES" / "door" / "padre" / "00_c649.png",
+                HOUSE,
+                "door",
+                "padre",
             ),
             (
                 OUT / "PRP" / "_HUB" / "FRAMES" / "skeleton1" / "stand" / "00_c67.png",

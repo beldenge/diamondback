@@ -3,6 +3,8 @@ import {
   actorBlitZ,
   CONTACT_SHADOW_ALPHA,
   doorOpenedStillMatches,
+  doorOverlayDestRect,
+  doorOverlayHotspotY,
   shouldBlitDoorOverlay,
   exeSpriteZ,
   blitSpriteZ,
@@ -21,7 +23,8 @@ import {
   actorLayerStamp,
   occlusionStamp,
 } from "./occlude";
-import { engineStillScale, PRP_SCALE_FIELD } from "./facing";
+import { engineStillScale, PRP_SCALE_FIELD, spriteDestRect, STILL_CENTER_Y } from "./facing";
+import { STILL_HEIGHT } from "../world/set/types";
 
 describe("SET Z vs actor", () => {
   it("uses EXE lens-forward sprite Z (N7 E jug on dirt, O7 N Leroy)", () => {
@@ -179,6 +182,39 @@ describe("SET Z vs actor", () => {
     expect(propStillScale({ name: "buildrand1", scale: 800 }, 156)).toBeCloseTo(
       engineStillScale(800, 156, PRP_SCALE_FIELD),
     );
+  });
+
+  it("pins full-still-height door overlays to the still Y", () => {
+    expect(doorOverlayHotspotY(264, 127)).toBe(STILL_CENTER_Y);
+    expect(doorOverlayHotspotY(252, 143)).toBe(143);
+    const rice = { x: 102, y: 60, w: 308, h: STILL_HEIGHT };
+    const dest = doorOverlayDestRect(256, 127, rice, 1);
+    expect(dest).toEqual({
+      left: 102,
+      top: 0,
+      right: 410,
+      bottom: 264,
+    });
+    // Scene A2 `pointinrice` is x>100 y>2 … x<408 y<263.
+    expect(dest.top).toBeLessThanOrEqual(2);
+    expect(dest.right).toBeGreaterThanOrEqual(408);
+    expect(dest.bottom).toBeGreaterThanOrEqual(263);
+    const salout = { x: 138, y: 60, w: 232, h: 252 };
+    expect(doorOverlayDestRect(267, 143, salout, 1)).toEqual(
+      spriteDestRect(267, 143, salout, 1),
+    );
+    const padre = { x: 256, y: 192, w: 123, h: 212 };
+    // setupprop("padre") (32,412,157) on school A2 W, camZ 115 → 202,51.
+    // Header origin 256,192 so dest TL is the hotspot (T lintel).
+    expect(doorOverlayDestRect(202, 51, padre, 1)).toEqual(
+      spriteDestRect(202, 51, padre, 1),
+    );
+    expect(doorOverlayDestRect(202, 51, padre, 1)).toEqual({
+      left: 202,
+      top: 51,
+      right: 325,
+      bottom: 263,
+    });
   });
 
   it("keeps an open door on the still it opened on", () => {

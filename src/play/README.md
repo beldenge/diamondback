@@ -31,14 +31,27 @@ the fade plate.
 talk flags are seeded (`oonaphase` 3, `mwifephase` 1) so saloon and
 mansion stairs `passcode` instead of `runpuppet`. Leroy stays at the
 range, Bolivar at the store. Farm animals stay (pigs, cows, chickens,
-birds); the dog does not. Afternoon pig is seeded because EXTRA only
+birds, horses); the dog does not. Dell stands at D7 (`town.dell2`, look **north**);
+click him for extracted `FIGHT.FLT` (no Jones walk). Kid stands on G6
+**center** (extracted `walkin` dest; walk north from the south gate, south
+of the hotel) — not y−80 into hotel Z;
+click him for the insult duel / `kiddie.mov` (no G5 `openscene`, no
+`advanceday`). Bank D1 west sign runs `docrack` (no teller) — walk
+**north** from the lobby to the window; `openstagefile` runs CRACK
+`openstage` so `spin` is live. Apoth bottles `propset
+"drugs"` is rebound to `apoth` so they blit; click skips the 500-unit
+`realdist` (spawn is farther than that). The compounding book is CURE
+(`drugbook.flt` + HOUSE `curebord`), same reader overlay as Yunni/diary.
+Afternoon pig is seeded because EXTRA only
 places it at night. Do not `addinven ("gun")` at spawn. Range play
 (HUD, gunhand, scores, EXIT, casts, Z, palettes): [TARGET shooting
 range](#target-shooting-range). Underground cave: [Unlocked
 underground](#unlocked-underground-yunni). INVEN world `small` pickups (jug, bone,
 …) are hidden; HOUSE doors, tables, tumbleweeds, and hub/cave INVEN stay. Saloon
 `openset` still places `blackjack` / `gamblers` when `clock > 1`
-(default afternoon). `N` swaps town/nite without advancing `day`.
+(default afternoon). `N` swaps filmed day/night SETs without advancing
+`day` (street `_TOWN`/`_NITE`, court `_COURT`/`_NITECOUR`, school
+`_SCHOOL`/`_NITESCHO`).
 After boot `addinven ("helpbut")`, Unlocked `addinven`s the Yunni kit
 (`mask`, `flute`, `blade`, `tbird`) and every satchel reader
 (`history` → `hist.flt`, `pages` → `pages.flt`, `yunnibook` last so it
@@ -48,7 +61,7 @@ hotspot (`diary.flt`), not INVEN — mansion door `lockmayor` is open
 false. Click B2 south (`pointinarm`) → `armopen.mov` → `diary.flt`.
 HOUSE `diarybord` is the FLT chrome (codec-skip hole so page clicks turn;
 frame closes). Same overlay path as `yunnibord` / `histbord` /
-`pagebord`. Do not give `yunnibord` the whole sprite — its `mousedown`
+`pagebord` / `curebord`. Do not give `yunnibord` the whole sprite — its `mousedown`
 closes except the TOC tab; page turns are stage `mousedown` (left/right
 of 256). The hole bbox is the dumped PNG (yunni ~43,24–470,352), not a
 HUD `y < 256` (that closed the lower page). Those `*bord` PNGs expand
@@ -93,7 +106,7 @@ Code: [`sceneName.ts`](sceneName.ts).
 | Ground items | Jug at `town.jug` (after Leroy walks off). Bone at `town.bone` (Help’s day1 script). Hotel C3 south poster `dollar.mov` adds $4 when `actionframe (1)`. |
 | Sky / extras | `shootingstar` (night). Tumbleweeds are **day** (`clock != 3`). |
 | Ambience | `night.snd` + looping `town.snd`. `nightfxs`: saloon bed, chin chime, then owl / coyote / cricket. Saloon crowd `sounddone` gates the next yell. |
-| Click movies | South-gate rules / firearms (`nitewarn` / `nitefire`), shop signs, `dog1` / `dog2`, item inspects, store pots (`grocpots.mov`), mission bells (`bell.mov`). Intros skipped unless `?intro`. `dog1.mov` is a 59-tick overlay with two A1 cues 100 ms apart on the same 0.88 s growl. Play **two sequential still+audio passes** (one growl each) so the second cue does not cut the first into one bark. Wait-for-click is DF.EXE command type 2 slot 0 last 2 (`timeline.wait`), not rec+0≠0 (that field is command count). Pots/bells SFX are A-slot commands in that stream, timed at dest-frame `last` (bells A1/A2/A3 at recs 2/22/43; pots one clang at rec 2 — rec 9 is replay). WARNING/BONE wait; DOG1 rec+32 cues only. |
+| Click movies | South-gate rules / firearms (`nitewarn` / `nitefire`), shop signs, `dog1` / `dog2`, item inspects, store pots (`grocpots.mov`), street mission bells (`bell.mov`), Padre A2 north tower (`towerup` → `towertop` → `towerdn`). Intros skipped unless `?intro`. `dog1.mov` is a 59-tick overlay with two A1 cues 100 ms apart on the same 0.88 s growl. Play **two sequential still+audio passes** (one growl each) so the second cue does not cut the first into one bark. Wait-for-click is DF.EXE command type 2 slot 0 last 2 (`timeline.wait`), not rec+0≠0 (that field is command count). Pots/bells rec 1 is a hotspot still (three bell rects + dismiss; pots clang + dismiss). Play waits there and jumps to dest rec on click. `playmovie` also follows timeline `next` (rec+0x16==3) and type-4 nested `.mov` names. Linear `clips` stay for `--video`. WARNING/BONE wait; DOG1 rec+32 cues only. |
 | Lodging / sleep | Fear sells the room for $9 at `phase = 4` (Blood’s cigar), or takes Help’s ring. `phase = 5` unlocks the upstairs playroom. Click the bed sign → `hotbed.mov` → `actionframe (1)` → `advanceday` (Day 2 morning in the room, `d1nd2m.mov`). |
 | Dell fight | Optional. After the key (`phase = 7`), leave the hotel looking **west** (G5) → `phase = 8`, Jones walks you; D7 south starts `FIGHT.FLT`. Sleep at `phase = 5` skips it. |
 | Locked | Jail, chin (until `phase >= 2`), bank, apoth, store, doctor, stage. Hotel + saloon open. Saloon upstairs: Ruby knock-talk; Oona’s room is locked this night; Mazie is knock-only. |
@@ -379,7 +392,11 @@ SALGAMES. Scene D7 `fight()` opens the flat after Jones walks you there
 screen PRP. Player clicks Dell (not the fist overlay — that sprite has
 no `mousedown`). `getpunch` is stage Y bands. `makeloop` `punch` is
 Dell’s AI. Win → `setupactor ("tko")` / knife `runaway`; lose →
-`wonfight` and a long fade.
+`actorowner ("dell", "wonfight")`, `putdownactor`, `fadetoblack` (looped
+`mixclut ("current", "black", …, 20)`), `makeface ("ko")`, then
+`sendquit` after 300 frames and `quitfight` `blacktoscreen ("set", 180)`.
+That is a KO fade back to the street, **not** `death()`. Hub
+`mixclut ("set", "black", …, count)` stays absolute.
 
 **Extract.** `FLT/_FIGHT/openflat_2.json` is the fight proc (not
 `setcursor`). PRP `setcursor _arg__54.json` is Dell.
@@ -594,7 +611,28 @@ the closed exit in that one photo. The same xyz world-projects onto C1
 east — dead center of the inner double-door still — if the prop stays
 visible. Chin A2, hotel `hotout`, bank `dollar`, and the other
 `setupprop` names are this same prop; blit them on the neighbor camera
-and the next building repeats the saloon bug.
+and the next building repeats the saloon bug. Skip overlays that are
+the wrong leaf (`hotel` / `chin` / `paper` / `undertak`). Do not skip
+`padre` / `padreout` in play — that leaves the closed still. `padre`
+(School A2 west, container 649) is a **night-only** inward photo:
+`lockpadre` (`day < 4` or `clock < 3`). Dust only blits it onto
+NITESCHO. There is no `schooloutnite`-style day twin. Unlocked can
+open it on tan daytime SCHOOL; the dark interior looks out of place
+— leave it. Extract with NITESCHO, not SCHOOL (indices 0/22/32 vs
+classroom wood 111–118). Dest is the same `0x415271` projector as
+`salout` — header (256,192) + `propxyz (32, 412, 157)` → 202,51, not
+`pointindoor` 207,79. `padreout` (Padre A2 east, 655) is a different
+sprite on the dark PADRE still. YouTube
+`screenshots/A2_west_door_open.png` is the night classroom. Book:
+[`dfextract/docs/images.md`](../../dfextract/docs/images.md). Padre A2 north `uparrow` is
+`spotmovie ("towerup.mov")` then `currentview ("south")` — there is no
+bell-tower SET. Scripts name only `towerup.mov`. DF.EXE `playmovie`
+follows rec+0x16==3 (Pascal at rec+0x30): **towerup → towertop →
+towerdn**. `TOWERTOP.MOV` rec 2 is the examine still (type-2 bell rect
+`(56,203)–(129,278)` rings A1; lower rect dismisses to rec 24 then
+`towerdn`; type-4 windows nest `bellmoon` / `bellbarn` / `belltown`).
+Street **E4 north** is a different close-up: three hanging bells
+(`bell.mov` / `nitebell.mov`).
 
 Scripts: the opening scene’s `closescene` is usually
 `sendtoprop ("door", initprop ())`. Dust runs `closescene` on a **tile**
@@ -621,9 +659,14 @@ Do not add a per-building close. The next hotel / shop / jail exit is
 this `door` prop.
 
 Scale/Z on the **opening** still: HOUSE door field 160, header ~252px on
-the 264 still → blit scale **1**, sprite Z **1**. That 1:1 is only safe
-when the overlay is the still it replaced. Bar drinks (`buildrand*`)
-are not `door`; they keep script `propscale`.
+the 264 still → blit scale **1**, sprite Z **1**. Full-still-height
+leaves (`rice` 308×264, `underout` 168×264) pin hotspot Y to the still
+center so dest is `(place.x, 0)` … 264 — chin `rice` z=233 vs camZ 230
+otherwise starts at y=−5 and leaves a closed strip above the HUD
+(`pointinrice` is 100,2–408,263). Shorter leaves (`salout` 252) keep
+projected Y. That 1:1 is only safe when the overlay is the still it
+replaced. Bar drinks (`buildrand*`) are not `door`; they keep script
+`propscale`.
 
 Projector: `0x40dcd0` does not draw forward ≤ 0 (behind the camera).
 That is necessary but not sufficient — C1 east looking at D1’s wall
@@ -639,11 +682,14 @@ still has forward > 0.
 | Colorize HOUSE world overlays with HOUSE.PRP unused-black | Silhouette doors and card tables. Dust 8-bit-blits those onto the SET; extract recolors any sprite whose HOUSE unused-black ratio is ≥ 0.5. |
 | `force-cache` + 1-day PNG `max-age` | Re-extracted gamblers/blackjack/table1 stay black until the browser cache dies. Extract PNGs revalidate (`no-cache` + ETag). |
 | Treat `actordeg` 0 as south | DF.EXE `calcdeg` / look-deg are **0 = east**. Dump Trotter `0` at `sal.trotter1` then faces the C3 W camera (front). Dump Oona `128` at `sallower.oona` faces the east-wall camera. `0`=south showed both as profiles (perpendicular to the bar / wall). Isao dump `0` is east too; idle sways 236–20 through east. |
+| Padre A2 north climb is only `towerup.mov` / invent a tower SET / reuse E4 `bell.mov` | Scripts name `towerup.mov` then `currentview ("south")`. DF.EXE rec+0x16==3 chains `towertop.mov` (single-bell examine, type-4 windows) then `towerdn.mov`. Street E4 N is three hanging bells. There is no tower SET. |
 | Patch `dfextract/out/**` (Trotter/Oona `Script.json` `actordeg`) | Re-extract wipes it. The dump is faithful; the compass was wrong. Fix `src/play/facing.ts` (or `dfextract/` if the decoder is wrong). Never hand-edit generated scripts, stills, or sprites. |
 | Hardcode camZ **62** in every SET | Help floats behind the counter. Interior **door overlays** (salout z=174) sit at that SET’s +26 (sallower **180**); town 62 throws them off the top of the still. Use `cameraZOf(world)`. |
 | Filter props with exact `prop.set === currentSet` | `sallower` vs `_SALLOWER` hid the exit overlay after a catalog hop. Same SET, different spellings. |
 | Actor Z-slack on HOUSE door overlays | Door sprites replace the still wall. `GROUND_Z_SLACK` 1 left them behind the doorway. Pinning to hotspot Z=4 still dropped the lower leaf on floor Z=3 / a stale street plane — only the lintel stayed open. Wall overlays blit at Z=1. |
 | INVEN field 96 on HOUSE door overlays | `salout` 232×252 is authored 1:1 (hotspot → y=11..263). PRP dest with default 1450 × 96 / (1000 × 156) is ~0.89 and leaves a strip of closed door above the HUD. Door +0x2a is **160**; 1450×160 is ~1.49×. **Only the HOUSE `door` prop** blits at scale 1. Bar drinks (`buildrand*`, z=147 vs camZ 180) kept getting that 1:1 blit and looked huge — they use script `propscale` 800–1100. |
+| Projected Y on a 264px door overlay | Chin `rice` z=233 vs camZ 230 puts dest at y=−5..259. The still replacement is 264px; pin Y to still-center so dest is 102,0–410,264 (`pointinrice` 100,2–408,263). Do not field-160 / codec-origin-scale rice — that overshoots every HOUSE door. `salout` 252px keeps the authored 11px Y offset. |
+| Pin `padre` dest to `pointindoor` 207,79 / skip or recolor the leaf | Header (256,192) + `propxyz (32,412,157)` is dest 202,51 (`0x415271`). The 28px above 79 is the T lintel. Skip showed the closed knob. Crush/hue-finish invented a day door. `lockpadre` is night-only; Unlocked day on tan SCHOOL looking dark is expected. SCHOOL pal is the gray slab. Book: [HOUSE door overlays](#house-door-overlays). |
 | Open door on every still / close sound every pan | HOUSE `door` is a still replacement for the pose `setupprop` opened. World-projecting it onto C1 E paints the leaf on the inner doors; `initprop` on every pan replays close. Bind to `openedAt`; close **once** when leaving that still. Book: [HOUSE door overlays](#house-door-overlays). |
 | Skip interior `FRAMES/z/` | Help paints in front of the counter. Draw when `spriteZ ≤ stillZ`. Default dump writes Z. |
 | 24 fps strip / dest HQ as a 6th timed plate / queue a tap | Walks at ~2/sec. DF.EXE is 5 plates at 20 Hz then idle (`0x40dd90` / `0x40d920`). Taps during the strip are dropped. Do not await dest HQ or Z before the next step. |
@@ -669,6 +715,10 @@ still has forward > 0.
 | `setVar` writing checkers `move` to the automove global | Bolivar’s man vanished; jumps never captured; overlay/click patches did nothing. `makemove (move, person)` reassigns the **parameter** to the decoded delta; the global stays the comma list. Params are locals even when the name is a declared global. |
 | FIGHT fists overlay winning `hittest` | Gut/jaw clicks no-op (`knife_2` has no `mousedown`). Punches are Dell’s script. Prefer a puzzle prop that actually has `mousedown`. |
 | Load NEW.FLT flats without running `openflat` | HUD portrait stays the cowboy baked into `frame_3.png`. Engine `openstagefile` shows mainpanel (`noface` / `makeloop makeface`). `initall` `stoploop ("flat", "all")` then `opensetfile` must re-arm that loop. |
+| `openstagefile` without the stage `openstage` hook | Bank CRACK `spin` never appears (knob is a still). Mission SCORP `trigger` never starts (drawer looks frozen). Same pattern as `openset` / `opencast`. NEW.FLT has no `openstage`. |
+| `mixclut` amount 20 as the whole fade plate | Dell lose stays ~8% dark. Hub `gotoblack` is `from=set` absolute 0…255. FIGHT `fadetoblack` is `from=current` stepped 20. Do not invent `death()` — extracted lose is KO + long fade + `quitfight`. |
+| Unlocked Kid at G6 y−80 | Occluded in hotel Z. Extracted `walkin` / `dead` use G6 center. Face south (`actordeg` 64) so G7 north sees his front. |
+| CURE/`drugbook` off `READER_STAGES` | Apoth compounding book is a full-screen black plate (`drugbook` never `blacktoscreen`). Same lift as Yunni/diary: `curebord` + `#play-flat.reader` z-index 80. |
 | Tick `runQueued` during `boot()` | Animation loop and `advanceday` share the VM. `makeface` due during boot is dropped; `stoploop` did not clear `dueLoops`, so re-arm thought the portrait was still live. Do not tick scripts until boot returns; `stoploop` cancels due callbacks; `ensureHudPortrait` after boot. |
 | `#play-hud-face` under `#actor-layer` | Raising the still overlay to z-index 42 (full-height door) hid the HOUSE face. Portrait stacks with `#play-hand`, above the actor layer. |
 | Prefetch two viseme JSON files | Choice-line jaw lags while the WAV plays (Leroy and Help). Warm **every** ident; `puppetspeak` awaits the track before `play()`. |
@@ -708,7 +758,8 @@ opaque black to white at blit, is the salt on:
 
 - HOUSE `door/court` (town mission, outside)
 - HOUSE `door/rice` (china shop inside)
-- HOUSE `door/padreout` (mission interior exit)
+- HOUSE `door/padreout` (Padre A2 east, looking out)
+- HOUSE `door/padre` (School A2 west, night-authored inward photo)
 - INVEN gun / Yunni book
 - HUB sundial skeletons
 

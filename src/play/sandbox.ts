@@ -1,8 +1,8 @@
-import type { Proc } from "../vm/ast";
+import type { Expr, Proc, Stmt } from "../vm/ast";
 import { isClockSlot, isNight, type ClockSlot } from "../core/time";
 
 /** World actors Unlocked keeps so minigames have an opponent. */
-export const SANDBOX_ACTORS = new Set(["leroy", "bolivar"]);
+export const SANDBOX_ACTORS = new Set(["leroy", "bolivar", "dell", "kid"]);
 
 /** Hub shaman + mine skeleton. Story extras stay hidden. */
 export const SANDBOX_CAVE_ACTORS = new Set(["skeleton", "shaman"]);
@@ -10,7 +10,7 @@ export const SANDBOX_CAVE_ACTORS = new Set(["skeleton", "shaman"]);
 const SANDBOX_UNDERGROUND_SET = /^(hub|mine|flute|snake|tbird)$/;
 
 /** Town livestock Unlocked keeps. Not the dog (lunge movie / Help beat). */
-const SANDBOX_FARM_ACTOR = /^(pig|cow|chicken|bird)\d*$/;
+const SANDBOX_FARM_ACTOR = /^(pig|cow|chicken|bird|horse)\d*$/;
 
 /**
  * EXTRA `initactors` only puts the pig out at `clock = 3`. Unlocked is
@@ -25,6 +25,9 @@ export const SANDBOX_TOWN_ANIMAL_SETUPS: ReadonlyArray<{ name: string; where: st
   { name: "chicken2", where: "chick" },
   { name: "chicken3", where: "chick" },
   { name: "bird1", where: "sky" },
+  { name: "horse1", where: "street" },
+  { name: "horse2", where: "street" },
+  { name: "horse3", where: "street" },
 ];
 
 /**
@@ -489,6 +492,255 @@ export function sandboxHubSundialMousedown(): Proc {
         ],
       },
       { type: "passcode" },
+    ],
+  };
+}
+
+const strLit = (value: string): { type: "str"; value: string } => ({ type: "str", value });
+const numLit = (value: number): { type: "num"; value: number } => ({ type: "num", value });
+const boolLit = (value: boolean): { type: "bool"; value: boolean } => ({ type: "bool", value });
+const varRef = (name: string): { type: "var"; name: string } => ({ type: "var", name });
+const fn = (name: string, args: Expr[] = []): Extract<Expr, { type: "call" }> => ({
+  type: "call",
+  name,
+  args,
+});
+const run = (name: string, args: Expr[] = []): Stmt => ({
+  type: "call",
+  call: fn(name, args),
+});
+
+export function sandboxIsBank(set: string): boolean {
+  return set.replace(/\.set$/i, "").toLowerCase() === "bank";
+}
+
+export function sandboxBankCrackClick(set: string, object: string, me: string): boolean {
+  return sandboxIsBank(set) && object === "scene" && me.toLowerCase() === "scene d1";
+}
+
+/** Bank D1 west sign: skip teller.pup / night no-op, run extracted `docrack`. */
+export function sandboxBankSignMousedown(): Proc {
+  return {
+    name: "mousedown",
+    params: ["arg"],
+    body: [
+      {
+        type: "if",
+        cond: {
+          type: "binary",
+          op: "&",
+          left: {
+            type: "binary",
+            op: "=",
+            left: fn("currentview", []),
+            right: strLit("west"),
+          },
+          right: fn("pointinsign", [varRef("arg")]),
+        },
+        then: [run("docrack"), { type: "exitcode" }],
+      },
+      { type: "passcode" },
+    ],
+  };
+}
+
+export function sandboxIsApoth(set: string): boolean {
+  return set.replace(/\.set$/i, "").toLowerCase() === "apoth";
+}
+
+/** Apoth `openset` only places bottles on day 3 afternoon. */
+export function sandboxPuzzletime(): Proc {
+  return {
+    name: "puzzletime",
+    params: [],
+    body: [{ type: "return", value: boolLit(true) }],
+  };
+}
+
+export function sandboxApothBottlesClick(set: string, object: string, me: string): boolean {
+  return sandboxIsApoth(set) && object === "prop" && me.toLowerCase() === "bottles";
+}
+
+/**
+ * Extracted `setupprop("apoth")` does `propset "drugs"`. Play then hides
+ * the sprite (`nearbyProps` wants `apoth`). Bind it to the open SET.
+ */
+export function sandboxBindApothBottles(set: string, bottles: { set: string }): boolean {
+  if (!sandboxIsApoth(set)) {
+    return false;
+  }
+  bottles.set = set.replace(/\.set$/i, "").toLowerCase() || "apoth";
+  return true;
+}
+
+/** Skip `realdist < 500` — spawn is ~540 from the authored xyz. */
+export function sandboxBottlesSetcursor(): Proc {
+  return {
+    name: "setcursor",
+    params: ["arg"],
+    body: [run("cursor", [strLit("touch")]), { type: "exitcode" }],
+  };
+}
+
+export function sandboxBottlesMousedown(): Proc {
+  return {
+    name: "mousedown",
+    params: ["arg"],
+    body: [run("dodrugs"), { type: "exitcode" }],
+  };
+}
+
+export function sandboxDellTownClick(set: string, object: string, me: string): boolean {
+  return (
+    set.replace(/\.set$/i, "").toLowerCase() === "town" &&
+    object === "actor" &&
+    me.toLowerCase() === "dell"
+  );
+}
+
+/** Click Dell at D7: skip Jones / `dell1.pup`, open extracted `FIGHT.FLT`. */
+export function sandboxDellMousedown(): Proc {
+  return {
+    name: "mousedown",
+    params: ["arg"],
+    body: [
+      {
+        type: "if",
+        cond: {
+          type: "binary",
+          op: "=",
+          left: fn("actorpose", [{ type: "me" }]),
+          right: strLit("dead"),
+        },
+        then: [
+          {
+            type: "if",
+            cond: {
+              type: "binary",
+              op: "<",
+              left: fn("random", [numLit(100)]),
+              right: numLit(50),
+            },
+            then: [run("singlesound", [strLit("dellgrunt")])],
+          },
+          { type: "exitcode" },
+        ],
+      },
+      {
+        type: "if",
+        cond: {
+          type: "binary",
+          op: "<",
+          left: fn("realdist", [{ type: "me" }]),
+          right: fn("hotdist", []),
+        },
+        then: [
+          run("sendtoscene", [strLit("scene d7"), fn("fight", [])]),
+          { type: "exitcode" },
+        ],
+      },
+    ],
+  };
+}
+
+export function sandboxKidTownClick(set: string, object: string, me: string): boolean {
+  return (
+    set.replace(/\.set$/i, "").toLowerCase() === "town" &&
+    object === "actor" &&
+    me.toLowerCase() === "kid"
+  );
+}
+
+/** Click Kid at G6. Extracted `mousedown` is empty. */
+export function sandboxKidMousedown(): Proc {
+  return {
+    name: "mousedown",
+    params: ["arg"],
+    body: [
+      {
+        type: "if",
+        cond: {
+          type: "binary",
+          op: "=",
+          left: fn("actorpose", [{ type: "me" }]),
+          right: strLit("dead"),
+        },
+        then: [{ type: "exitcode" }],
+      },
+      {
+        type: "if",
+        cond: {
+          type: "binary",
+          op: "<",
+          left: fn("realdist", [{ type: "me" }]),
+          right: fn("hotdist", []),
+        },
+        then: [
+          run("sendtoscene", [strLit("scene g5"), fn("openkid", [])]),
+          { type: "exitcode" },
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * Extracted `openkid` walks G10→G6 then `advanceday`s. Unlocked already
+ * parks him at G6; skip the walk and the day change.
+ */
+export function sandboxOpenKidProc(): Proc {
+  return {
+    name: "openkid",
+    params: [],
+    body: [
+      { type: "global", names: ["cutdowns", "playerdeath"] },
+      run("path", [numLit(6), strLit("dust:kid:")]),
+      run("cursor", [strLit("watch")]),
+      run("puppetgrab", [boolLit(false)]),
+      run("sendtocast", [strLit("gang"), fn("runpuppet", [strLit("kid.pup")])]),
+      run("puppetgrab", [boolLit(true)]),
+      {
+        type: "if",
+        cond: {
+          type: "binary",
+          op: "<",
+          left: varRef("cutdowns"),
+          right: numLit(4),
+        },
+        then: [
+          run("sendtostage", [fn("spotmovie", [strLit("kidinv.mov")])]),
+          {
+            type: "assign",
+            target: varRef("playerdeath"),
+            value: strLit("by kid"),
+          },
+          run("sendtoflat", [strLit("death"), fn("death", [])]),
+          { type: "exitcode" },
+        ],
+      },
+      run("screentoblack", [strLit("current"), numLit(10)]),
+      run("blackscreen"),
+      run("playmovie", [strLit("kiddie.mov")]),
+      {
+        type: "if",
+        cond: {
+          type: "binary",
+          op: "=",
+          left: fn("actionframe", [numLit(1)]),
+          right: boolLit(false),
+        },
+        then: [
+          {
+            type: "assign",
+            target: varRef("playerdeath"),
+            value: strLit("by kid"),
+          },
+          run("sendtoflat", [strLit("death"), fn("death", [])]),
+          { type: "exitcode" },
+        ],
+      },
+      run("sendtoactor", [strLit("kid"), fn("setupactor", [strLit("dead")])]),
+      run("blacktoscreen", [strLit("set"), numLit(30)]),
     ],
   };
 }

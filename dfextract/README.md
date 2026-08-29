@@ -176,7 +176,10 @@ in this directory.
 ## MOVPLAY (no ffmpeg)
 
 Default extract writes `FRAMES/`, `AUDIO/`, and `timeline.json` — enough
-for a MOVPLAY-style player without muxing `movie.mp4`.
+for a MOVPLAY-style player without muxing `movie.mp4`. `timeline.json`
+may include `wait` / `hotspots` (type-2 dest+channel; type-4 nested
+`movie`) and `next` (rec+0x16==3, e.g. `towerup` → `towertop.mov`).
+`movplay.py` is linear; in-game `playmovie` follows those fields.
 
 ```
 python movplay.py out/MOV/_DOG1

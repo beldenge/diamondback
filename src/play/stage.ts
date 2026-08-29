@@ -5,6 +5,9 @@ export const STAGE_WIDTH = 512;
 export const STAGE_HEIGHT = 384;
 export const HUD_HEIGHT = STAGE_HEIGHT - STILL_HEIGHT;
 
+/** Pixels under the 512×384 stage for SET / scene / facing. */
+export const PLAY_CAPTION_RESERVE = 32;
+
 export interface PlayStageRect {
   x: number;
   y: number;

@@ -8,6 +8,7 @@ import {
   parseScriptScene,
   pascalSceneName,
   poseForOpenedSet,
+  poseReadout,
   scriptSceneName,
 } from "./sceneName";
 
@@ -38,6 +39,27 @@ describe("town script scene names", () => {
   it("maps filmed H7 saloon to script scene g8", () => {
     expect(scriptSceneName(6, 7)).toBe("scene g8");
     expect(parseScriptScene("scene g8")).toEqual({ x: 6, y: 7 });
+  });
+});
+
+describe("pose readout under the stage", () => {
+  it("prints town filmed cell, script name, and facing", () => {
+    const graph = loadGraph("_TOWN");
+    if (!graph) {
+      return;
+    }
+    expect(poseReadout(graph, { x: 6, y: 14, facing: "N" }, "town")).toBe(
+      "TOWN · O7 (G15) · North",
+    );
+  });
+
+  it("prints interior SET, scene, and facing", () => {
+    const graph = loadGraph("_PADRE");
+    if (!graph) {
+      return;
+    }
+    const pose = poseForOpenedSet(graph, "scene a2", "E");
+    expect(poseReadout(graph, pose, "_PADRE")).toBe("PADRE · A2 · East");
   });
 });
 

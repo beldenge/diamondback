@@ -175,7 +175,11 @@ inpaint or remap those to invented tans/whites.
 
 - **← / →** or **A / D** — turn
 - **↑** or **W** — walk one filmed block
-- **N** — swap TOWN ↔ NITE stills. Does **not** advance `day`.
+- **N** — swap day ↔ night stills. Street is `_TOWN` ↔ `_NITE`. Inside the
+  mission, court is `_COURT` ↔ `_NITECOUR` and school is `_SCHOOL` ↔
+  `_NITESCHO` (the two interiors Dust filmed twice). Does **not** advance
+  `day`. Padre / hotel / shops have no night SET — clock still flips so
+  walking out lands on night street.
 - **Swipe** (touch/pen): across turns, up walks. Down is not a back
   step. Mouse clicks on the still do **not** walk — Dust used chrome
   outside 0–512, and remake 22%/48% bands stole scene hotspots.
@@ -183,11 +187,17 @@ inpaint or remap those to invented tans/whites.
   house-prop sprite and play `dooropen*`. Click again to close.
   Locked doors play `knock*` and stay shut (chin / jail on day 1,
   most shops at night, mayor except day-3 night).
+- **Mission bells** — from the street, **E4 north** (looking at the
+  mission gable), click the belfry for `bell.mov` / `nitebell.mov`.
+  Click each bell to ring it; click the frame to leave. Padre A2 north
+  stairs `spotmovie ("towerup.mov")` (no tower SET). That MOV chains to
+  `towertop.mov` (click the bell / look out the windows) then
+  `towerdn.mov` — scripts never name the last two.
 - **Walk forward** while that door is open — load the interior SET
   (or `gototown` back to the street tile you left).
 
 `?clock=1|2|3` still sets the discrete slot. Night (`3`) loads `_NITE`
-on the street; court uses `_NITECOUR`.
+on the street; walking into the mission uses `_NITECOUR` / `_NITESCHO`.
 
 ---
 
@@ -234,7 +244,7 @@ you therefore look at the other shop.
 | **I10 E** | Mayor mansion gate | `_MAYHALL` |
 | J4 E | Saloon back door | `_SALLOWER` B4 |
 
-Inside the mission, **C3 N** is the classroom (`_SCHOOL`, `_NITESCHO` at night). The classroom’s west door is the padre’s room (`_PADRE`). Dr. Rodham’s inner office is **doctor1 B1 W** → `_DOCTOR2`.
+Inside the mission, **C3 N** is the classroom (`_SCHOOL`, `_NITESCHO` at night). The classroom’s west door (A2 W) is the padre’s room (`_PADRE`). Original `lockpadre` only opens that overlay at night (`day ≥ 4` and `clock ≥ 3`); the inward sprite (`padre`, not `padreout`) has no day twin. Unlocked can open it in daytime school — the dark photo looks out of place; leave it. Dr. Rodham’s inner office is **doctor1 B1 W** → `_DOCTOR2`.
 
 | Inside | Pose | Goes to |
 |---|---|---|
@@ -264,7 +274,9 @@ the facade still (hotel, chin, paper, undertak). Opening still works
 (sound + walk in).
 
 Stairs (`salup.mov` / `hotup.mov` / `mayup.mov` and the down reels) are
-skipped: face the steps and walk forward. Room doors are click-then-walk.
+skipped: face the steps and walk forward. The mission tower is not that
+pattern — Padre A2 north is `spotmovie ("towerup.mov")` with no tower
+SET; `playmovie` chains `towertop` / `towerdn`. Room doors are click-then-walk.
 Shared bedrooms (`salroom`, `hotroom`, `mayroom`) return to the door you
 used. Sophie / Mazie / Buick / Laurel / Blood doors are knock-only in
 Dust (no interior SET); they stay closed here.

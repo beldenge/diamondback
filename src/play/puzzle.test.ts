@@ -78,8 +78,11 @@ describe("saloon game helpers", () => {
     expect(isReaderStage("yunnibook")).toBe(true);
     expect(isReaderStage("torn")).toBe(true);
     expect(isReaderStage("dbhist")).toBe(true);
+    expect(isReaderStage("cure.flt")).toBe(true);
+    expect(isReaderStage("drugbook")).toBe(true);
     expect(readerBorderName("hist")).toBe("histbord");
     expect(readerBorderName("yunnibook")).toBe("yunnibord");
+    expect(readerBorderName("drugbook")).toBe("curebord");
     expect(pointHitsReaderBorder("diarybord", 256, 132)).toBe(false);
     expect(pointHitsReaderBorder("diarybord", 256, 300)).toBe(false);
     expect(pointHitsReaderBorder("diarybord", 10, 40)).toBe(true);
@@ -92,6 +95,9 @@ describe("saloon game helpers", () => {
     expect(pointHitsReaderBorder("pagebord", 256, 192)).toBe(false);
     expect(pointHitsReaderBorder("pagebord", 256, 300)).toBe(false);
     expect(pointHitsReaderBorder("pagebord", 100, 50)).toBe(true);
+    expect(pointHitsReaderBorder("curebord", 256, 192)).toBe(false);
+    expect(pointHitsReaderBorder("curebord", 256, 300)).toBe(false);
+    expect(pointHitsReaderBorder("curebord", 10, 20)).toBe(true);
   });
 
   it("keeps TARGET scores that share a row", () => {

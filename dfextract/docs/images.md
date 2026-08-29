@@ -116,7 +116,7 @@ card cream is the same class of dither.
 | SET/MOV/FLT still | that file, + VGA ends | `still_plte` | pal 0 black, pal 255 white |
 | CST GANG / EXTRA | CST +36 | CST pal | black (Help’s legs) |
 | CST TARGET / MINE | often empty or an RGB cube | **sibling SET** | black |
-| HOUSE world (doors, tables) | HOUSE unused-black | **mapped SET** (rice→CHIN, court→TOWN, …) | black |
+| HOUSE world (doors, tables) | HOUSE unused-black | **mapped SET** (rice→CHIN, court→TOWN, padre→**NITESCHO** not SCHOOL, …) | black |
 | HOUSE `*bord` readers | HOUSE | **companion FLT** (not chroma-max TOWN) | black; hole is skip 255 |
 | HUB skeletons / season props | HUB.PRP | **HUB.SET** | black |
 | SALGAMES cards / handle | PRP almost all unused | **SALGAMES.FLT** | pal 0 unused (cards don’t sample it) |
@@ -142,6 +142,7 @@ count on that sprite is 0.
 | INVEN `Ring/large` | pal 0 = 0; **writes 255 ×8** | extra holes in the band | skip = finger hole; written 255 = white glint |
 | HOUSE `door/court` (town mission) | ~16% | glowing white frame + studs | brown door, dark frame |
 | HOUSE `door/padreout` (inside looking out) | ~20% | whitewashed frame | dark interior pal, pal 0 black |
+| HOUSE `door/padre` (school A2 west) | ~24% | gray inverted slab (SCHOOL pal; indices 0/22/32) | NITESCHO pal (night-only `lockpadre`). Pal 0 black. Unlocked day on tan SCHOOL looks dark — leave it |
 | HOUSE `door/rice` (china shop inside) | ~0.7% | white flecks on the scroll | CHIN pal, pal 0 black specks |
 | HUB `skeleton1/stand` | ~0.6% | white pelvis/thigh specks | HUB.SET rust, pal 0 black |
 | MINE `skeleton/stand` c3 | (uses SET browns, not pal 0) | cyan/magenta RGB cube | MINE.SET rust + green eyes |
@@ -162,6 +163,8 @@ INVEN (`spriteBitsFromImageData` has no `unusedWhite`).
 | HOUSE unused-black without SET recolor | Silhouette doors and card tables. Indices belong to the SET. |
 | SET pal unused-white when recoloring HOUSE | Pal 0 frame/studs become salt. `_palette_from_header` unused is black. |
 | Chroma-max every DATA SET for HOUSE `*bord` | TOWN wins the tie; `yunnibord` leather inverts vs `yunnopen.mov` `(41,0,0)`. Lock the companion FLT. |
+| SCHOOL pal for `door/padre` because that is the still you stand on | Day 8-bit blit *is* a gray slab: classroom wood is 111–118, this leaf is 0/22/32. Original `lockpadre` is `day < 4` or `clock < 3`, so the overlay only ever lands on NITESCHO. `schoolout` has a `clock = 3` → `schooloutnite` swap; padre does not. Unlocked daytime tan SCHOOL + this dark inward photo is expected. YouTube `A2_west_door_open.png` is the night still. TOWN chroma-max rainbows it. |
+| Key / crush / hue-finish `padre` to look like a day door or like `padreout` | Skip of wall slots (idx 62 dithers the leaf) showed the closed knob. Crush + hitbox dest 207,79 painted a black plate on the wall. Hue-finish to padreout `(8,7,8)` invented a day leaf. Dump the NITESCHO expand; dest is the projector (202,51). `padreout` (container 655) is a different sprite. |
 | SALGAMES PRP ColorPalette (unused-white or unused-black) | Faces wash to blank or invert. Expand with **SALGAMES.FLT**. Cream dither is authored, not pal 0. |
 | CST pal when a sibling SET exists, but only if unused-black ≥ 0.7 | TARGET crows worked (empty pal). MINE skeletons rainbowed (full RGB cube). Always take the companion SET. |
 | SET unused-white on TARGET pal 0 | `birdtarg` bodies blank. Pal 0 is crow black. |

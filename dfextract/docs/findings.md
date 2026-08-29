@@ -51,7 +51,9 @@ stills.
 - MOV v1 is the same container file; audio clips are ordinary v40/v41
   containers mixed in with stills. INTRO stills start at container 9
   (eight clips first). No `script_*.txt` in the opening reels; boot
-  only `playmovie`s intro then intro2. `--video` is opt-in; with the
+  only `playmovie`s intro then intro2. `intro2.mov` last rec kind 3
+  chains `intro3.mov` (same field as `towerup`→`towertop`→`towerdn`).
+  `--video` is opt-in; with the
   flag it muxes **all** MOVs that have stills (overlays too) using
   MOVPLAY 60 Hz holds, A/B mixer, and per-scene palettes
   ([dustdecompile findings §7](../../dustdecompile/docs/findings.md)).

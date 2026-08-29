@@ -52,8 +52,8 @@ import {
   framesFolder,
   hqFrame,
   loadSetGraph,
-  poseLabel,
   sceneByName,
+  tileKey,
   WORLD_TOWN,
   zUrlFromStill,
 } from "../world/set/graph";
@@ -90,6 +90,7 @@ import {
   spriteBitsFromImageData,
   wallOverlayBlitZ,
   propStillScale,
+  doorOverlayTopLeft,
   zPlaneFromImageData,
   liveZPlaneForStill,
   type SpriteBits,
@@ -113,17 +114,26 @@ import {
   stageFromClient,
   type FlatItem,
 } from "./hud";
-import { playStageRect, STAGE_HEIGHT, STAGE_WIDTH } from "./stage";
-import { parseScriptScene } from "./sceneName";
+import { parseScriptScene, poseReadout } from "./sceneName";
+import { PLAY_CAPTION_RESERVE, playStageRect, STAGE_HEIGHT, STAGE_WIDTH } from "./stage";
 import { PLAY_HUD_CHROME, RANGE_HUD_CHROME, PuppetUi } from "./ui";
 import { boardMouseGate, idlePumpAllowed, mouseDispatchPoint, worldInputBlocked, worldMouseGate } from "./lock";
 import { type PuzzleBoard, type PuzzleLabel } from "./puzzle";
 import {
+  clipUrl as movieClipUrl,
+  fallbackTimeline,
+  frameUrl as movieStillUrl,
+  movieClickToStill,
   movieClipsStarting,
+  movieFolder,
   movieFrameWaitsForClick,
+  movieHotspotSegmentEnd,
   movieIndexAt,
   movieWaitSetsSkipClick,
+  pickMovieHotspot,
   planMoviePasses,
+  type MovieHotspot,
+  type MovieTimeline,
 } from "./movies";
 import { unlockVoices, voices } from "./speech";
 
@@ -528,7 +538,7 @@ export class PlayGame implements WorldView {
     const winH = view?.height ?? window.innerHeight;
     const ox = view?.offsetLeft ?? 0;
     const oy = view?.offsetTop ?? 0;
-    const rect = playStageRect(winW, winH);
+    const rect = playStageRect(winW, Math.max(1, winH - PLAY_CAPTION_RESERVE));
     this.stageEl.style.left = `${rect.x + ox}px`;
     this.stageEl.style.top = `${rect.y + oy}px`;
     this.stageEl.style.width = `${rect.w}px`;
@@ -545,7 +555,9 @@ export class PlayGame implements WorldView {
     this.stageScale = rect.scale;
     this.ui.layout(rect.scale);
     this.needsRender = true;
-    this.captionEl.style.top = `${rect.y + rect.h + 6}px`;
+    this.captionEl.style.left = `${rect.x + ox}px`;
+    this.captionEl.style.width = `${rect.w}px`;
+    this.captionEl.style.top = `${rect.y + oy + rect.h + 6}px`;
     this.captionEl.style.bottom = "auto";
     this.layoutActors();
   }
@@ -592,6 +604,26 @@ export class PlayGame implements WorldView {
       return;
     }
     this.tryMove(input);
+  }
+
+  /**
+   * Unlocked N while inside court/school: same clock flip as the street,
+   * then the filmed night SET (`nitecour` / `nitescho`). Pose stays.
+   * Sets with no twin (padre, hotel, …) no-op.
+   */
+  async swapLighting(): Promise<void> {
+    const folder = framesFolder(this.world, this.isNight());
+    const graph = await this.graphFor(folder, this.world);
+    if (this.graph === graph) {
+      return;
+    }
+    if (!graph.cameraTiles.has(tileKey(this.pose.x, this.pose.y))) {
+      return;
+    }
+    this.graph = graph;
+    this.resetOcclusion();
+    this.host.currentScene = this.host.sceneNameForPose(graph, this.pose.x, this.pose.y);
+    this.preloadNeighbors();
   }
 
   async setPose(world: string, pose: WalkerPose): Promise<void> {
@@ -674,14 +706,27 @@ export class PlayGame implements WorldView {
   }
 
   async playMovie(
-    frames: { url: string; holdSec: number; action?: number; wait?: boolean }[],
+    frames: {
+      url: string;
+      holdSec: number;
+      action?: number;
+      wait?: boolean;
+      hotspots?: MovieHotspot[];
+    }[],
     clips: { url: string; startSec: number; channel?: string }[],
+    opts?: { keepLayer?: boolean },
   ): Promise<void> {
     if (!frames.length) {
       return;
     }
     this.busy = true;
-    const playable: { url: string; holdSec: number; action?: number; wait?: boolean }[] = [];
+    const playable: {
+      url: string;
+      holdSec: number;
+      action?: number;
+      wait?: boolean;
+      hotspots?: MovieHotspot[];
+    }[] = [];
     this.movieImages.clear();
     for (const frame of frames) {
       try {
@@ -693,7 +738,9 @@ export class PlayGame implements WorldView {
       }
     }
     if (!playable.length) {
-      this.busy = false;
+      if (!opts?.keepLayer) {
+        this.endMovie();
+      }
       return;
     }
     const holds = playable.map((frame) => frame.holdSec);
@@ -707,7 +754,13 @@ export class PlayGame implements WorldView {
     }));
     this.movieEl.hidden = false;
     try {
-      if (playable.some((frame) => movieFrameWaitsForClick(frame.action, frame.wait))) {
+      if (
+        playable.some(
+          (frame) =>
+            (frame.hotspots && frame.hotspots.length > 0) ||
+            movieFrameWaitsForClick(frame.action, frame.wait),
+        )
+      ) {
         await this.playActionMovie(playable, clips);
       } else {
         const passes = planMoviePasses(holds, timed);
@@ -725,11 +778,17 @@ export class PlayGame implements WorldView {
         }
       }
     } finally {
-      this.movieEl.hidden = true;
-      this.movieImages.clear();
-      this.busy = false;
-      this.needsRender = true;
+      if (!opts?.keepLayer) {
+        this.endMovie();
+      }
     }
+  }
+
+  endMovie(): void {
+    this.movieEl.hidden = true;
+    this.movieImages.clear();
+    this.busy = false;
+    this.needsRender = true;
   }
 
   /**
@@ -737,9 +796,19 @@ export class PlayGame implements WorldView {
    * Then the reel continues — warning fades out; dog1 never hits this path.
    */
   private async playActionMovie(
-    frames: { url: string; holdSec: number; action?: number; wait?: boolean }[],
+    frames: {
+      url: string;
+      holdSec: number;
+      action?: number;
+      wait?: boolean;
+      hotspots?: MovieHotspot[];
+    }[],
     clips: { url: string; startSec: number; channel?: string }[],
   ): Promise<void> {
+    if (frames.some((frame) => frame.hotspots && frame.hotspots.length > 0)) {
+      await this.playHotspotMovie(frames, clips);
+      return;
+    }
     const starts = clips.map((clip) => clip.startSec);
     let t = 0;
     for (const frame of frames) {
@@ -761,6 +830,142 @@ export class PlayGame implements WorldView {
         await this.waitMovieClick();
       }
     }
+  }
+
+  /**
+   * bell.mov / grocpots: wait on the hotspot still, jump to dest rec on
+   * click (DF.EXE 0x419b73). Slot 0 is dismiss (play out). Other dests
+   * play until the next hotspot dest, then return to the wait still.
+   */
+  private async playHotspotMovie(
+    frames: {
+      url: string;
+      holdSec: number;
+      action?: number;
+      wait?: boolean;
+      hotspots?: MovieHotspot[];
+    }[],
+    clips: { url: string; startSec: number; channel?: string }[],
+  ): Promise<void> {
+    let i = 0;
+    while (i < frames.length) {
+      const frame = frames[i]!;
+      this.blitMovieFrame(frame.url);
+      const spots = frame.hotspots;
+      if (spots && spots.length) {
+        const hit = await this.waitMovieHotspot(spots);
+        if (!hit) {
+          i += 1;
+          continue;
+        }
+        if (hit.movie) {
+          await this.playLinkedMovie(hit.movie);
+          this.blitMovieFrame(frame.url);
+          continue;
+        }
+        if (hit.channel) {
+          const clip = clips.find((item) => item.channel === hit.channel);
+          if (clip?.url) {
+            void voices.playFx(clip.url, 0.85, false, clip.channel);
+          }
+          const end = movieHotspotSegmentEnd(hit.dest, spots, frames.length);
+          for (let j = hit.dest; j < end; j++) {
+            const swing = frames[j];
+            if (!swing) {
+              break;
+            }
+            this.blitMovieFrame(swing.url);
+            const hold = Math.max(0, swing.holdSec);
+            if (hold > 0) {
+              await new Promise<void>((resolve) => {
+                window.setTimeout(resolve, hold * 1000);
+              });
+            }
+          }
+          continue;
+        }
+        i = Math.min(frames.length, Math.max(0, hit.dest));
+        continue;
+      }
+      const hold = Math.max(0, frame.holdSec);
+      if (hold > 0) {
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, hold * 1000);
+        });
+      }
+      if (movieFrameWaitsForClick(frame.action, frame.wait)) {
+        await this.waitMovieClick();
+      }
+      i += 1;
+    }
+  }
+
+  /**
+   * Type-4 nested inspect (towertop windows). Keep the parent layer up;
+   * `playmovie` of the child is a push (DF.EXE 0x419ba3), then we return
+   * to the wait still.
+   */
+  private async playLinkedMovie(name: string): Promise<void> {
+    const saved = new Map(this.movieImages);
+    const folder = movieFolder(name);
+    let timeline: MovieTimeline;
+    try {
+      const res = await fetch(extractUrl(`${folder}/timeline.json`));
+      if (!res.ok) {
+        return;
+      }
+      timeline = (await res.json()) as MovieTimeline;
+    } catch {
+      timeline = fallbackTimeline(8);
+    }
+    const hz = timeline.tick_hz || 60;
+    const frames = timeline.frames.map((frame) => ({
+      url: movieStillUrl(folder, frame.container),
+      holdSec: Math.max(1, frame.hold_ticks || 0) / hz,
+      action: frame.action ?? 0,
+      wait: frame.wait,
+      hotspots: frame.hotspots,
+    }));
+    const clips = (timeline.clips ?? []).map((clip) => ({
+      url: movieClipUrl(folder, clip.container),
+      startSec: clip.start_tick / hz,
+      channel: clip.channel,
+    }));
+    try {
+      await this.playMovie(frames, clips, { keepLayer: true });
+    } finally {
+      this.movieImages.clear();
+      for (const [url, img] of saved) {
+        this.movieImages.set(url, img);
+      }
+    }
+  }
+
+  private waitMovieHotspot(spots: MovieHotspot[]): Promise<MovieHotspot | undefined> {
+    return new Promise((resolve) => {
+      const finish = (event: Event): void => {
+        if (!("clientX" in event) || !("clientY" in event)) {
+          return;
+        }
+        const still = movieClickToStill(
+          Number(event.clientX),
+          Number(event.clientY),
+          this.movieEl.getBoundingClientRect(),
+          this.movieEl.width || STILL_WIDTH,
+          this.movieEl.height || STILL_HEIGHT,
+        );
+        const hit = still ? pickMovieHotspot(still.x, still.y, spots) : undefined;
+        if (!hit) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        window.removeEventListener("pointerdown", finish, true);
+        this.skipNextClick = movieWaitSetsSkipClick(event.type);
+        resolve(hit);
+      };
+      window.addEventListener("pointerdown", finish, true);
+    });
   }
 
   /** Last inspect still stays up until a click. Swallow that click. */
@@ -1678,6 +1883,7 @@ export class PlayGame implements WorldView {
       this.host.currentScene = this.host.sceneNameForPose(this.graph, this.pose.x, this.pose.y);
       this.host.currentDir = this.pose.facing;
     }
+    this.syncHud();
     this.host.noticeCamera();
     // Dest is current (`0x40e0e1`) and index is idle. Standing HQ is a
     // blit, not a sixth timed plate — do not wait on it or its Z.
@@ -1970,7 +2176,9 @@ export class PlayGame implements WorldView {
           forward: still.forward,
           name: key,
           bits: last.bits,
-          topLeft: spriteStillTopLeft(still.x, still.y, last.place, last.stillScale),
+          topLeft: isDoorOverlay(prop.name)
+            ? doorOverlayTopLeft(still.x, still.y, last.place, last.stillScale)
+            : spriteStillTopLeft(still.x, still.y, last.place, last.stillScale),
           stillScale: last.stillScale,
           z: this.propBlitZ(
             prop.name,
@@ -1993,7 +2201,9 @@ export class PlayGame implements WorldView {
         forward: still.forward,
         name: key,
         bits,
-        topLeft: spriteStillTopLeft(still.x, still.y, place, stillScale),
+        topLeft: isDoorOverlay(prop.name)
+          ? doorOverlayTopLeft(still.x, still.y, place, stillScale)
+          : spriteStillTopLeft(still.x, still.y, place, stillScale),
         stillScale,
         z: prop.screen
           ? 1
@@ -2363,7 +2573,9 @@ export class PlayGame implements WorldView {
     const day = numGlobal(this.vm, "day") || 1;
     const clock = numGlobal(this.vm, "clock") || 3;
     const cash = numGlobal(this.vm, "playercash");
-    const label = this.graph ? poseLabel(this.graph, this.pose, this.world) : "Loading…";
+    const label = this.graph
+      ? poseReadout(this.graph, this.pose, this.world)
+      : "Loading…";
     const clockName = clock === 1 ? "Morning" : clock === 2 ? "Afternoon" : "Night";
     const tag = this.kind === "sandbox" ? "UNLOCKED" : "PLAY";
     this.timeEl.textContent = `${tag} · Day ${day} · ${clockName} · $${cash}`;
@@ -2383,8 +2595,18 @@ export class PlayGame implements WorldView {
       .filter(Boolean)
       .join(" · ");
     this.hintEl.textContent = caption;
-    this.captionEl.textContent = caption;
+    this.captionEl.textContent = this.poseCaption(label);
     this.layoutActors();
+  }
+
+  /** SET, scene, facing — under the stage, never on the still. */
+  private poseCaption(label: string): string {
+    const door = this.host.props.get("door");
+    const view = (door?.view || door?.owner || "").toLowerCase();
+    if (door?.visible && view && view !== "none") {
+      return `${label} · door ${view}`;
+    }
+    return label;
   }
 }
 
