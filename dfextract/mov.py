@@ -56,6 +56,9 @@ PLAYLIST_OFF = 0x83E
 # (harmonica / MUSIPLAT). last>1 play + jump. Linear extract fires
 # last>1 at the *dest* rec's start tick, one cue per (slot, dest).
 # Replay wait-stills (grocpots rec 9 last=2 again) do not clang twice.
+# Type 3 is 46 bytes: Pascal ".mov" at +14. KIDDIE.MOV click windows
+# carry kidwin.mov here; rec+0x16==3 on the last rec of a window plays
+# that reel if the type-2 dest was not taken (timeout = Kid wins).
 # Type 4 is 48 bytes: same Mac rect + Pascal ".mov" at +16. Click
 # pushes a nested play (0x419ba3, depth < 5) — towertop windows play
 # bellmoon / bellbarn / belltown.
@@ -67,6 +70,7 @@ REC_END_KIND_OFF = 0x16  # u16; used when rec+0 cmd count is 0
 REC_NEXT_NAME_OFF = 0x30  # Pascal filename (type-3 chain)
 END_KIND_CHAIN = 3
 CMD_MOVIE_NAME_OFF = 16  # Pascal inside a type-4 command
+CMD_TYPE3_MOVIE_OFF = 14  # Pascal inside a type-3 timeout reel
 # INFO/MAIN is an interactive attract reel with hundreds of jump
 # hotspots. Do not treat those as auto SFX.
 MAX_CMD_AUTO_SFX = 32
@@ -170,6 +174,9 @@ class FrameHold:
     # Type-2 slot-0 last=2: inspect still, hold until click (WARNING/BONE).
     wait: bool = False
     hotspots: tuple[ClickHotspot, ...] = ()
+    # Rec+0x16. Kind 3 on a timed click window plays timeout_movie.
+    end_kind: int = 0
+    timeout_movie: str = ""
 
 
 @dataclass(frozen=True)
@@ -300,6 +307,8 @@ def _frame_commands(
             last = struct.unpack_from("<H", header, pos + size - 2)[0]
         if kind == 2 and size >= 10:
             rect = struct.unpack_from("<hhhh", header, pos + 2)
+        if kind == 3:
+            movie = _pascal_mov_name(header, pos + CMD_TYPE3_MOVIE_OFF)
         if kind == 4 and size >= 10:
             rect = struct.unpack_from("<hhhh", header, pos + 2)
             movie = _pascal_mov_name(header, pos + CMD_MOVIE_NAME_OFF)
@@ -393,6 +402,8 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
                 )
             wait = False
             spots: list[ClickHotspot] = []
+            timeout_movie = ""
+            end_kind = struct.unpack_from("<H", rec, REC_END_KIND_OFF)[0]
             for kind, cmd_slot, last, rect, movie in _frame_commands(data, rec):
                 # Inspect still: the only command is a full-frame jump
                 # (WARNING/BONE). Do not pause on last=2 among several
@@ -432,8 +443,13 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
                     spots.append(
                         ClickHotspot(top, left, bottom, right, 0, "", movie)
                     )
-            if spots:
-                wait = True
+                if kind == 3 and movie:
+                    timeout_movie = movie
+            # Several dests on one rec (bells/pots) sit until click.
+            # One dest on a 3-tick run (kiddie hand/gun/Kid) is a timed
+            # window: keep hotspots, do not pause the playhead.
+            if spots and not wait:
+                wait = len(spots) > 1
             frames.append(
                 FrameHold(
                     container=scene_index + local,
@@ -442,6 +458,10 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
                     action=action,
                     wait=wait,
                     hotspots=tuple(spots),
+                    end_kind=end_kind,
+                    timeout_movie=(
+                        timeout_movie if end_kind == END_KIND_CHAIN else ""
+                    ),
                 )
             )
             chained = _rec_next_movie(rec)
@@ -476,6 +496,8 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
                 action=frame.action,
                 wait=frame.wait and not frame.hotspots,
                 hotspots=(),
+                end_kind=frame.end_kind,
+                timeout_movie=frame.timeout_movie,
             )
             for frame in frames
         ]
@@ -755,6 +777,12 @@ def _write_timeline(timeline: ReelTimeline, out_dir: Path) -> None:
                         ]
                     }
                     if f.hotspots
+                    else {}
+                ),
+                **({"end_kind": f.end_kind} if f.end_kind else {}),
+                **(
+                    {"timeout_movie": f.timeout_movie}
+                    if f.timeout_movie
                     else {}
                 ),
             }

@@ -53,6 +53,7 @@ import {
   puppetIdleKind,
   puppetTicksToMs,
   mergePuppetRest,
+  scrambleInPlace,
   type PuppetSheet,
   type PuppetUi,
   type SpritePlace,
@@ -136,12 +137,29 @@ import {
   sandboxBottlesSetcursor,
   sandboxDellMousedown,
   sandboxDellTownClick,
+  sandboxFightActor,
+  sandboxFightKind,
+  sandboxFightKindOf,
+  sandboxFightOn,
+  sandboxFightPutdown,
+  sandboxFightScout,
+  sandboxFightScoutClick,
+  sandboxFightScoutHit,
+  sandboxFightIdleHitProc,
+  sandboxFightHotdist,
+  sandboxFightScoutMousedown,
+  hideSandboxIdleFighters,
+  SANDBOX_TOYS,
+  sandboxToyKind,
+  sandboxToyLookPose,
+  type SandboxToyKind,
   sandboxKidMousedown,
   sandboxKidTownClick,
   sandboxOpenKidProc,
   sandboxPuzzletime,
   sandboxRangeAnimalsToSeed,
   sandboxSkipRangeWalkWait,
+  sandboxTownFightHitProc,
   sandboxTownAnimalsToSeed,
   sandboxTownSetFile,
 } from "./sandbox";
@@ -169,6 +187,11 @@ export interface ActorState {
   pose: string;
   owner: string;
   value: number;
+  /** Dust `variable (me)` — bounty/kidgang walkloop state. */
+  variable: number;
+  /** Dust `actorhitbox` / printed `currentcd`. */
+  hitboxW: number;
+  hitboxH: number;
   speed: number;
   turnSpeed: number;
   walking: boolean;
@@ -259,10 +282,11 @@ export interface WorldView {
       action?: number;
       wait?: boolean;
       hotspots?: MovieHotspot[];
+      timeoutMovie?: string;
     }[],
     clips: { url: string; startSec: number; channel?: string }[],
     opts?: { keepLayer?: boolean },
-  ): Promise<void>;
+  ): Promise<boolean | void>;
   /** Hide the movie layer after a `keepLayer` chain (towerup → towertop → towerdn). */
   endMovie?(): void;
   /** Dust `screentoblack` / `blacktoscreen` ticks (60 Hz). */
@@ -407,6 +431,8 @@ export class DustHost implements OpcodeHost {
   sandbox = false;
   /** Unlocked `?clock=` (default afternoon). Story ignores this. */
   sandboxClock: ClockSlot | undefined;
+  /** Top-bar spawns. Re-placed after `initall` / N; fight scouts drop on `closefight`. */
+  private readonly sandboxToyPlacements = new Map<string, { scene: string; deg: number }>();
   /**
    * Boot starts with `blackscreen()` for the intro movies. When those
    * movies are skipped, keep the spawn still up instead of wiping it.
@@ -476,6 +502,8 @@ export class DustHost implements OpcodeHost {
   private soundGen = 0;
   private puppetSheet: PuppetSheet | null = null;
   private gangSprites: Record<string, Record<string, SpritePlace[]>> = {};
+  private playerHitW = 0;
+  private playerHitH = 0;
 
   constructor(readonly ui: PuppetUi) {}
 
@@ -530,7 +558,11 @@ export class DustHost implements OpcodeHost {
 
   /** Unlocked replaces extracted `advanceday` (Day 1 night + story casts). */
   private sandboxSuppress(name: string): boolean {
-    return this.sandbox && name.toLowerCase() === "advanceday";
+    if (!this.sandbox) {
+      return false;
+    }
+    const op = name.toLowerCase();
+    return op === "advanceday" || op === "openfight" || op === "closefight";
   }
 
   private sandboxLeroyRange(name: string, ctx: VM): Proc | undefined {
@@ -584,6 +616,21 @@ export class DustHost implements OpcodeHost {
     if (op === "openkid") {
       return sandboxOpenKidProc();
     }
+    if (op === "hit" && ctx.object === "set") {
+      return sandboxTownFightHitProc();
+    }
+    if (
+      op === "hit" &&
+      ctx.object === "actor" &&
+      sandboxFightActor(ctx.me) &&
+      !sandboxFightOn(ctx.globals.get("fighton"))
+    ) {
+      const kind = sandboxFightKindOf(ctx.me);
+      return kind ? sandboxFightScoutHit(kind) : sandboxFightIdleHitProc();
+    }
+    if (op === "hotdist" && ctx.object === "actor" && sandboxFightActor(ctx.me)) {
+      return sandboxFightHotdist();
+    }
     if (
       sandboxApothBottlesClick(this.currentSet, ctx.object, ctx.me) &&
       (op === "mousedown" || op === "setcursor")
@@ -604,6 +651,19 @@ export class DustHost implements OpcodeHost {
     }
     if (sandboxKidTownClick(this.currentSet, ctx.object, ctx.me)) {
       return sandboxKidMousedown();
+    }
+    if (
+      sandboxFightScoutClick(
+        this.currentSet,
+        ctx.object,
+        ctx.me,
+        ctx.globals.get("fighton"),
+      )
+    ) {
+      const kind = sandboxFightKindOf(ctx.me);
+      if (kind) {
+        return sandboxFightScoutMousedown(kind);
+      }
     }
     return undefined;
   }
@@ -1002,6 +1062,7 @@ export class DustHost implements OpcodeHost {
       case "isball":
         return this.namedProp(str(args[0] ?? ctx.me)).ball ? 1 : 0;
       case "actorwarm":
+        await this.ensureActor(str(args[0] ?? ctx.me));
         return 0;
       case "findfile":
       case "fileexists":
@@ -1211,6 +1272,16 @@ export class DustHost implements OpcodeHost {
           await this.sandboxAdvanceDay(ctx);
         }
         return 0;
+      case "openfight":
+        if (this.sandbox) {
+          await this.runSandboxOpenFight(ctx);
+        }
+        return 0;
+      case "closefight":
+        if (this.sandbox) {
+          await this.runSandboxCloseFight(ctx);
+        }
+        return 0;
       case "closesetfile":
         await ctx.inObject("scene", this.currentScene, () => ctx.evalCall("closescene", []));
         await ctx.inObject("set", "", () => ctx.evalCall("closeset", []));
@@ -1334,6 +1405,13 @@ export class DustHost implements OpcodeHost {
       case "actorvisible":
         return this.actorField(ctx, args, "visible", (actor, value) => {
           actor.visible = truthyArg(value);
+          if (
+            this.sandbox &&
+            !actor.visible &&
+            actor.owner.toLowerCase() === "wonfight"
+          ) {
+            this.sandboxToyPlacements.delete(actor.name.toLowerCase());
+          }
         });
       case "actorset":
         return this.actorField(ctx, args, "set", (actor, value) => {
@@ -1381,7 +1459,17 @@ export class DustHost implements OpcodeHost {
         });
       case "actorhitbox":
       case "currentcd":
-        return 0;
+        return this.actorHitbox(args, ctx);
+      case "variable":
+        return this.actorField(ctx, args, "variable", (actor, value) => {
+          actor.variable = num(value);
+        });
+      case "rowcoltoscene":
+      case "sendtopostfx":
+        return this.rowColToScene(num(args[0]), num(args[1]));
+      case "scenebuild":
+      case "sendtoserverfx":
+        return this.sceneIsBuild(str(args[0]));
       case "actorxyz":
         return this.actorXyz(ctx, args);
       case "playerxyz":
@@ -1462,6 +1550,10 @@ export class DustHost implements OpcodeHost {
       case "puppetbevel":
         this.bevels.push({ label: str(args[0]), id: num(args[1]) });
         this.ui.addBevel({ label: str(args[0]), id: num(args[1]) });
+        return 0;
+      case "puppetscramble":
+        scrambleInPlace(this.bevels, this.rng);
+        this.ui.setBevels?.(this.bevels);
         return 0;
       case "puppetspeak":
         if (this.skipSpeech) {
@@ -1551,6 +1643,53 @@ export class DustHost implements OpcodeHost {
       return actor.y;
     }
     return { kind: "point", x: actor.x, y: actor.y, z: 0 };
+  }
+
+  private actorHitbox(args: Value[], ctx: VM): Value {
+    const who = str(args[0] ?? ctx.me).toLowerCase();
+    if (who === "player") {
+      if (args.length >= 3) {
+        this.playerHitW = num(args[1]);
+        this.playerHitH = num(args[2]);
+        return 0;
+      }
+      return num(args[1]) === 2 ? this.playerHitH : this.playerHitW;
+    }
+    const actor = this.namedActor(who);
+    if (args.length >= 3) {
+      actor.hitboxW = num(args[1]);
+      actor.hitboxH = num(args[2]);
+      return 0;
+    }
+    return num(args[1]) === 2 ? actor.hitboxH : actor.hitboxW;
+  }
+
+  /** Printed `sendtopostfx (row, col)` — Dust `rowcoltoscene`. */
+  rowColToScene(row: number, col: number): string {
+    const x = Math.trunc(col);
+    const y = Math.trunc(row);
+    if (x < 0 || y < 0 || x > 14 || y > 14) {
+      return "none";
+    }
+    return scriptSceneName(x, y);
+  }
+
+  /** Printed `sendtoserverfx (scene)` — Dust `scenebuild`. Blocked tiles cannot be stood on. */
+  sceneIsBuild(name: string): boolean {
+    const key = name.trim().toLowerCase();
+    if (!key || key === "none") {
+      return true;
+    }
+    const graph = this.view?.graph;
+    const pose = this.scenePose(key, graph);
+    if (!pose) {
+      return true;
+    }
+    const rec =
+      graph && isTownGridSize(graph.scenes.size)
+        ? graph.scenes.get(tileKey(pose.y, pose.x))
+        : graph?.scenes.get(tileKey(pose.x, pose.y));
+    return Boolean(rec?.blocked);
   }
 
   private actorXyz(ctx: VM, args: Value[]): Value {
@@ -1808,6 +1947,26 @@ export class DustHost implements OpcodeHost {
     this.dropDueLoops((loop) => loop.kind === type && loop.who === name);
   }
 
+  /**
+   * FIGHT `fadetoblack` re-arms on `fightslider2` until `closeshopfile`.
+   * Those due ticks are already spliced out of `this.loops`; skip them
+   * once the puzzle shop is gone so `blacktoscreen` cannot be re-blacked.
+   */
+  private scriptLoopLive(loop: ScriptLoop): boolean {
+    if (loop.kind !== "prop") {
+      return true;
+    }
+    const shop = (this.props.get(loop.who)?.shop ?? "").toLowerCase();
+    if (!shop || !this.puzzleGroups.has(shop)) {
+      return true;
+    }
+    const active = this.puzzleShop.toLowerCase();
+    if (active === shop) {
+      return true;
+    }
+    return this.shopAliases.get(shop) === active || this.shopAliases.get(active) === shop;
+  }
+
   private dropDueLoops(match: (loop: ScriptLoop) => boolean): void {
     for (let i = this.dueLoops.length - 1; i >= 0; i -= 1) {
       if (match(this.dueLoops[i]!)) {
@@ -1957,6 +2116,9 @@ export class DustHost implements OpcodeHost {
         await ctx.inObject("actor", name, () => ctx.evalCall("endturn", []));
       }
       for (const loop of due) {
+        if (!this.scriptLoopLive(loop)) {
+          continue;
+        }
         await ctx.inObject(loop.kind, loop.who, () => ctx.evalCall(loop.proc, []));
       }
       const balls = this.ballEnds.splice(0);
@@ -1980,6 +2142,9 @@ export class DustHost implements OpcodeHost {
   noticeCamera(): void {
     for (const loop of this.loops.values()) {
       if (loop.paused || loop.kind !== "actor") {
+        continue;
+      }
+      if (sandboxFightActor(loop.who)) {
         continue;
       }
       const actor = this.actors.get(loop.who);
@@ -2068,6 +2233,9 @@ export class DustHost implements OpcodeHost {
         pose: "stand",
         owner: "none",
         value: 0,
+        variable: 0,
+        hitboxW: 0,
+        hitboxH: 0,
         speed: 3,
         turnSpeed: 7,
         walking: false,
@@ -2555,6 +2723,7 @@ export class DustHost implements OpcodeHost {
   }
 
   private closeStage(): void {
+    this.stopLoop("flat", "all");
     this.index.removePrefix("stage");
     this.index.removePrefix("flat:");
     this.index.removePrefix("button:");
@@ -2712,6 +2881,7 @@ export class DustHost implements OpcodeHost {
         continue;
       }
       prop.visible = false;
+      this.stopLoop("prop", prop.name);
     }
     if (this.puzzleShop === stem || this.puzzleShop === real) {
       this.puzzleShop = "";
@@ -3035,7 +3205,7 @@ export class DustHost implements OpcodeHost {
 
   /** N in Unlocked: swap town/nite (and court/school twins) without advancing `day`. */
   async applySandboxClock(ctx: VM, clock: ClockSlot): Promise<void> {
-    if (!this.sandbox) {
+    if (!this.sandbox || sandboxFightOn(ctx.globals.get("fighton"))) {
       return;
     }
     this.sandboxClock = clock;
@@ -3065,6 +3235,11 @@ export class DustHost implements OpcodeHost {
     applySandboxStoryFlags(ctx.globals, ctx.globalNames);
     const hidden = [
       ...hideSandboxStoryActors(this.actors.values()),
+      ...hideSandboxIdleFighters(
+        this.actors.values(),
+        sandboxFightOn(ctx.globals.get("fighton")),
+        this.sandboxToyPlacements,
+      ),
       ...hideRangeCastOffSet(this.currentSet, this.actors.values()),
     ];
     for (const name of hidden) {
@@ -3113,34 +3288,187 @@ export class DustHost implements OpcodeHost {
   }
 
   /**
-   * Dell at `town.dell2` (D7 south). Kid standing at scene G6. Extracted
-   * `setupactor("fight")` / `walkin` would auto-start those set pieces.
+   * Re-place Unlocked top-bar toys after `initall` / N. Do not park Dell,
+   * Kid, or fight scouts until the player taps a portrait.
    */
   private async seedSandboxTownPeople(ctx: VM): Promise<void> {
     if (!this.sandbox || this.currentSet !== "town") {
       return;
     }
+    if (sandboxFightOn(ctx.globals.get("fighton"))) {
+      return;
+    }
+    for (const [name, place] of this.sandboxToyPlacements) {
+      await this.placeSandboxToy(ctx, name, place);
+    }
+    this.view?.refreshActors();
+  }
+
+  /** Icon click: stand the actor in the current still, facing the camera. */
+  async spawnSandboxToy(ctx: VM, kind: SandboxToyKind | string): Promise<void> {
+    const toyKind = sandboxToyKind(kind);
+    if (!this.sandbox || !toyKind || this.currentSet !== "town") {
+      return;
+    }
+    if (sandboxFightOn(ctx.globals.get("fighton"))) {
+      return;
+    }
+    const pose = this.view?.pose;
+    if (!pose) {
+      return;
+    }
+    const toy = SANDBOX_TOYS.find((row) => row.kind === toyKind);
+    if (!toy) {
+      return;
+    }
+    const place = sandboxToyLookPose(pose);
+    this.sandboxToyPlacements.set(toy.actor, place);
+    await this.placeSandboxToy(ctx, toy.actor, place);
+    this.view?.refreshActors();
+  }
+
+  private async placeSandboxToy(
+    ctx: VM,
+    name: string,
+    place: { scene: string; deg: number },
+  ): Promise<void> {
     const lit = (value: string) => ({ type: "str" as const, value });
     const n = (value: number) => ({ type: "num" as const, value });
-    if (!this.namedActor("dell").visible) {
-      await this.ensureActor("dell");
-      await ctx.inObject("actor", "dell", () => ctx.evalCall("setupactor", [lit("shack")]));
-      await ctx.evalCall("actorstar", [lit("dell"), lit("town.dell2")]);
-      // Face south so D7 north (the fight camera) sees his front, not a profile.
-      await ctx.evalCall("actordeg", [lit("dell"), n(64)]);
+    const key = name.toLowerCase();
+    await this.ensureActor(key);
+    const actor = this.namedActor(key);
+    actor.walking = false;
+    actor.turning = false;
+    actor.route = [];
+    await ctx.evalCall("actorset", [lit(key), lit("town")]);
+    if (this.index.lookup([`actor:${key}`], "stdactor")) {
+      await ctx.inObject("actor", key, () => ctx.evalCall("stdactor", [lit(key)]));
     }
-    if (!this.namedActor("kid").visible) {
-      await this.ensureActor("kid");
-      await ctx.evalCall("actorset", [lit("kid"), lit("town")]);
-      await ctx.inObject("actor", "kid", () => ctx.evalCall("stdactor", [lit("kid")]));
-      const x = await ctx.evalCall("scenexyz", [lit("scene g6"), n(1)]);
-      const y = await ctx.evalCall("scenexyz", [lit("scene g6"), n(2)]);
-      // Extracted `walkin` / `dead` park on G6 center. y-80 was hotel Z.
-      await ctx.evalCall("actorxyz", [lit("kid"), n(num(x)), n(num(y)), n(0)]);
-      await ctx.evalCall("actoris3d", [lit("kid"), n(1)]);
-      await ctx.evalCall("actorpose", [lit("kid"), lit("stand")]);
-      await ctx.evalCall("actordeg", [lit("kid"), n(64)]);
-      await ctx.evalCall("actorvisible", [lit("kid"), n(1)]);
+    const x = await ctx.evalCall("scenexyz", [lit(place.scene), n(1)]);
+    const y = await ctx.evalCall("scenexyz", [lit(place.scene), n(2)]);
+    await ctx.evalCall("actorxyz", [lit(key), n(num(x)), n(num(y)), n(0)]);
+    await ctx.evalCall("actoris3d", [lit(key), n(1)]);
+    if (sandboxFightActor(key)) {
+      await ctx.evalCall("actorscale", [lit(key), n(1500)]);
+    }
+    await ctx.evalCall("actorpose", [lit(key), lit("stand")]);
+    await ctx.evalCall("actordeg", [lit(key), n(place.deg)]);
+    await ctx.evalCall("actorvisible", [lit(key), n(1)]);
+  }
+
+  /** `?fight=bounty|gang` after Unlocked boot, or a scout click. */
+  async startSandboxFight(ctx: VM, kind: "bounty" | "gang"): Promise<void> {
+    ctx.globals.set("sandboxfight", kind);
+    ctx.globalNames.add("sandboxfight");
+    await this.runSandboxOpenFight(ctx);
+  }
+
+  /**
+   * Extracted `openfight` keys off story `day`. Unlocked stays on day 1;
+   * `sandboxfight` selects the bounty or gang branch.
+   */
+  private async runSandboxOpenFight(ctx: VM): Promise<void> {
+    const kind = sandboxFightKind(ctx.globals.get("sandboxfight"));
+    if (!kind) {
+      return;
+    }
+    const lit = (value: string) => ({ type: "str" as const, value });
+    const n = (value: number) => ({ type: "num" as const, value });
+    const setg = (name: string, value: boolean | number | string) => {
+      ctx.globals.set(name, value);
+      ctx.globalNames.add(name);
+    };
+    setg("fighton", 1);
+    setg("playerhits", 0);
+    setg("debugging", false);
+    setg("bulletcount", 6);
+    const prefix = kind === "bounty" ? "bounty" : "kidgang";
+    for (let i = 1; i <= 5; i++) {
+      await this.ensureActor(`${prefix}${i}`);
+    }
+    for (const name of [...this.actors.keys()]) {
+      if (!sandboxFightPutdown(name)) {
+        continue;
+      }
+      await ctx.inObject("actor", name, () => ctx.evalCall("initactor", []));
+    }
+    await ctx.inObject("shop", "inven", () => ctx.evalCall("addinven", [lit("bullets")]));
+    await ctx.inObject("shop", "inven", () => ctx.evalCall("addinven", [lit("gun")]));
+    await ctx.evalCall("stoploop", [lit("scene"), lit("scene g14")]);
+    await ctx.evalCall("closetrackfile", [lit("town.snd")]);
+    await ctx.evalCall("closetrackfile", [lit("night.snd")]);
+    if (kind === "bounty") {
+      for (let i = 1; i <= 5; i++) {
+        await ctx.inObject("actor", `bounty${i}`, () =>
+          ctx.evalCall("setupactor", [lit("fight")]),
+        );
+      }
+      await ctx.evalCall("actorwarm", [lit("bounty1")]);
+      await ctx.evalCall("opentrackfile", [lit("bounty.snd")]);
+    } else {
+      setg("fightphase", 1);
+      await ctx.inObject("prop", "powderkeg1", () => ctx.evalCall("openprop", []));
+      for (const keg of ["powderkeg1", "powderkeg2", "powderkeg3"]) {
+        await ctx.inObject("prop", keg, () => ctx.evalCall("setupprop", [lit("fight")]));
+      }
+      for (let i = 1; i <= 3; i++) {
+        await ctx.inObject("actor", `kidgang${i}`, () =>
+          ctx.evalCall("setupactor", [lit("fight")]),
+        );
+      }
+      for (const name of ["kidgang4", "kidgang5"]) {
+        await ctx.evalCall("actorpose", [lit(name), lit("dead")]);
+        await ctx.evalCall("actorvisible", [lit(name), n(0)]);
+      }
+      await ctx.evalCall("actorwarm", [lit("kidgang1")]);
+      await ctx.evalCall("opentrackfile", [lit("kid.snd")]);
+    }
+    await ctx.evalCall("playtheme", [lit("bountytheme")]);
+    this.view?.refreshActors();
+  }
+
+  private async runSandboxCloseFight(ctx: VM): Promise<void> {
+    const lit = (value: string) => ({ type: "str" as const, value });
+    const n = (value: number) => ({ type: "num" as const, value });
+    const setg = (name: string, value: boolean | number | string) => {
+      ctx.globals.set(name, value);
+      ctx.globalNames.add(name);
+    };
+    setg("fighton", 0);
+    setg("sandboxfight", "");
+    setg("debugging", true);
+    for (const name of [...this.sandboxToyPlacements.keys()]) {
+      if (sandboxFightActor(name)) {
+        this.sandboxToyPlacements.delete(name);
+      }
+    }
+    await ctx.evalCall("closetrackfile", [lit("bountytheme")]);
+    for (const keg of ["powderkeg1", "powderkeg2", "powderkeg3"]) {
+      await ctx.inObject("prop", keg, () => ctx.evalCall("putdownprop", []));
+    }
+    for (const actor of this.actors.values()) {
+      if (!sandboxFightActor(actor.name)) {
+        continue;
+      }
+      this.stopLoop("actor", actor.name);
+      actor.visible = false;
+      actor.walking = false;
+      actor.turning = false;
+      actor.route = [];
+    }
+    setg("loopsound", "");
+    const clock = num(ctx.globals.get("clock") ?? 2);
+    if (clock === 3) {
+      await ctx.evalCall("opentrackfile", [lit("night.snd")]);
+      await ctx.evalCall("makeloop", [lit("scene"), lit("scene g14"), lit("nightfxs"), n(2)]);
+    } else {
+      await ctx.evalCall("opentrackfile", [lit("town.snd")]);
+      await ctx.evalCall("makeloop", [lit("scene"), lit("scene g14"), lit("dayfxs"), n(2)]);
+    }
+    if (this.currentSet === "town") {
+      await this.seedSandboxAnimals(ctx);
+      await this.seedSandboxTownPeople(ctx);
+      await ctx.inObject("actor", "leroy", () => ctx.evalCall("setupactor", [lit("range")]));
     }
     this.view?.refreshActors();
   }
@@ -3404,6 +3732,9 @@ export class DustHost implements OpcodeHost {
   /** Hub skeletons / season plants have no `mousedown` — they must not eat the sundial still. */
   private hitHasMousedown(kind: "actor" | "prop", name: string): boolean {
     const key = name.toLowerCase();
+    if (kind === "actor" && sandboxFightScout(key)) {
+      return true;
+    }
     if (this.index.lookup([`${kind}:${key}`], "mousedown")) {
       return true;
     }
@@ -4031,6 +4362,7 @@ export class DustHost implements OpcodeHost {
           action: frame.action ?? 0,
           wait: frame.wait,
           hotspots: frame.hotspots,
+          timeoutMovie: frame.timeout_movie,
         }));
         const clips = (timeline.clips ?? []).map((clip) => ({
           url: clipUrl(folder, clip.container),
@@ -4038,8 +4370,12 @@ export class DustHost implements OpcodeHost {
           channel: clip.channel,
         }));
         if (this.view?.playMovie && frames.length) {
-          await this.view.playMovie(frames, clips, { keepLayer: true });
+          const ok = await this.view.playMovie(frames, clips, { keepLayer: true });
           played = true;
+          if (ok === false) {
+            this.lastActionFrame = actionFrameAfterPlay(true, true);
+            return;
+          }
         } else {
           this.view?.log(`movie ${current}`);
           played = played || frames.length > 0;

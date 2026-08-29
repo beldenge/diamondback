@@ -20,6 +20,23 @@ import {
   sandboxBottlesMousedown,
   sandboxDellTownClick,
   sandboxDellMousedown,
+  sandboxFightActor,
+  sandboxFightFromSearch,
+  sandboxFightKind,
+  sandboxFightOn,
+  sandboxFightScout,
+  sandboxFightPutdown,
+  sandboxFightScoutClick,
+  sandboxFightScoutHit,
+  sandboxFightHotdist,
+  sandboxFightScoutMousedown,
+  hideSandboxIdleFighters,
+  SANDBOX_FIGHT_SCOUTS,
+  SANDBOX_TOYS,
+  sandboxStreetToy,
+  sandboxToyKind,
+  sandboxToyLookPose,
+  sandboxTownFightHitProc,
   sandboxIsApoth,
   sandboxKidTownClick,
   sandboxKidMousedown,
@@ -92,6 +109,135 @@ describe("sandboxKeepActor", () => {
     expect(sandboxKeepActor({ name: "gus", cast: "gang" })).toBe(false);
     expect(sandboxKeepActor({ name: "help", cast: "gang" })).toBe(false);
     expect(sandboxKeepActor({ name: "oona", cast: "gang" })).toBe(false);
+    expect(sandboxKeepActor({ name: "bounty1", cast: "extra" })).toBe(true);
+    expect(sandboxKeepActor({ name: "bounty5", cast: "extra" })).toBe(true);
+    expect(sandboxKeepActor({ name: "kidgang1", cast: "extra" })).toBe(true);
+    expect(sandboxKeepActor({ name: "kidgang3", cast: "extra" })).toBe(true);
+  });
+});
+
+describe("sandbox street fights", () => {
+  it("names the bounty and kid-gang click-to-start extras", () => {
+    expect(SANDBOX_FIGHT_SCOUTS.map((row) => `${row.name}:${row.fight}`)).toEqual([
+      "bounty1:bounty",
+      "kidgang1:gang",
+    ]);
+    expect(sandboxFightScout("bounty1")).toBe(true);
+    expect(sandboxFightScout("bounty2")).toBe(false);
+    expect(sandboxFightActor("kidgang4")).toBe(true);
+    expect(sandboxFightActor("kid")).toBe(false);
+  });
+
+  it("hides Dell, Kid, and fight extras until a top-bar spawn", () => {
+    const bounty1 = {
+      name: "bounty1",
+      visible: true,
+      walking: false,
+      turning: false,
+      route: [],
+    };
+    const bounty2 = {
+      name: "bounty2",
+      visible: true,
+      walking: true,
+      turning: false,
+      route: [{ x: 1 }],
+    };
+    const dell = {
+      name: "dell",
+      visible: true,
+      walking: false,
+      turning: false,
+      route: [],
+    };
+    const kid = {
+      name: "kid",
+      visible: true,
+      walking: false,
+      turning: false,
+      route: [],
+    };
+    const leroy = {
+      name: "leroy",
+      visible: true,
+      walking: false,
+      turning: false,
+      route: [],
+    };
+    expect(hideSandboxIdleFighters([bounty1, bounty2, dell, kid, leroy], false)).toEqual([
+      "bounty1",
+      "bounty2",
+      "dell",
+      "kid",
+    ]);
+    expect(bounty1.visible).toBe(false);
+    expect(bounty2.visible).toBe(false);
+    expect(dell.visible).toBe(false);
+    expect(kid.visible).toBe(false);
+    expect(leroy.visible).toBe(true);
+    bounty1.visible = true;
+    dell.visible = true;
+    kid.visible = true;
+    expect(hideSandboxIdleFighters([bounty1, bounty2, dell, kid], false, new Set(["bounty1", "dell"]))).toEqual(
+      ["kid"],
+    );
+    expect(bounty1.visible).toBe(true);
+    expect(dell.visible).toBe(true);
+    bounty2.visible = true;
+    expect(hideSandboxIdleFighters([bounty1, bounty2], true, new Set())).toEqual([]);
+    expect(bounty2.visible).toBe(true);
+  });
+
+  it("starts each fight from a scout click without advancing day or walking G8", () => {
+    expect(sandboxFightScoutClick("town", "actor", "bounty1", 0)).toBe(true);
+    expect(sandboxFightScoutClick("town", "actor", "kidgang1", 0)).toBe(true);
+    expect(sandboxFightScoutClick("town", "actor", "kid", 0)).toBe(false);
+    expect(sandboxFightScoutClick("town", "actor", "bounty1", 1)).toBe(false);
+    const bounty = JSON.stringify(sandboxFightScoutMousedown("bounty"));
+    expect(bounty).toContain("openfight");
+    expect(bounty).toContain('"value":"bounty"');
+    expect(bounty).not.toContain("advanceday");
+    expect(bounty).not.toContain("scene g8");
+    const gang = JSON.stringify(sandboxFightScoutMousedown("gang"));
+    expect(gang).toContain('"value":"gang"');
+    const hit = JSON.stringify(sandboxTownFightHitProc());
+    expect(hit).toContain("by bounty");
+    expect(hit).toContain("by gang");
+    expect(hit).toContain("sandboxfight");
+    expect(hit).not.toContain('"name":"day"');
+  });
+
+  it("reads ?fight= and ignores unknown values", () => {
+    expect(sandboxFightFromSearch("?mode=unlocked&fight=bounty")).toBe("bounty");
+    expect(sandboxFightFromSearch("fight=GANG")).toBe("gang");
+    expect(sandboxFightFromSearch("?fight=kid")).toBeUndefined();
+    expect(sandboxFightKind("bounty")).toBe("bounty");
+    expect(sandboxFightOn(0)).toBe(false);
+    expect(sandboxFightOn(undefined)).toBe(false);
+    expect(sandboxFightOn(1)).toBe(true);
+  });
+
+  it("does not putdown Bolivar when a street fight starts", () => {
+    expect(sandboxFightPutdown("leroy")).toBe(true);
+    expect(sandboxFightPutdown("dell")).toBe(true);
+    expect(sandboxFightPutdown("kid")).toBe(true);
+    expect(sandboxFightPutdown("bounty2")).toBe(true);
+    expect(sandboxFightPutdown("pig")).toBe(true);
+    expect(sandboxFightPutdown("bolivar")).toBe(false);
+    expect(sandboxFightPutdown("help")).toBe(false);
+    expect(sandboxFightPutdown("jones")).toBe(false);
+  });
+
+  it("starts the fight if you shoot a standing scout", () => {
+    const json = JSON.stringify(sandboxFightScoutHit("bounty"));
+    expect(json).toContain("openfight");
+    expect(json).toContain('"value":"bounty"');
+  });
+
+  it("uses extracted fight hotdist so 3 hits kill, not town talk 384", () => {
+    const json = JSON.stringify(sandboxFightHotdist());
+    expect(json).toContain('"value":2');
+    expect(json).not.toContain("384");
   });
 });
 
@@ -250,6 +396,36 @@ describe("sandbox advanceday", () => {
     lighting = 0;
     await host.applySandboxClock(vm, 2);
     expect(lighting).toBe(0);
+  });
+
+  it("does not swap stills with N during a street fight", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.sandbox = true;
+    host.currentSet = "_SCHOOL";
+    let lighting = 0;
+    host.view = {
+      pose: { x: 0, y: 1, facing: "W" },
+      world: "_SCHOOL",
+      graph: { scenes: new Map(), cameraTiles: new Set(), transitions: [], byFrom: new Map() },
+      walk() {},
+      async setPose() {},
+      async swapLighting() {
+        lighting += 1;
+      },
+      log() {},
+      refreshActors() {},
+    };
+    const vm = new VM({
+      async call() {
+        return 0;
+      },
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    vm.globals.set("fighton", 1);
+    await host.applySandboxClock(vm, 3);
+    expect(lighting).toBe(0);
+    expect(vm.globals.get("clock")).not.toBe(3);
   });
 
   it("marks saloon and mansion stair talks as already done", () => {
@@ -790,6 +966,77 @@ describe("Unlocked place toys", () => {
     expect(JSON.stringify(sandboxBottlesMousedown())).toContain("dodrugs");
   });
 
+  it("lists four top-bar portraits and parks a spawn on the looked-at tile", () => {
+    expect(SANDBOX_TOYS.map((row) => `${row.kind}:${row.actor}`)).toEqual([
+      "kid:kid",
+      "dell:dell",
+      "bounty:bounty1",
+      "gang:kidgang1",
+    ]);
+    expect(sandboxToyKind("Dell")).toBe("dell");
+    expect(sandboxStreetToy("bounty3")).toBe(true);
+    expect(sandboxStreetToy("leroy")).toBe(false);
+    expect(sandboxToyLookPose({ x: 6, y: 14, facing: "N" })).toEqual({
+      scene: "scene g14",
+      deg: 64,
+    });
+    expect(sandboxToyLookPose({ x: 6, y: 14, facing: "S" })).toEqual({
+      scene: "scene g15",
+      deg: 192,
+    });
+    expect(sandboxToyLookPose({ x: 6, y: 8, facing: "E" })).toEqual({
+      scene: "scene h9",
+      deg: 128,
+    });
+    expect(sandboxToyLookPose({ x: 0, y: 5, facing: "W" })).toEqual({
+      scene: "scene a6",
+      deg: 0,
+    });
+  });
+
+  it("spawns a toy in the current view without starting the fight", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.sandbox = true;
+    host.currentSet = "town";
+    const view = dummyView();
+    for (let i = 0; i < 225; i++) {
+      view.graph.scenes.set(`cell${i}`, {
+        name: `cell${i}`,
+        x: i % 15,
+        y: Math.trunc(i / 15),
+        interact: 0,
+        unknown_c: 0,
+        blocked: 0,
+        unknown_e: 0,
+        script_container: 0,
+      });
+    }
+    host.view = view;
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    await host.spawnSandboxToy(vm, "kid");
+    const kid = host.namedActor("kid");
+    expect(kid.visible).toBe(true);
+    expect(kid.set).toBe("town");
+    expect(kid.pose).toBe("stand");
+    expect(kid.deg).toBe(64);
+    expect(kid.is3d).toBe(true);
+    expect(kid.x).toBe(6 * 256 + 128);
+    expect(kid.y).toBe(13 * 256 + 128);
+    expect(vm.globals.get("fighton")).toBeUndefined();
+    await host.spawnSandboxToy(vm, "bounty");
+    const scout = host.namedActor("bounty1");
+    expect(scout.visible).toBe(true);
+    expect(scout.scale).toBe(1500);
+    vm.object = "actor";
+    vm.me = "bounty1";
+    vm.globals.set("fighton", 0);
+    expect(JSON.stringify(host.lookup("mousedown", vm))).toContain("openfight");
+  });
+
   it("starts Dell's fight from a town click, not Jones phase 8", () => {
     expect(sandboxDellTownClick("town", "actor", "dell")).toBe(true);
     expect(sandboxDellTownClick("town", "actor", "Dell")).toBe(true);
@@ -842,6 +1089,22 @@ describe("Unlocked place toys", () => {
     vm.me = "kid";
     expect(JSON.stringify(host.lookup("mousedown", vm))).toContain("openkid");
     expect(JSON.stringify(host.lookup("openkid", vm))).toContain("kid.pup");
+    vm.me = "bounty1";
+    vm.globals.set("fighton", 0);
+    expect(JSON.stringify(host.lookup("mousedown", vm))).toContain("openfight");
+    expect(JSON.stringify(host.lookup("mousedown", vm))).toContain("bounty");
+    vm.me = "kidgang1";
+    expect(JSON.stringify(host.lookup("mousedown", vm))).toContain("gang");
+    vm.object = "actor";
+    vm.me = "bounty1";
+    vm.globals.set("fighton", 0);
+    expect(JSON.stringify(host.lookup("hit", vm))).toContain("openfight");
+    vm.globals.set("fighton", 1);
+    expect(JSON.stringify(host.lookup("mousedown", vm) ?? {})).not.toContain("openfight");
+    expect(JSON.stringify(host.lookup("hotdist", vm))).toContain('"value":2');
+    vm.object = "set";
+    expect(JSON.stringify(host.lookup("hit", vm))).toContain("sandboxfight");
+    expect(host.lookup("openfight", vm)).toBeUndefined();
     host.sandbox = false;
     expect(host.lookup("openkid", vm)).toBeUndefined();
   });

@@ -31,12 +31,22 @@ the fade plate.
 talk flags are seeded (`oonaphase` 3, `mwifephase` 1) so saloon and
 mansion stairs `passcode` instead of `runpuppet`. Leroy stays at the
 range, Bolivar at the store. Farm animals stay (pigs, cows, chickens,
-birds, horses); the dog does not. Dell stands at D7 (`town.dell2`, look **north**);
-click him for extracted `FIGHT.FLT` (no Jones walk). Kid stands on G6
-**center** (extracted `walkin` dest; walk north from the south gate, south
-of the hotel) — not y−80 into hotel Z;
-click him for the insult duel / `kiddie.mov` (no G5 `openscene`, no
-`advanceday`). Bank D1 west sign runs `docrack` (no teller) — walk
+birds, horses); the dog does not. Dell, the Kid, bounty hunters, and the
+kid-gang are **not** standing on the street. Unlocked top-bar circles
+(CST stand-frame headshots) spawn that actor on the tile the still is
+looking at, facing the camera; click the sprite to play. Dell click is
+extracted `FIGHT.FLT` (no Jones walk). Kid click is the insult duel /
+`kiddie.mov` (no G5 `openscene`, no `advanceday`). Bounty / gang clicks
+run extracted street `openfight`. Do not G8-walk; do not set story
+`day = 3|4` (`sandboxfight` selects the branch). `?fight=bounty|gang`
+starts after boot. `openfight` `addinven`s the gun
+(click the HUD gun to raise `gunhand`, then shoot). Lose is
+extracted `death()` like the Kid duel. Bounty swaps to night stills, gang
+to afternoon, matching `openfight`. Walker AI needs host `variable`,
+`actorhitbox` (`currentcd`), `rowcoltoscene` (`sendtopostfx`), and
+`scenebuild` (`sendtoserverfx`) — not no-ops. `N` is ignored while `fighton`.
+Do not `initactor` Bolivar (store checkers). Restore Leroy after
+`closefight`. Bank D1 west sign runs `docrack` (no teller) — walk
 **north** from the lobby to the window; `openstagefile` runs CRACK
 `openstage` so `spin` is live. Apoth bottles `propset
 "drugs"` is rebound to `apoth` so they blit; click skips the 500-unit
@@ -283,7 +293,12 @@ wait-click counts as finish), the opcode returns true for **1**. Empty
 or skipped intros stay 0. Hotel sleep (`hotbed.mov`) and the lobby
 `$4` poster (`dollar.mov`) both branch on this. Do not leave it
 unimplemented — that played the bed movie and dumped you back in the
-room.
+room. **Kiddie.mov** is not a linear win: three timed type-2 windows
+(hand dest 20, gun dest 32, Kid dest 49). Miss the window (rec+0x16=3)
+and DF.EXE type-3 plays `kidwin.mov`; `actionframe` stays 0 and
+`openkid` runs `death()`. Completing the jumps finishes `kiddie.mov`
+and `actionframe (1)` is true. Do not auto-mark 1 because the reel
+played.
 
 **`closetrackfile ("gossip")`.** Voice-bank pop (Mazie knock, Fear
 through-the-door). It must **not** `halttheme` the saloon/hotel bed.
@@ -710,6 +725,7 @@ still has forward > 0.
 | `pauseloop (kind, "all")` as a sticky kind pause | Sit pauses HUD/world loops, then bust does `makeloop ("flat", me, "resetgame")`. Treating the kind as sticky left that timer paused, so the next hand never started. Dust `makeloop` is live. Pause existing loops and drop already-due ones of that kind; do not pause the next-hand timer. Nested `forceupdate` still must not run other `makeloop`s. |
 | `screentoblack` / `delay` waiting on `requestAnimationFrame` | Those opcodes are 60 Hz ticks (`blacktoscreen (…, 30)` = 0.5 s). Waiting on rAF inside Three’s animation loop can stall after the second-hand bet (fade never finishes, `dealcards` never runs). Use wall-clock ticks. `forceupdate` (`0x433740`) is one 20 Hz display/walk pump, not a `makeloop` drain. |
 | Leave `actionframe` unimplemented | `hotbed.mov` plays and `advanceday` never runs (return 0). Same miss on hotel `dollar.mov` `$4`. After `playmovie` finishes, frame **1** is set. |
+| Play `kiddie.mov` straight through | Auto-kills the Kid. Dump type-2 recs 10–19 / 21–31 / 38–48 are timed clicks (hand, gun, Kid). Last rec of each window type-3 `kidwin.mov` is the miss. `openkid` only `setupactor("dead")` when `actionframe (1)`. |
 | `closetrackfile ("gossip")` as `halttheme` | Mazie knock / Fear through-the-door killed the saloon or lobby bed. Gossip is a voice-bank pop. |
 | `putword (list, " ", n, "")` dropping the word | SALGAMES `shuffle` clears a slot then writes the swap. Filtering empties shrinks 52 cards to ~12. Hand two `findword` past the end deals nothing. Keep holes; `findword` is the same 1-based split. |
 | `setVar` writing checkers `move` to the automove global | Bolivar’s man vanished; jumps never captured; overlay/click patches did nothing. `makemove (move, person)` reassigns the **parameter** to the decoded delta; the global stays the comma list. Params are locals even when the name is a declared global. |
@@ -717,6 +733,8 @@ still has forward > 0.
 | Load NEW.FLT flats without running `openflat` | HUD portrait stays the cowboy baked into `frame_3.png`. Engine `openstagefile` shows mainpanel (`noface` / `makeloop makeface`). `initall` `stoploop ("flat", "all")` then `opensetfile` must re-arm that loop. |
 | `openstagefile` without the stage `openstage` hook | Bank CRACK `spin` never appears (knob is a still). Mission SCORP `trigger` never starts (drawer looks frozen). Same pattern as `openset` / `opencast`. NEW.FLT has no `openstage`. |
 | `mixclut` amount 20 as the whole fade plate | Dell lose stays ~8% dark. Hub `gotoblack` is `from=set` absolute 0…255. FIGHT `fadetoblack` is `from=current` stepped 20. Do not invent `death()` — extracted lose is KO + long fade + `quitfight`. |
+| Leave FIGHT `fadetoblack` armed after `closeshopfile` | Slider `makeloop` re-arms every 3 frames. `quitfight` `blacktoscreen` then drains those due ticks and the plate goes black and stays there. Stop that shop’s prop loops; skip due prop loops from a closed puzzle shop. Unlocked has no Jones; still not `death()`. |
+| Kid insult menus in authored `puppetbevel` order | Dump writes the `101` (winning) line first, then `puppetscramble ()`. A no-op scramble makes every round first-choice-wins. Shuffle the current list only; Goodbye bevels after scramble stay last. Jones/Help do not scramble. |
 | Unlocked Kid at G6 y−80 | Occluded in hotel Z. Extracted `walkin` / `dead` use G6 center. Face south (`actordeg` 64) so G7 north sees his front. |
 | CURE/`drugbook` off `READER_STAGES` | Apoth compounding book is a full-screen black plate (`drugbook` never `blacktoscreen`). Same lift as Yunni/diary: `curebord` + `#play-flat.reader` z-index 80. |
 | Tick `runQueued` during `boot()` | Animation loop and `advanceday` share the VM. `makeface` due during boot is dropped; `stoploop` did not clear `dueLoops`, so re-arm thought the portrait was still live. Do not tick scripts until boot returns; `stoploop` cancels due callbacks; `ensureHudPortrait` after boot. |
@@ -839,6 +857,13 @@ hammer `idlefx` every 240 ticks — that script is not this loop, and it
 made the same line fire at 4 s. `idlespeak` csv text is a tag, not a
 subtitle. `puppetevent (240)` returns **-2** at that
 mark (auto-continue); `puppetevent (-1)` keeps waiting.
+
+Kid insult menus (and Ruby / Trotter / Gus / Blood / Flippo / Mrs Mayor
+gossip) `puppetbevel` the winning line first as `101`, then
+`puppetscramble ()`. That opcode shuffles the **current** list; bevels
+added after it (Ruby/Flippo “Goodbye”) stay last. Jones/Help/Leroy do
+**not** scramble — authored order. Do not leave `puppetscramble` as a
+no-op (Kid always-first-wins).
 
 Choices are **five horizontal bevels** that **replace** the HUD band
 (24px × 5 = 120), not floating above it. Not Windows/Mac buttons:

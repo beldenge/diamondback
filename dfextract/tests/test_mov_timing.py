@@ -48,6 +48,7 @@ TOWERUP = DUST / "MOVIES" / "TOWERUP.MOV"
 TOWERTOP = DUST / "MOVIES" / "TOWERTOP.MOV"
 TOWERDN = DUST / "MOVIES" / "TOWERDN.MOV"
 BELLBARN = DUST / "MOVIES" / "BELLBARN.MOV"
+KIDDIE = DUST / "KID" / "KIDDIE.MOV"
 BELLMOON = DUST / "MOVIES" / "BELLMOON.MOV"
 BELLTOWN = DUST / "MOVIES" / "BELLTOWN.MOV"
 MARIEEND = DUST / "MOVIES" / "MARIEEND.MOV"
@@ -333,6 +334,23 @@ class TestSpotmovieCommandSfx(unittest.TestCase):
         assert tl is not None
         clips = [(c.start_tick, c.channel) for c in tl.clip_starts]
         self.assertEqual(clips, [(33, "A1"), (36, "A2")])
+
+
+@unittest.skipUnless(KIDDIE.is_file(), SKIP)
+class TestKiddieQuickdraw(unittest.TestCase):
+    def test_kiddie_is_three_timed_click_windows_not_a_linear_reel(self) -> None:
+        tl = parse_reel_timeline(read_df_file(KIDDIE))
+        self.assertIsNotNone(tl)
+        assert tl is not None
+        dests = sorted(
+            {spot.dest for frame in tl.frames for spot in frame.hotspots}
+        )
+        self.assertEqual(dests, [20, 32, 49])
+        self.assertTrue(all(not frame.wait for frame in tl.frames))
+        timeouts = [frame for frame in tl.frames if frame.timeout_movie]
+        self.assertEqual(len(timeouts), 3)
+        self.assertTrue(all(frame.timeout_movie == "kidwin.mov" for frame in timeouts))
+        self.assertEqual([frame.end_kind for frame in timeouts], [3, 3, 3])
 
 
 @unittest.skipUnless(TOWERUP.is_file() and TOWERTOP.is_file() and TOWERDN.is_file(), SKIP)

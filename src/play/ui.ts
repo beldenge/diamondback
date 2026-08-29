@@ -213,6 +213,21 @@ export const VISEME_HZ = 60;
 
 /** DreamFactory draws five stacked bevels in the 120px HUD band. */
 export const BEVEL_SLOTS = 5;
+
+/**
+ * Dust `puppetscramble`: shuffle the current bevel list in place.
+ * Later `puppetbevel`s (Ruby/Flippo “Goodbye”) stay appended after it.
+ * Index `j` is Dust `random (i+1) - 1` (`1..n` → `0..i`).
+ */
+export function scrambleInPlace<T>(items: T[], rng: () => number): void {
+  for (let i = items.length - 1; i > 0; i -= 1) {
+    const n = i + 1;
+    const j = Math.min(i, Math.max(0, Math.floor(rng() * n)));
+    const tmp = items[i]!;
+    items[i] = items[j]!;
+    items[j] = tmp;
+  }
+}
 /** Speech bar height in stage pixels, flush on the HUD, over the still. */
 export const SPEECH_BAR_HEIGHT = 40;
 
@@ -522,6 +537,14 @@ export class PuppetUi {
     };
     this.choices.hidden = false;
     this.root.classList.add("choosing");
+  }
+
+  /** Rewrite slots after `puppetscramble` (same five HOUSE bevels). */
+  setBevels(choices: BevelChoice[]): void {
+    this.clearBevels();
+    for (const choice of choices) {
+      this.addBevel(choice);
+    }
   }
 
   /** End the current `puppetspeak` line (click bar or Escape). */

@@ -24,7 +24,7 @@ import {
   stageFromClient,
   stageFromHudClick,
 } from "./hud";
-import { BEVEL_CHROME, BEVEL_DARK, BEVEL_SLOTS, SPEECH_BAR_HEIGHT } from "./ui";
+import { BEVEL_CHROME, BEVEL_DARK, BEVEL_SLOTS, scrambleInPlace, SPEECH_BAR_HEIGHT } from "./ui";
 import { HUD_HEIGHT, STAGE_HEIGHT } from "./stage";
 
 describe("mainpanel Mac rects", () => {
@@ -49,6 +49,17 @@ describe("mainpanel Mac rects", () => {
     expect(SPEECH_BAR_HEIGHT).toBe(40);
     expect(HUD_HEIGHT / BEVEL_SLOTS).toBe(24);
     expect(STAGE_HEIGHT - HUD_HEIGHT - SPEECH_BAR_HEIGHT).toBe(224);
+  });
+
+  it("puppetscramble shuffles in place so a later bevel can stay last", () => {
+    const items = [101, 102, 102, 102, 102];
+    scrambleInPlace(items, () => 0);
+    expect(items[0]).toBe(102);
+    expect(items).toContain(101);
+    const withBye = [101, 102, 102];
+    scrambleInPlace(withBye, () => 0);
+    withBye.push(700);
+    expect(withBye[withBye.length - 1]).toBe(700);
   });
 
 

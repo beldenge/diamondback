@@ -3,8 +3,12 @@ import { isClockSlot, toggleDayNight, type ClockSlot } from "../core/time";
 import { VM, type Point } from "../vm/runtime";
 import {
   SANDBOX_INVEN_LAYOUT_DAY,
+  SANDBOX_TOYS,
   sandboxClockFromSearch,
+  sandboxFightFromSearch,
+  sandboxFightOn,
   sandboxGraphFolder,
+  type SandboxToyKind,
 } from "./sandbox";
 import {
   applyTransition,
@@ -276,6 +280,7 @@ export class PlayGame implements WorldView {
   private readonly handCtx: CanvasRenderingContext2D;
   private handSrc = "";
   private readonly hudLabelsEl: HTMLDivElement;
+  private readonly toysEl: HTMLDivElement | null = null;
   /** `stdmouse` drag started on pointerdown; ignore the leftover click. */
   private skipNextClick = false;
   private readonly kind: PlayKind;
@@ -360,6 +365,10 @@ export class PlayGame implements WorldView {
       this.fadeEl,
       this.loadEl,
     );
+    if (kind === "sandbox") {
+      this.toysEl = this.mountSandboxToys();
+      this.stageEl.append(this.toysEl);
+    }
     app?.append(this.stageEl, this.captionEl);
     this.renderer = new WebGLRenderer({ canvas: this.canvas, antialias: false });
     this.renderer.setPixelRatio(1);
@@ -712,12 +721,13 @@ export class PlayGame implements WorldView {
       action?: number;
       wait?: boolean;
       hotspots?: MovieHotspot[];
+      timeoutMovie?: string;
     }[],
     clips: { url: string; startSec: number; channel?: string }[],
     opts?: { keepLayer?: boolean },
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (!frames.length) {
-      return;
+      return true;
     }
     this.busy = true;
     const playable: {
@@ -726,6 +736,7 @@ export class PlayGame implements WorldView {
       action?: number;
       wait?: boolean;
       hotspots?: MovieHotspot[];
+      timeoutMovie?: string;
     }[] = [];
     this.movieImages.clear();
     for (const frame of frames) {
@@ -741,7 +752,7 @@ export class PlayGame implements WorldView {
       if (!opts?.keepLayer) {
         this.endMovie();
       }
-      return;
+      return true;
     }
     const holds = playable.map((frame) => frame.holdSec);
     const clipUrls = clips.map((clip) => clip.url);
@@ -753,6 +764,7 @@ export class PlayGame implements WorldView {
       durationSec: voices.bufferDuration(clip.url),
     }));
     this.movieEl.hidden = false;
+    let ok = true;
     try {
       if (
         playable.some(
@@ -761,7 +773,7 @@ export class PlayGame implements WorldView {
             movieFrameWaitsForClick(frame.action, frame.wait),
         )
       ) {
-        await this.playActionMovie(playable, clips);
+        ok = await this.playActionMovie(playable, clips);
       } else {
         const passes = planMoviePasses(holds, timed);
         for (const pass of passes) {
@@ -782,6 +794,7 @@ export class PlayGame implements WorldView {
         this.endMovie();
       }
     }
+    return ok;
   }
 
   endMovie(): void {
@@ -802,12 +815,12 @@ export class PlayGame implements WorldView {
       action?: number;
       wait?: boolean;
       hotspots?: MovieHotspot[];
+      timeoutMovie?: string;
     }[],
     clips: { url: string; startSec: number; channel?: string }[],
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (frames.some((frame) => frame.hotspots && frame.hotspots.length > 0)) {
-      await this.playHotspotMovie(frames, clips);
-      return;
+      return this.playHotspotMovie(frames, clips);
     }
     const starts = clips.map((clip) => clip.startSec);
     let t = 0;
@@ -830,6 +843,7 @@ export class PlayGame implements WorldView {
         await this.waitMovieClick();
       }
     }
+    return true;
   }
 
   /**
@@ -844,17 +858,34 @@ export class PlayGame implements WorldView {
       action?: number;
       wait?: boolean;
       hotspots?: MovieHotspot[];
+      timeoutMovie?: string;
     }[],
     clips: { url: string; startSec: number; channel?: string }[],
-  ): Promise<void> {
+  ): Promise<boolean> {
+    const starts = clips.map((clip) => clip.startSec);
+    let t = 0;
     let i = 0;
     while (i < frames.length) {
       const frame = frames[i]!;
       this.blitMovieFrame(frame.url);
+      const hold = Math.max(0, frame.holdSec);
+      for (const index of movieClipsStarting(starts, t - 1e-6, t + hold)) {
+        const url = clips[index]?.url;
+        if (url) {
+          void voices.playFx(url, 0.85, false, clips[index]?.channel);
+        }
+      }
       const spots = frame.hotspots;
       if (spots && spots.length) {
-        const hit = await this.waitMovieHotspot(spots);
+        const hit = frame.wait
+          ? await this.waitMovieHotspot(spots)
+          : await this.waitMovieHotspotTimed(spots, frame.holdSec);
         if (!hit) {
+          if (frame.timeoutMovie) {
+            await this.playLinkedMovie(frame.timeoutMovie);
+            return false;
+          }
+          t += hold;
           i += 1;
           continue;
         }
@@ -885,19 +916,21 @@ export class PlayGame implements WorldView {
           continue;
         }
         i = Math.min(frames.length, Math.max(0, hit.dest));
+        t = frames.slice(0, i).reduce((sum, rec) => sum + Math.max(0, rec.holdSec), 0);
         continue;
       }
-      const hold = Math.max(0, frame.holdSec);
       if (hold > 0) {
         await new Promise<void>((resolve) => {
           window.setTimeout(resolve, hold * 1000);
         });
       }
+      t += hold;
       if (movieFrameWaitsForClick(frame.action, frame.wait)) {
         await this.waitMovieClick();
       }
       i += 1;
     }
+    return true;
   }
 
   /**
@@ -960,6 +993,43 @@ export class PlayGame implements WorldView {
         }
         event.preventDefault();
         event.stopPropagation();
+        window.removeEventListener("pointerdown", finish, true);
+        this.skipNextClick = movieWaitSetsSkipClick(event.type);
+        resolve(hit);
+      };
+      window.addEventListener("pointerdown", finish, true);
+    });
+  }
+
+  /** Kiddie hand/gun/Kid: click dest during hold, or the window expires. */
+  private waitMovieHotspotTimed(
+    spots: MovieHotspot[],
+    holdSec: number,
+  ): Promise<MovieHotspot | undefined> {
+    return new Promise((resolve) => {
+      const ms = Math.max(0, holdSec * 1000);
+      const timer = window.setTimeout(() => {
+        window.removeEventListener("pointerdown", finish, true);
+        resolve(undefined);
+      }, ms);
+      const finish = (event: Event): void => {
+        if (!("clientX" in event) || !("clientY" in event)) {
+          return;
+        }
+        const still = movieClickToStill(
+          Number(event.clientX),
+          Number(event.clientY),
+          this.movieEl.getBoundingClientRect(),
+          this.movieEl.width || STILL_WIDTH,
+          this.movieEl.height || STILL_HEIGHT,
+        );
+        const hit = still ? pickMovieHotspot(still.x, still.y, spots) : undefined;
+        if (!hit) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        window.clearTimeout(timer);
         window.removeEventListener("pointerdown", finish, true);
         this.skipNextClick = movieWaitSetsSkipClick(event.type);
         resolve(hit);
@@ -1090,6 +1160,12 @@ export class PlayGame implements WorldView {
       this.loadEl.hidden = true;
       this.preloadNeighbors();
       await this.host.onArrive(this.vm);
+      if (this.host.sandbox) {
+        const fight = sandboxFightFromSearch(location.search);
+        if (fight) {
+          await this.host.startSandboxFight(this.vm, fight);
+        }
+      }
       this.syncHud();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -2563,9 +2639,84 @@ export class PlayGame implements WorldView {
     return job;
   }
 
+  private mountSandboxToys(): HTMLDivElement {
+    const bar = document.createElement("div");
+    bar.id = "sandbox-toys";
+    bar.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+    });
+    bar.addEventListener("click", (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+    });
+    for (const toy of SANDBOX_TOYS) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "sandbox-toy";
+      btn.dataset.kind = toy.kind;
+      btn.dataset.label = toy.label;
+      btn.setAttribute("aria-label", toy.label);
+      const face = document.createElement("span");
+      face.className = "sandbox-toy-face";
+      face.style.backgroundImage = `url("${extractUrl(toy.portrait)}")`;
+      btn.append(face);
+      let fromPointer = false;
+      btn.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        fromPointer = true;
+        void this.spawnSandboxToy(toy.kind);
+      });
+      btn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        if (fromPointer) {
+          fromPointer = false;
+          return;
+        }
+        void this.spawnSandboxToy(toy.kind);
+      });
+      bar.append(btn);
+    }
+    return bar;
+  }
+
+  private async spawnSandboxToy(kind: SandboxToyKind): Promise<void> {
+    if (
+      !this.host.sandbox ||
+      this.booting ||
+      this.busy ||
+      !this.scriptsReady ||
+      this.host.currentSet !== "town"
+    ) {
+      return;
+    }
+    if (sandboxFightOn(this.vm.globals.get("fighton"))) {
+      return;
+    }
+    this.talking = true;
+    try {
+      await this.host.spawnSandboxToy(this.vm, kind);
+      this.syncHud();
+    } finally {
+      this.talking = false;
+    }
+  }
+
   private syncHud(): void {
     const range = this.onRange();
     this.stageEl.toggleAttribute("data-range", range);
+    this.stageEl.toggleAttribute(
+      "data-sandbox-fight",
+      this.host.sandbox && sandboxFightOn(this.vm.globals.get("fighton")),
+    );
+    if (this.toysEl) {
+      this.toysEl.hidden =
+        this.host.currentSet !== "town" ||
+        sandboxFightOn(this.vm.globals.get("fighton")) ||
+        this.booting;
+    }
     if (range) {
       this.handEl.hidden = true;
     }
@@ -2586,7 +2737,7 @@ export class PlayGame implements WorldView {
     const extra = [...this.vm.unimplemented].slice(0, 4).join(", ");
     const caption = [
       this.kind === "sandbox"
-        ? "←/→ turn · ↑ walk · N day/night · all doors open · saloon cards · store checkers · Leroy at the range"
+        ? "←/→ turn · ↑ walk · N day/night · portraits spawn Dell / Kid / bounty / gang · then click them"
         : "←/→ turn · ↑ walk · click people, signs, items · map/portrait on the bar",
       this.scriptsReady ? "" : "loading scripts…",
       this.logLine,

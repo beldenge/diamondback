@@ -24,6 +24,10 @@ export interface MovieFrame {
   wait?: boolean;
   /** bell.mov / grocpots: click rects on a wait still. */
   hotspots?: MovieHotspot[];
+  /** Rec+0x16. Kind 3 on a timed window plays timeout_movie if you miss. */
+  end_kind?: number;
+  /** Type-3 Pascal reel (kiddie.mov → kidwin.mov). */
+  timeout_movie?: string;
 }
 
 export interface MovieClip {
@@ -174,8 +178,8 @@ export function movieWaitSetsSkipClick(eventType: string): boolean {
  * that finish (including inspect wait-click) set **1**. Empty / skipped
  * reels stay 0. Every dump site checks `actionframe (1)`.
  */
-export function actionFrameAfterPlay(played: boolean): number {
-  return played ? 1 : 0;
+export function actionFrameAfterPlay(played: boolean, failed = false): number {
+  return played && !failed ? 1 : 0;
 }
 
 export function frameUrl(folder: string, container: number): string {

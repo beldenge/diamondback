@@ -1,8 +1,100 @@
 import type { Expr, Proc, Stmt } from "../vm/ast";
 import { isClockSlot, isNight, type ClockSlot } from "../core/time";
+import { scriptSceneName } from "./sceneName";
 
 /** World actors Unlocked keeps so minigames have an opponent. */
 export const SANDBOX_ACTORS = new Set(["leroy", "bolivar", "dell", "kid"]);
+
+/** Street shootout extras. Hidden until a top-bar spawn or `openfight`. */
+const SANDBOX_FIGHT_ACTOR = /^(bounty|kidgang)\d+$/;
+
+export type SandboxFightKind = "bounty" | "gang";
+
+export type SandboxToyKind = "kid" | "dell" | "bounty" | "gang";
+
+/** Click-to-start stand-ins. Top-bar icons spawn these in the current view. */
+export const SANDBOX_FIGHT_SCOUTS: ReadonlyArray<{
+  name: string;
+  fight: SandboxFightKind;
+}> = [
+  { name: "bounty1", fight: "bounty" },
+  { name: "kidgang1", fight: "gang" },
+];
+
+/** Unlocked top-bar portraits. Click spawns the actor; world click still starts play. */
+export const SANDBOX_TOYS: ReadonlyArray<{
+  kind: SandboxToyKind;
+  actor: string;
+  label: string;
+  portrait: string;
+}> = [
+  {
+    kind: "kid",
+    actor: "kid",
+    label: "The Kid",
+    portrait: "CST/_EXTRA/Kid/stand/frame_268.png",
+  },
+  {
+    kind: "dell",
+    actor: "dell",
+    label: "Dell",
+    portrait: "CST/_GANG/Dell/stand/frame_896.png",
+  },
+  {
+    kind: "bounty",
+    actor: "bounty1",
+    label: "Bounty hunters",
+    portrait: "CST/_EXTRA/bounty1/stand/frame_288.png",
+  },
+  {
+    kind: "gang",
+    actor: "kidgang1",
+    label: "The Kid's gang",
+    portrait: "CST/_EXTRA/kidgang1/stand/frame_451.png",
+  },
+];
+
+const TOWN_SPAN = 15;
+
+/** Look-deg 0=E, 64=S, 128=W, 192=N. Actor faces the camera (`look + 128`). */
+const FACE_STEP: Record<string, { dx: number; dy: number; look: number }> = {
+  N: { dx: 0, dy: -1, look: 192 },
+  S: { dx: 0, dy: 1, look: 64 },
+  E: { dx: 1, dy: 0, look: 0 },
+  W: { dx: -1, dy: 0, look: 128 },
+};
+
+/**
+ * Park the toy on the tile the still is looking at, facing the lens.
+ * Off the 15×15 grid (south gate looking south) stays on the camera tile.
+ */
+export function sandboxToyLookPose(pose: {
+  x: number;
+  y: number;
+  facing: string;
+}): { scene: string; deg: number } {
+  const face = FACE_STEP[pose.facing] ?? FACE_STEP.N;
+  let x = pose.x + face.dx;
+  let y = pose.y + face.dy;
+  if (x < 0 || x >= TOWN_SPAN || y < 0 || y >= TOWN_SPAN) {
+    x = pose.x;
+    y = pose.y;
+  }
+  return {
+    scene: scriptSceneName(x, y),
+    deg: (face.look + 128) % 256,
+  };
+}
+
+export function sandboxToyKind(value: unknown): SandboxToyKind | undefined {
+  const key = String(value ?? "").trim().toLowerCase();
+  return SANDBOX_TOYS.some((row) => row.kind === key) ? (key as SandboxToyKind) : undefined;
+}
+
+export function sandboxStreetToy(name: string): boolean {
+  const key = name.toLowerCase();
+  return key === "dell" || key === "kid" || sandboxFightActor(key);
+}
 
 /** Hub shaman + mine skeleton. Story extras stay hidden. */
 export const SANDBOX_CAVE_ACTORS = new Set(["skeleton", "shaman"]);
@@ -110,6 +202,30 @@ export function applySandboxStoryFlags(
   }
 }
 
+export function sandboxFightActor(name: string): boolean {
+  return SANDBOX_FIGHT_ACTOR.test(name.toLowerCase());
+}
+
+export function sandboxFightScout(name: string): boolean {
+  const key = name.toLowerCase();
+  return SANDBOX_FIGHT_SCOUTS.some((row) => row.name === key);
+}
+
+export function sandboxFightKindOf(name: string): SandboxFightKind | undefined {
+  const key = name.toLowerCase();
+  return SANDBOX_FIGHT_SCOUTS.find((row) => row.name === key)?.fight;
+}
+
+export function sandboxFightKind(value: unknown): SandboxFightKind | undefined {
+  const key = String(value ?? "").trim().toLowerCase();
+  return key === "bounty" || key === "gang" ? key : undefined;
+}
+
+export function sandboxFightFromSearch(search: string): SandboxFightKind | undefined {
+  const query = search.startsWith("?") ? search.slice(1) : search;
+  return sandboxFightKind(new URLSearchParams(query).get("fight"));
+}
+
 export function sandboxKeepActor(actor: { name: string; cast: string }): boolean {
   const name = actor.name.toLowerCase();
   const cast = actor.cast.toLowerCase();
@@ -125,7 +241,42 @@ export function sandboxKeepActor(actor: { name: string; cast: string }): boolean
   if (SANDBOX_FARM_ACTOR.test(name)) {
     return true;
   }
+  if (sandboxFightActor(name)) {
+    return true;
+  }
   return SANDBOX_ACTORS.has(name);
+}
+
+/** Dell / Kid / bounty / gang stay off the street until a top-bar spawn. */
+export function hideSandboxIdleFighters(
+  actors: Iterable<{
+    name: string;
+    visible: boolean;
+    walking: boolean;
+    turning: boolean;
+    route: unknown[];
+  }>,
+  fighton: boolean,
+  spawned: { has(name: string): boolean } = new Set(),
+): string[] {
+  if (fighton) {
+    return [];
+  }
+  const hidden: string[] = [];
+  for (const actor of actors) {
+    const key = actor.name.toLowerCase();
+    if (!sandboxStreetToy(key) || spawned.has(key)) {
+      continue;
+    }
+    if (actor.visible || actor.walking || actor.turning) {
+      hidden.push(actor.name);
+    }
+    actor.visible = false;
+    actor.walking = false;
+    actor.turning = false;
+    actor.route = [];
+  }
+  return hidden;
 }
 
 function visibleActorNames(actors: Iterable<{ name: string; visible: boolean }>): Set<string> {
@@ -649,6 +800,227 @@ export function sandboxKidTownClick(set: string, object: string, me: string): bo
     object === "actor" &&
     me.toLowerCase() === "kid"
   );
+}
+
+export function sandboxFightOn(value: unknown): boolean {
+  return Number(value) > 0;
+}
+
+/**
+ * Extracted `openfight` `initactor`s every CST. Unlocked must not
+ * `putdown` Bolivar in the store (or Help/Jones). Street toys and
+ * livestock are restored after `closefight`.
+ */
+export function sandboxFightPutdown(name: string): boolean {
+  const key = name.toLowerCase();
+  if (key === "bolivar" || key === "dog") {
+    return false;
+  }
+  if (SANDBOX_ACTORS.has(key) || sandboxFightActor(key)) {
+    return true;
+  }
+  return SANDBOX_FARM_ACTOR.test(key);
+}
+
+/**
+ * Click a spawned bounty or kid-gang scout. Not Kid (insult duel).
+ * Sprite click is enough — CST `hotdist()` without an arg is talk range 384.
+ */
+export function sandboxFightScoutClick(
+  set: string,
+  object: string,
+  me: string,
+  fighton: unknown,
+): boolean {
+  return (
+    set.replace(/\.set$/i, "").toLowerCase() === "town" &&
+    object === "actor" &&
+    sandboxFightScout(me) &&
+    !sandboxFightOn(fighton)
+  );
+}
+
+function sandboxFightStartBody(kind: SandboxFightKind): Stmt[] {
+  return [
+    { type: "global", names: ["sandboxfight", "fighton"] },
+    {
+      type: "assign",
+      target: varRef("sandboxfight"),
+      value: strLit(kind),
+    },
+    run("sendtoset", [fn("openfight", [])]),
+    { type: "exitcode" },
+  ];
+}
+
+export function sandboxFightScoutMousedown(kind: SandboxFightKind): Proc {
+  return {
+    name: "mousedown",
+    params: ["arg"],
+    body: [
+      {
+        type: "if",
+        cond: {
+          type: "binary",
+          op: "=",
+          left: fn("actorpose", [{ type: "me" }]),
+          right: strLit("dead"),
+        },
+        then: [{ type: "exitcode" }],
+      },
+      ...sandboxFightStartBody(kind),
+    ],
+  };
+}
+
+/** CST `_EXTRA` `hotdist (1..4)`. Cast `hotdist()` is town talk 384 and would never kill. */
+export function sandboxFightHotdist(): Proc {
+  return {
+    name: "hotdist",
+    params: ["arg"],
+    body: [
+      {
+        type: "switch",
+        expr: varRef("arg"),
+        cases: [
+          { match: numLit(1), body: [{ type: "return", value: numLit(128 * 8) }] },
+          { match: numLit(2), body: [{ type: "return", value: numLit(128 * 6) }] },
+          { match: numLit(3), body: [{ type: "return", value: numLit(1) }] },
+          { match: numLit(4), body: [{ type: "return", value: numLit(2) }] },
+        ],
+      },
+      { type: "exitcode" },
+    ],
+  };
+}
+
+/** Gun already out: CST `hit()` would run walker AI without `openfight`. */
+export function sandboxFightScoutHit(kind: SandboxFightKind): Proc {
+  return {
+    name: "hit",
+    params: [],
+    body: sandboxFightStartBody(kind),
+  };
+}
+
+export function sandboxFightIdleHitProc(): Proc {
+  return {
+    name: "hit",
+    params: [],
+    body: [{ type: "exitcode" }],
+  };
+}
+
+/**
+ * Extracted SET `hit()` keys death off `day = 3|4`. Unlocked stays on
+ * day 1, so use `sandboxfight` for the same 15 / 30-hit caps.
+ */
+export function sandboxTownFightHitProc(): Proc {
+  return {
+    name: "hit",
+    params: [],
+    body: [
+      { type: "global", names: ["playerhits", "playerdeath", "fighton", "sandboxfight"] },
+      {
+        type: "if",
+        cond: {
+          type: "binary",
+          op: "=",
+          left: varRef("fighton"),
+          right: numLit(0),
+        },
+        then: [{ type: "exitcode" }],
+      },
+      {
+        type: "assign",
+        target: varRef("playerhits"),
+        value: {
+          type: "binary",
+          op: "+",
+          left: varRef("playerhits"),
+          right: numLit(1),
+        },
+      },
+      {
+        type: "if",
+        cond: {
+          type: "binary",
+          op: "=",
+          left: fn("currentflat", []),
+          right: strLit("mainpanel"),
+        },
+        then: [run("sendtoflat", [fn("currentflat", []), fn("makehit", [])])],
+      },
+      {
+        type: "if",
+        cond: {
+          type: "binary",
+          op: "&",
+          left: {
+            type: "binary",
+            op: "=",
+            left: varRef("sandboxfight"),
+            right: strLit("bounty"),
+          },
+          right: {
+            type: "binary",
+            op: ">",
+            left: varRef("playerhits"),
+            right: numLit(15),
+          },
+        },
+        then: [
+          { type: "assign", target: varRef("fighton"), value: numLit(0) },
+          {
+            type: "for",
+            name: "count",
+            from: numLit(1),
+            to: numLit(20),
+            step: numLit(1),
+            body: [run("forceupdate")],
+          },
+          run("closefight"),
+          { type: "assign", target: varRef("playerdeath"), value: strLit("by bounty") },
+          run("sendtoflat", [strLit("death"), fn("death", [])]),
+          { type: "exitcode" },
+        ],
+      },
+      {
+        type: "if",
+        cond: {
+          type: "binary",
+          op: "&",
+          left: {
+            type: "binary",
+            op: "=",
+            left: varRef("sandboxfight"),
+            right: strLit("gang"),
+          },
+          right: {
+            type: "binary",
+            op: ">",
+            left: varRef("playerhits"),
+            right: numLit(30),
+          },
+        },
+        then: [
+          { type: "assign", target: varRef("fighton"), value: numLit(0) },
+          {
+            type: "for",
+            name: "count",
+            from: numLit(1),
+            to: numLit(20),
+            step: numLit(1),
+            body: [run("forceupdate")],
+          },
+          run("closefight"),
+          { type: "assign", target: varRef("playerdeath"), value: strLit("by gang") },
+          run("sendtoflat", [strLit("death"), fn("death", [])]),
+          { type: "exitcode" },
+        ],
+      },
+    ],
+  };
 }
 
 /** Click Kid at G6. Extracted `mousedown` is empty. */

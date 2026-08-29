@@ -37,6 +37,25 @@ describe("inspect movie hold", () => {
   it("marks a finished playmovie as actionframe 1", () => {
     expect(actionFrameAfterPlay(true)).toBe(1);
     expect(actionFrameAfterPlay(false)).toBe(0);
+    expect(actionFrameAfterPlay(true, true)).toBe(0);
+  });
+
+  it("kiddie.mov is three timed click windows that timeout to kidwin.mov", () => {
+    const rel = resolve("dfextract/out/MOV/_KIDDIE/timeline.json");
+    if (!existsSync(rel)) {
+      return;
+    }
+    const tl = JSON.parse(readFileSync(rel, "utf8")) as MovieTimeline;
+    const dests = [
+      ...new Set(
+        (tl.frames ?? []).flatMap((frame) => (frame.hotspots ?? []).map((spot) => spot.dest)),
+      ),
+    ].sort((a, b) => a - b);
+    expect(dests).toEqual([20, 32, 49]);
+    expect(tl.frames?.every((frame) => frame.wait !== true)).toBe(true);
+    const timeouts = (tl.frames ?? []).filter((frame) => frame.timeout_movie);
+    expect(timeouts).toHaveLength(3);
+    expect(timeouts.every((frame) => frame.timeout_movie === "kidwin.mov")).toBe(true);
   });
 
   it("warning / bone inspect stills wait; dog1 does not", () => {

@@ -359,6 +359,10 @@ still, and not again when a later still repeats the same jump (store
 pots rec 9 last=2 is “clang again”, not a second timed clang). Drop
 command SFX when a reel has more than 32 last>1 A-slot commands (`INFO/MAIN`).
 Type 2 slot 0 last 2 with cmd count 1 is inspect wait-for-click.
+Type 3 (46 bytes) is a Pascal `.mov` at +14. `KIDDIE.MOV` click windows
+carry `kidwin.mov`; rec+0x16==3 on the last rec of a window plays that
+reel if the type-2 dest was missed (Kid wins). Type-2 last>1 on a run of
+3-tick recs is a timed click, not an inspect wait.
 Type 4 (48 bytes) is a Mac rect plus a Pascal `.mov` at +16: click
 pushes a nested playmovie (`0x419ba3`, depth < 5). `TOWERTOP.MOV` rec 2
 is the bell-tower examine: type-4 windows (`bellmoon` / `bellbarn` /

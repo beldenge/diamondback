@@ -128,6 +128,55 @@ describe("actor script folders", () => {
   });
 });
 
+describe("street-fight opcodes", () => {
+  it("maps row/col to a script scene and blocked tiles to scenebuild", () => {
+    const host = new DustHost({} as PuppetUi);
+    expect(host.rowColToScene(14, 6)).toBe("scene g15");
+    expect(host.rowColToScene(7, 6)).toBe("scene g8");
+    expect(host.rowColToScene(3, 6)).toBe("scene g4");
+    expect(host.rowColToScene(-1, 0)).toBe("none");
+    expect(host.sceneIsBuild("none")).toBe(true);
+    expect(host.sceneIsBuild("scene g15")).toBe(false);
+    const scenesPath = resolve("dfextract/out/SET/_TOWN/scenes.json");
+    const transPath = resolve("dfextract/out/SET/_TOWN/transitions.json");
+    if (!existsSync(scenesPath) || !existsSync(transPath)) {
+      return;
+    }
+    const scenes = JSON.parse(readFileSync(scenesPath, "utf8")) as SceneRecord[];
+    const records = JSON.parse(readFileSync(transPath, "utf8")) as TransitionRecord[];
+    host.view = {
+      pose: { x: 6, y: 14, facing: "N" },
+      world: "town",
+      graph: buildSetGraph(scenes, records, SET_SPAWN._TOWN),
+      walk() {},
+      async setPose() {},
+      log() {},
+      refreshActors() {},
+    };
+    expect(host.sceneIsBuild("scene g15")).toBe(false);
+    expect(host.sceneIsBuild("scene a1")).toBe(true);
+  });
+
+  it("stores variable and actorhitbox/currentcd the way bounty scripts read them", async () => {
+    const host = new DustHost({} as PuppetUi);
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+    });
+    vm.me = "bounty3";
+    expect(await host.call("variable", ["bounty3"], vm)).toBe(0);
+    await host.call("variable", ["bounty3", 2], vm);
+    expect(await host.call("variable", ["bounty3"], vm)).toBe(2);
+    await host.call("currentcd", ["bounty3", 0, 0], vm);
+    expect(await host.call("currentcd", ["bounty3", 1], vm)).toBe(0);
+    await host.call("currentcd", ["bounty3", 1, 0], vm);
+    expect(await host.call("currentcd", ["bounty3", 1], vm)).toBe(1);
+    await host.call("currentcd", ["player", 100, 50], vm);
+    expect(await host.call("currentcd", ["player", 1], vm)).toBe(100);
+    expect(await host.call("sendtopostfx", [14, 6], vm)).toBe("scene g15");
+  });
+});
+
 describe("lazy cast scripts", () => {
   it("openCast does not fetch catalog.json or every actor Script.json", async () => {
     if (!existsSync(resolve("dfextract/out/CST/_GANG/Cast.json"))) {
@@ -2640,6 +2689,33 @@ describe("Day 1 sleep / lodging opcodes", () => {
     expect(await host.call("countbevels", [], vm)).toBe(0);
   });
 
+  it("puppetscramble shuffles current bevels and leaves later ones last", async () => {
+    const { host, vm } = dayHost();
+    const intern = host as unknown as { bevels: { id: number; label: string }[] };
+    host.rng = () => 0;
+    await host.call("puppetbevel", ["win", 101], vm);
+    await host.call("puppetbevel", ["miss", 102], vm);
+    await host.call("puppetbevel", ["miss2", 102], vm);
+    await host.call("puppetscramble", [], vm);
+    expect(vm.unimplemented.has("puppetscramble")).toBe(false);
+    expect(intern.bevels.map((row) => row.id)).not.toEqual([101, 102, 102]);
+    expect(intern.bevels.some((row) => row.id === 101)).toBe(true);
+    await host.call("puppetbevel", ["Goodbye, Miss.", 700], vm);
+    expect(intern.bevels.at(-1)).toEqual({ label: "Goodbye, Miss.", id: 700 });
+  });
+
+  it("Kid dump scrambles insult menus; Jones does not scramble topics", () => {
+    const kid = resolve("dfextract/out/PUP/_KID/day1.txt");
+    const jones = resolve("dfextract/out/PUP/_JONES/day1.txt");
+    if (!existsSync(kid) || !existsSync(jones)) {
+      return;
+    }
+    const kidTxt = readFileSync(kid, "utf8");
+    expect(kidTxt).toMatch(/puppetbevel \("Guess nothing impresses the son of a librarian\.\.\.", 101\)/);
+    expect(kidTxt).toMatch(/puppetscramble \(\)/);
+    expect(readFileSync(jones, "utf8")).not.toMatch(/puppetscramble/);
+  });
+
   it("sounddone is true until a singlesound is in flight", async () => {
     const { host, vm } = dayHost();
     expect(await host.call("sounddone", [], vm)).toBe(1);
@@ -2895,6 +2971,120 @@ describe("Day 1 sleep / lodging opcodes", () => {
     expect(fade).toBeCloseTo(40 / 255);
     await host.call("mixclut", ["set", "black", 0, 127, 20], vm);
     expect(fade).toBeCloseTo(20 / 255);
+  });
+
+  it("closeshopfile drops FIGHT fadetoblack so quitfight blacktoscreen stays up", async () => {
+    const { host, vm } = dayHost();
+    let fade = 0;
+    host.view = {
+      pose: { x: 6, y: 14, facing: "N" },
+      world: "town",
+      graph: { scenes: new Map(), cameraTiles: new Set(), transitions: [], byFrom: new Map() },
+      walk() {},
+      async setPose() {},
+      log() {},
+      refreshActors() {},
+      setFadeOpacity(opacity: number) {
+        fade = opacity;
+      },
+      async fadeFromBlack() {
+        fade = 0;
+      },
+    };
+    const intern = host as unknown as {
+      puzzleShop: string;
+      puzzleGroups: Map<string, Set<string>>;
+      loops: Map<string, unknown>;
+      dueLoops: {
+        kind: string;
+        who: string;
+        proc: string;
+        delay: number;
+        remaining: number;
+        paused: boolean;
+      }[];
+    };
+    intern.puzzleShop = "fight";
+    intern.puzzleGroups.set("fight", new Set(["fightslider1", "fightslider2"]));
+    host.namedProp("fightslider1").shop = "fight";
+    host.namedProp("fightslider2").shop = "fight";
+    host.index.add(
+      "prop:fightslider1",
+      {
+        name: "sendquit",
+        params: [],
+        body: [
+          {
+            type: "call",
+            call: {
+              type: "call",
+              name: "closeshopfile",
+              args: [{ type: "str", value: "fight.prp" }],
+            },
+          },
+          {
+            type: "call",
+            call: {
+              type: "call",
+              name: "blacktoscreen",
+              args: [
+                { type: "str", value: "set" },
+                { type: "num", value: 0 },
+              ],
+            },
+          },
+        ],
+      },
+      "fight",
+    );
+    host.index.add(
+      "prop:fightslider2",
+      {
+        name: "fadetoblack",
+        params: [],
+        body: [
+          {
+            type: "call",
+            call: {
+              type: "call",
+              name: "mixclut",
+              args: [
+                { type: "str", value: "current" },
+                { type: "str", value: "black" },
+                { type: "num", value: 0 },
+                { type: "num", value: 255 },
+                { type: "num", value: 20 },
+              ],
+            },
+          },
+        ],
+      },
+      "fight",
+    );
+    await host.call("makeloop", ["prop", "fightslider2", "fadetoblack", 3], vm);
+    await host.call("mixclut", ["current", "black", 0, 255, 255], vm);
+    expect(fade).toBe(1);
+    intern.dueLoops.push(
+      {
+        kind: "prop",
+        who: "fightslider1",
+        proc: "sendquit",
+        delay: 1,
+        remaining: 0,
+        paused: false,
+      },
+      {
+        kind: "prop",
+        who: "fightslider2",
+        proc: "fadetoblack",
+        delay: 3,
+        remaining: 0,
+        paused: false,
+      },
+    );
+    await host.runQueued(vm);
+    expect(intern.loops.has("prop:fightslider2")).toBe(false);
+    expect(fade).toBe(0);
   });
 
   it("loads FIGHT flat punch / quit and Dell mousedown", () => {
