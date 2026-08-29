@@ -143,7 +143,7 @@ describe("approach walk", () => {
     expect(visibleOctant(leroy.deg, dirToDeg("N"))).toBe(4);
   });
 
-  it("faces the camera when walking to playerxyz", () => {
+  it("faces the walk vector to playerxyz, not a forced camera heading", () => {
     const host = new DustHost({} as PuppetUi);
     host.view = {
       pose: { x: 6, y: 14, facing: "N" },
@@ -159,8 +159,33 @@ describe("approach walk", () => {
     leroy.y = 3536;
     host.startWalk(leroy, 1664, 3712, 0);
     expect(leroy.pose).toBe("walk");
-    expect(leroy.deg).toBe(dirToDeg("S"));
-    expect(visibleOctant(leroy.deg, dirToDeg("N"))).toBe(0);
+    expect(leroy.deg).toBe(calcDeg(leroy, { x: 1664, y: 3712 }));
+    expect(leroy.turning).toBe(false);
+    expect([0, 7]).toContain(visibleOctant(leroy.deg, dirToDeg("N")));
+  });
+
+  it("does not keep an idle turn running after startWalk", () => {
+    const host = new DustHost({} as PuppetUi);
+    host.view = {
+      pose: { x: 6, y: 12, facing: "N" },
+      world: "town",
+      graph: { scenes: new Map(), cameraTiles: new Set(), transitions: [], byFrom: new Map() },
+      walk() {},
+      async setPose() {},
+      log() {},
+      refreshActors() {},
+    };
+    const help = host.namedActor("help");
+    help.x = 1760;
+    help.y = 3034;
+    help.deg = 0;
+    help.turning = true;
+    help.degTarget = dirToDeg("N");
+    const dest = { x: 6 * 256 + 128, y: 12 * 256 + 128 };
+    host.startWalk(help, dest.x, dest.y, 0);
+    host.advanceActorsOnce();
+    expect(help.turning).toBe(false);
+    expect(help.deg).toBe(calcDeg({ x: 1760, y: 3034 }, dest));
   });
 });
 

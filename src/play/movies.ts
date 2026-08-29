@@ -266,7 +266,8 @@ function passLength(holdSec: number[], clips: MovieClipPlay[]): number {
  * One pass with both cues either stacks into one blast (no channel)
  * or retrigger-cuts the first growl at 100 ms (one bark + twitch).
  * Two cues that close on a reel under 2 s become two sequential
- * still+audio passes, one cue each.
+ * still+audio passes, one cue each. Skipping the rest still on later
+ * passes did not fix the start hitch — keep the full table.
  */
 export function planMoviePasses(
   holdSec: number[],

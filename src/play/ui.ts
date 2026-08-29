@@ -420,10 +420,11 @@ export class PuppetUi {
     this.line = document.createElement("div");
     this.line.id = "puppet-line";
     this.line.hidden = true;
-    this.line.addEventListener("click", () => {
-      if (!this.speakWait) {
+    this.line.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || !this.speakWait) {
         return;
       }
+      event.stopPropagation();
       voices.unlock();
       this.finishSpeak();
     });
@@ -528,10 +529,11 @@ export class PuppetUi {
     }
     slot.textContent = choice.label;
     slot.disabled = false;
-    slot.onclick = () => {
-      if (this.talking) {
+    slot.onpointerdown = (event) => {
+      if (event.button !== 0 || this.talking) {
         return;
       }
+      event.stopPropagation();
       voices.unlock();
       this.finishWait(choice.id);
     };
@@ -855,6 +857,7 @@ export class PuppetUi {
       slot.textContent = "";
       slot.disabled = true;
       slot.onclick = null;
+      slot.onpointerdown = null;
     }
     if (this.root.hidden) {
       this.choices.hidden = true;

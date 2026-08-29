@@ -67,6 +67,7 @@ import {
   actorStillHeight,
   CST_SCALE_FIELD,
   cameraFromPose,
+  engineStillScale,
   lerpViewCamera,
   filmstripT,
   SPRITE_HOTSPOT_X,
@@ -106,6 +107,7 @@ import {
   examineHandName,
   FlatOverlay,
   HAND_SLOT,
+  actorLayerVisibility,
   hitMacRect,
   holdWhileLoading,
   hudBarCursor,
@@ -121,7 +123,15 @@ import {
 import { parseScriptScene, poseReadout } from "./sceneName";
 import { PLAY_CAPTION_RESERVE, playStageRect, STAGE_HEIGHT, STAGE_WIDTH } from "./stage";
 import { PLAY_HUD_CHROME, RANGE_HUD_CHROME, PuppetUi } from "./ui";
-import { boardMouseGate, idlePumpAllowed, mouseDispatchPoint, worldInputBlocked, worldMouseGate } from "./lock";
+import {
+  boardMouseGate,
+  idlePumpAllowed,
+  isPuppetChromeTarget,
+  mouseDispatchPoint,
+  stillDownAfterWindowEvent,
+  worldInputBlocked,
+  worldMouseGate,
+} from "./lock";
 import { type PuzzleBoard, type PuzzleLabel } from "./puzzle";
 import {
   clipUrl as movieClipUrl,
@@ -432,6 +442,13 @@ export class PlayGame implements WorldView {
     window.addEventListener("pointermove", (event) => this.onPointerMove(event));
     window.addEventListener("pointerup", (event) => void this.onPointerUp(event));
     window.addEventListener("pointercancel", (event) => void this.onPointerUp(event));
+    window.addEventListener(
+      "lostpointercapture",
+      () => {
+        this.host.stillDown = false;
+      },
+      true,
+    );
     window.addEventListener("pointerdown", () => unlockVoices(), { capture: true });
     this.actorLayer.addEventListener("mousemove", (event) => this.onMove(event));
     this.stageEl.addEventListener("mouseleave", () => {
@@ -440,14 +457,19 @@ export class PlayGame implements WorldView {
     });
     window.addEventListener("keydown", (event) => this.onKey(event));
     window.addEventListener("keyup", (event) => this.heldKeys.delete(event.code));
-    window.addEventListener("blur", () => this.heldKeys.clear());
+    window.addEventListener("blur", () => {
+      this.heldKeys.clear();
+      this.host.stillDown = false;
+    });
     window.addEventListener("resize", () => this.layoutStage());
     window.visualViewport?.addEventListener("resize", () => this.layoutStage());
     window.visualViewport?.addEventListener("scroll", () => this.layoutStage());
   }
 
   refreshActors(): void {
-    this.layoutActors();
+    if (!this.flats.board) {
+      this.layoutActors();
+    }
     this.host.paintPuzzle();
   }
 
@@ -494,7 +516,7 @@ export class PlayGame implements WorldView {
 
   setWorldVisible(on: boolean): void {
     this.canvas.style.visibility = on ? "visible" : "hidden";
-    this.actorLayer.style.visibility = on ? "visible" : "hidden";
+    this.actorLayer.style.visibility = actorLayerVisibility(on);
   }
 
   viewCamera(): ViewCamera {
@@ -1225,7 +1247,11 @@ export class PlayGame implements WorldView {
       this.driveAnim(this.anim, dt);
       this.needsRender = true;
       // Sprites ride the plate. Idle layout is refreshActors / Z / sprites.
-      this.layoutActors();
+      // CRACK `while stilldown` `forceupdate`s at 60 Hz — skip hidden-world
+      // actor blits so `mouse()` is not sampled 50 ms late.
+      if (!this.flats.board) {
+        this.layoutActors();
+      }
     }
     this.applyCursor();
     this.ui.tick(dt);
@@ -1606,7 +1632,15 @@ export class PlayGame implements WorldView {
       this.host.pointer = point;
       this.hoverPoint = point;
     }
+    if (isPuppetChromeTarget(event.target)) {
+      return;
+    }
     this.host.stillDown = true;
+    try {
+      this.stageEl.setPointerCapture(event.pointerId);
+    } catch {
+      /* no active pointer (jsdom) */
+    }
     if (!point || this.booting || this.busy || !this.scriptsReady) {
       return;
     }
@@ -1649,15 +1683,19 @@ export class PlayGame implements WorldView {
     if (!this.visible) {
       return;
     }
-    const point = this.stageFromPointer(event);
-    if (point) {
+    const bounds = this.flats.board
+      ? this.flats.root.getBoundingClientRect()
+      : this.stageEl.getBoundingClientRect();
+    const at = stageFromClient(event.clientX, event.clientY, bounds);
+    if (at) {
+      const point: Point = { kind: "point", x: at.x, y: at.y, z: 0 };
       this.host.pointer = point;
       this.hoverPoint = point;
     }
   }
 
   private async onPointerUp(event: PointerEvent): Promise<void> {
-    this.host.stillDown = false;
+    this.host.stillDown = stillDownAfterWindowEvent(event.type) ?? false;
     const swipe = this.swipe;
     this.swipe = null;
     if (!swipe || event.type === "pointercancel" || event.pointerId !== swipe.id) {
@@ -2177,7 +2215,11 @@ export class PlayGame implements WorldView {
         if (!holdWhileLoading(false, Boolean(last)) || !last) {
           continue;
         }
-        const holdScale = last.stillScale;
+        // Last PNG, current lens-forward. Frozen last.stillScale on a
+        // toward/away walk sinks or levitates until the next frame decodes.
+        const holdScale = actor.screen
+          ? 1
+          : engineStillScale(actor.scale, still.lensForward, CST_SCALE_FIELD);
         draws.push({
           forward: still.forward,
           name: actor.name,
@@ -2248,14 +2290,15 @@ export class PlayGame implements WorldView {
         if (!holdWhileLoading(false, Boolean(last)) || !last) {
           continue;
         }
+        const holdScale = prop.screen ? 1 : propStillScale(prop, still.lensForward);
         draws.push({
           forward: still.forward,
           name: key,
           bits: last.bits,
           topLeft: isDoorOverlay(prop.name)
-            ? doorOverlayTopLeft(still.x, still.y, last.place, last.stillScale)
-            : spriteStillTopLeft(still.x, still.y, last.place, last.stillScale),
-          stillScale: last.stillScale,
+            ? doorOverlayTopLeft(still.x, still.y, last.place, holdScale)
+            : spriteStillTopLeft(still.x, still.y, last.place, holdScale),
+          stillScale: holdScale,
           z: this.propBlitZ(
             prop.name,
             exeSpriteZ(still.lensForward, prop.zclip),
@@ -2559,8 +2602,13 @@ export class PlayGame implements WorldView {
     return plane;
   }
 
-  private warmActorPlates(actor: { standSprites: { path: string }[]; spriteRoot: string }): void {
-    for (const plate of actor.standSprites) {
+  private warmActorPlates(actor: {
+    standSprites: { path: string }[];
+    walkSprites?: { path: string }[];
+    spriteRoot: string;
+  }): void {
+    const plates = [...actor.standSprites, ...(actor.walkSprites ?? [])];
+    for (const plate of plates) {
       const url = extractUrl(`${actor.spriteRoot}/${plate.path}`);
       if (!this.spriteBits.has(url) && !this.spriteLoading.has(url) && !this.spriteMiss.has(url)) {
         void this.loadSpriteBits(url, "low");

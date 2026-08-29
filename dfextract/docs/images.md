@@ -239,7 +239,9 @@ bottom 120). Frame dumps now write that placement next to the PNGs:
 
 Bolivar/Leroy backgrounds sit at `(0, 60)` — a 264-tall plate centered
 on 384. Some plates are real rooms (Bolivar, Help2 shop); Leroy/Jenix are a
-flat studio fill, so play mode keeps the SET still behind the puppet.
+flat studio fill, so play mode keeps the SET still behind the puppet
+and hides the CST stand layer for the talk (extracted `prepuppet`
+fades onto `"puppet"`; do not chroma-key vest ochre).
 Outdoor Help1/Dell1/Cobb visemes set Background **`-1`** (no plate). That
 index is authored per PUP viseme track — do not reuse another character’s
 `idle 1` (`Background: 0` on Help1 is the shop interior PNG). Play:

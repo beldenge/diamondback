@@ -87,3 +87,37 @@ export function mouseDispatchPoint<T>(kind: "world" | "board", press: T, hover: 
 export function idlePumpAllowed(talking: boolean, scriptBusy: boolean): boolean {
   return !talking && !scriptBusy;
 }
+
+/**
+ * HOUSE `butbevel` / speech bar live under `#play-stage`. Capturing the
+ * pointer on the stage (CRACK `stilldown`) retargets `click` away from
+ * the button — choices and skip-line go dead.
+ */
+export function isPuppetChromeTarget(target: EventTarget | null): boolean {
+  if (!target || typeof (target as Element).closest !== "function") {
+    return false;
+  }
+  return Boolean(
+    (target as Element).closest("#puppet-choices, #puppet-line, .puppet-bevel"),
+  );
+}
+
+/**
+ * `while stilldown` (CRACK tumbler, INVEN drag, FLT hit/stay). A lost
+ * `pointerup` holds `talking` for the while-cap. Blur / cancel / lost
+ * capture must drop the button.
+ */
+export function stillDownAfterWindowEvent(type: string): boolean | undefined {
+  if (type === "pointerdown") {
+    return true;
+  }
+  if (
+    type === "pointerup" ||
+    type === "pointercancel" ||
+    type === "lostpointercapture" ||
+    type === "blur"
+  ) {
+    return false;
+  }
+  return undefined;
+}

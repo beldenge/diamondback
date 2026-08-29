@@ -64,6 +64,8 @@ body,
 #play-stage:has(#puppet-ui:not([hidden])) #actor-layer,
 #play-stage:has(#puppet-ui:not([hidden])) #play-flat,
 #play-stage:has(#puppet-ui:not([hidden])) #sandbox-toys {
+  /* Do not set `#actor-layer { visibility: visible }` inline — that
+     beats this rule and the stand CST shows around the talking-head. */
   visibility: hidden;
   pointer-events: none;
 }

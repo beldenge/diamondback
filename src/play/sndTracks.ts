@@ -8,6 +8,7 @@
  */
 
 const TRACK_CLIPS: Readonly<Record<string, readonly string[]>> = {
+  _CRACK: ["frustrate", "payof", "tumbler", "tumright"],
   _MAZIE: ["mazie.1", "mazie.2", "mazie.3", "mazie.4", "mazie.5", "mazie.6"],
   _HAPYRUBY: ["ruby.108", "ruby.109", "trotter.60"],
   _TROTRUBY: ["ruby.81", "ruby.82", "ruby.83", "trotter.74", "trotter.75", "trotter.76"],

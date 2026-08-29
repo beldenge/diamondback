@@ -16,6 +16,13 @@ describe("SND gossip banks", () => {
     expect(indexToSound(folder, 7)).toBe("");
   });
 
+  it("names CRACK tumbler clips so opentrackfile can preload them", () => {
+    const folder = sndFolderFromFile("crack.snd");
+    expect(folder).toBe("_CRACK");
+    expect(countSounds(folder)).toBe(4);
+    expect(indexToSound(folder, 3)).toBe("tumbler");
+  });
+
   it("treats gossip as a voice-bank close, not a filename", () => {
     expect(isGossipTrack("gossip")).toBe(true);
     expect(isGossipTrack("gossip.snd")).toBe(true);

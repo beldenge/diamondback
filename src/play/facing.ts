@@ -296,6 +296,19 @@ export function gameFrameSec(framerate: number): number {
   return Math.max(1, Math.trunc(framerate) || 1) / TIME_TICK_HZ;
 }
 
+/**
+ * Leftover ms in one `forceupdate` slot. CRACK `framerate (1)` is 16.7 ms;
+ * sleeping a full extra period after a hitch lets `mouse()` jump >24 ticks
+ * and the tumbler limiter either overshoots or freezes.
+ */
+export function remainingGameFrameMs(
+  now: number,
+  started: number,
+  periodMs: number,
+): number {
+  return Math.max(0, started + Math.max(0, periodMs) - now);
+}
+
 /** `delay (45)` / `screentoblack (…, 30)` — 60 Hz ticks, not rAF paint frames. */
 export function dustTicksToMs(ticks: number, hz = TIME_TICK_HZ): number {
   return (Math.max(0, Math.trunc(ticks) || 0) / hz) * 1000;
@@ -314,6 +327,28 @@ export const PRP_SCALE_FIELD = 96;
 
 /** EXE skips the blit when lens-forward < 32 (`cmp [esp+0x12], 0x20`). */
 export const SCALE_MIN_FORWARD = 32;
+
+/**
+ * Remake extra cull, not an EXE test. Hotspot this far from still center
+ * is a side crop (same-tile Oona bun). EXE skip is lens-forward < 32
+ * (`SCALE_MIN_FORWARD`) and hotspot x outside the still ±48.
+ */
+export const ACTOR_SIDE_CROP = STILL_WIDTH / 4;
+
+/**
+ * Keep on-axis `walktopuppet` (Help/Leroy) when feet-forward < 32 but
+ * the hotspot is still near 256. Skip the off-center same-tile crop.
+ * Ground props (N7 E jug) stay on lens-forward only.
+ */
+export function actorFeetInFront(feetForward: number, stillX?: number): boolean {
+  if (feetForward >= SCALE_MIN_FORWARD) {
+    return true;
+  }
+  if (stillX === undefined) {
+    return false;
+  }
+  return Math.abs(stillX - SPRITE_HOTSPOT_X) < ACTOR_SIDE_CROP;
+}
 
 export function engineStillScale(
   actorScale: number,

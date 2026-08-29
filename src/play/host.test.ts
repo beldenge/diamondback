@@ -792,7 +792,7 @@ describe("actor walk wait", () => {
     expect(actor.x).toBeCloseTo(6, 5);
   });
 
-  it("routes walktostar to town.leroy2 along the street", () => {
+  it("routes walktostar to town.leroy2 along the street", async () => {
     const scenesPath = resolve("dfextract/out/SET/_NITE/scenes.json");
     const transPath = resolve("dfextract/out/SET/_NITE/transitions.json");
     if (!existsSync(scenesPath) || !existsSync(transPath)) {
@@ -820,12 +820,58 @@ describe("actor walk wait", () => {
     actor.y = 3536;
     actor.star = "town.leroy1";
     actor.speed = 3;
-    void host.call("walktostar", ["leroy", "town.leroy2"], {} as VM);
+    await host.call("walktostar", ["leroy", "town.leroy2"], {} as VM);
     expect(actor.walking).toBe(true);
     expect(actor.route.length).toBeGreaterThan(3);
     expect(actor.destX).toBeCloseTo(1664, 0);
     expect(actor.destY).toBeCloseTo(3476, 0);
     expect(actor.route.at(-1)).toEqual({ x: 2656, y: 2720, z: 0 });
+    expect(actor.star).toBe("town.leroy1");
+    expect(actor.destStar).toBe("town.leroy2");
+    expect(await host.call("walkdest", ["leroy"], {} as VM)).toBe("town.leroy2");
+  });
+
+  it("walkdest during an idle turn is the star, not 0,0,0", async () => {
+    const host = new DustHost({} as PuppetUi);
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    host.waypoints.set("town.help", { x: 1760, y: 3034, name: "town.help" });
+    const help = host.namedActor("help");
+    help.x = 1760;
+    help.y = 3034;
+    help.star = "town.help";
+    host.startTurn(help, 64);
+    expect(help.turning).toBe(true);
+    expect(await host.call("iswalk", ["help"], vm)).toBe(true);
+    expect(await host.call("walkdest", ["help"], vm)).toBe("town.help");
+    await host.call("walktostar", ["help", await host.call("walkdest", ["help"], vm)], vm);
+    expect(help.destX).toBe(1760);
+    expect(help.destY).toBe(3034);
+    expect(help.destX).not.toBe(0);
+    expect(help.destY).not.toBe(0);
+  });
+
+  it("Marie walkdest while walking to town.cem1 is the star name", async () => {
+    const host = new DustHost({} as PuppetUi);
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    host.waypoints.set("town.cem1", { x: 328, y: 904, name: "town.cem1" });
+    host.waypoints.set("town.cem2", { x: 584, y: 1152, name: "town.cem2" });
+    const marie = host.namedActor("marie");
+    marie.x = 584;
+    marie.y = 1152;
+    marie.star = "town.cem2";
+    await host.call("walktostar", ["marie", "town.cem1"], vm);
+    expect(await host.call("walkdest", ["marie"], vm)).toBe("town.cem1");
+    expect(marie.star).toBe("town.cem2");
+    while (marie.walking) {
+      host.advanceActorsOnce();
+    }
+    expect(marie.star).toBe("town.cem1");
+    expect(marie.x).toBe(328);
+    expect(marie.y).toBe(904);
   });
 
   it("still walks TARGET actors while the town is pausewalked", () => {
@@ -3113,6 +3159,40 @@ describe("Day 1 sleep / lodging opcodes", () => {
     expect(loadProcs("FLT/_SCORP/setcursor _arg_.json").map((proc) => proc.name)).toContain(
       "openstage",
     );
+  });
+});
+
+describe("puppet hides world actors", () => {
+  it("refreshes the actor layer on openpuppetfile and closepuppetfile", async () => {
+    const restore = mockExtractDisk();
+    const { host } = makePuppetHost();
+    let n = 0;
+    host.view = {
+      pose: { x: 6, y: 14, facing: "N" },
+      world: "town",
+      graph: { scenes: new Map(), cameraTiles: new Set(), transitions: [], byFrom: new Map() },
+      walk() {},
+      async setPose() {},
+      log() {},
+      refreshActors() {
+        n += 1;
+      },
+    };
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+    });
+    try {
+      await host.call("openpuppetfile", ["leroy.pup"], vm);
+      expect(host.currentPuppet).not.toBe("none");
+      expect(n).toBeGreaterThanOrEqual(1);
+      const afterOpen = n;
+      await host.call("closepuppetfile", [], vm);
+      expect(host.currentPuppet).toBe("none");
+      expect(n).toBeGreaterThan(afterOpen);
+    } finally {
+      restore();
+    }
   });
 });
 

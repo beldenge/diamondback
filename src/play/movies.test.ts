@@ -236,6 +236,7 @@ describe("dog1.mov", () => {
     const timeline = JSON.parse(readFileSync(path, "utf8")) as MovieTimeline;
     expect(timeline.duration_ticks).toBe(59);
     expect(timeline.frames).toHaveLength(6);
+    expect(timeline.frames.map((frame) => frame.hold_ticks)).toEqual([20, 3, 3, 10, 3, 20]);
     const clips = timeline.clips ?? [];
     expect(clips).toHaveLength(2);
     expect(clips.map((clip) => clip.container)).toEqual([1, 1]);
@@ -252,9 +253,12 @@ describe("dog1.mov", () => {
       })),
     );
     expect(passes).toHaveLength(2);
+    expect(passes[0]!.holdSec).toEqual(holds);
+    expect(passes[1]!.holdSec).toEqual(holds);
     expect(passes[0]!.clips).toHaveLength(1);
     expect(passes[1]!.clips).toHaveLength(1);
     expect(passes[0]!.clips[0]!.startSec).toBeCloseTo(20 / 60);
+    expect(passes[1]!.clips[0]!.startSec).toBeCloseTo(20 / 60);
     expect(passes[0]!.passSec).toBeGreaterThan(holds.reduce((a, b) => a + b, 0));
     expect(passes[1]!.passSec).toBe(passes[0]!.passSec);
   });
@@ -266,5 +270,15 @@ describe("dog1.mov", () => {
     ]);
     expect(passes).toHaveLength(1);
     expect(passes[0]!.clips).toHaveLength(1);
+  });
+
+  it("does not split a long reel that retriggers A on one slot", () => {
+    const holds = [10];
+    const passes = planMoviePasses(holds, [
+      { startSec: 0, channel: "A2", durationSec: 0.5 },
+      { startSec: 0.15, channel: "A2", durationSec: 0.5 },
+    ]);
+    expect(passes).toHaveLength(1);
+    expect(passes[0]!.clips.map((clip) => clip.channel)).toEqual(["A2", "A2"]);
   });
 });

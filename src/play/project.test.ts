@@ -24,6 +24,7 @@ function actor(x: number, y: number): ActorState {
     destX: 0,
     destY: 0,
     destZ: 0,
+    destStar: "",
     route: [],
     degTarget: 0,
     walkStep: 0,

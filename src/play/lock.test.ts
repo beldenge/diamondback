@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { boardMouseGate, idlePumpAllowed, mouseDispatchPoint, worldInputBlocked, worldMouseGate } from "./lock";
+import {
+  boardMouseGate,
+  idlePumpAllowed,
+  isPuppetChromeTarget,
+  mouseDispatchPoint,
+  stillDownAfterWindowEvent,
+  worldInputBlocked,
+  worldMouseGate,
+} from "./lock";
 
 describe("world input lock", () => {
   const idle = { booting: false, busy: false, talking: false, flatsOpen: false };
@@ -86,6 +94,29 @@ describe("board press point", () => {
     expect(startRow).toBe(5);
     expect(Math.abs(hoverRow - startRow)).toBe(2);
     expect(Math.abs(hoverCol - startCol)).toBe(2);
+  });
+});
+
+describe("puppet chrome hits", () => {
+  it("recognizes HOUSE bevels and the speech bar, not the still", () => {
+    const hit = (sel: string) => ({
+      closest: (query: string) => (query.includes(sel) ? {} : null),
+    });
+    expect(isPuppetChromeTarget(hit(".puppet-bevel") as EventTarget)).toBe(true);
+    expect(isPuppetChromeTarget(hit("#puppet-line") as EventTarget)).toBe(true);
+    expect(isPuppetChromeTarget(hit("#play-stage") as EventTarget)).toBe(false);
+    expect(isPuppetChromeTarget(null)).toBe(false);
+  });
+});
+
+describe("stilldown button tracking", () => {
+  it("drops the button on pointerup, cancel, lost capture, and blur", () => {
+    expect(stillDownAfterWindowEvent("pointerdown")).toBe(true);
+    expect(stillDownAfterWindowEvent("pointerup")).toBe(false);
+    expect(stillDownAfterWindowEvent("pointercancel")).toBe(false);
+    expect(stillDownAfterWindowEvent("lostpointercapture")).toBe(false);
+    expect(stillDownAfterWindowEvent("blur")).toBe(false);
+    expect(stillDownAfterWindowEvent("pointermove")).toBeUndefined();
   });
 });
 

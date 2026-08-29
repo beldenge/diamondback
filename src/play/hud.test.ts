@@ -5,6 +5,8 @@ import {
   avatarFlatAction,
   boardStillNeedsBlit,
   keepBoardItems,
+  flatBoardCacheKey,
+  samePuzzleLabels,
   examineHandName,
   flatItemKey,
   HAND_SLOT,
@@ -23,6 +25,7 @@ import {
   sameFlatItems,
   stageFromClient,
   stageFromHudClick,
+  actorLayerVisibility,
 } from "./hud";
 import { BEVEL_CHROME, BEVEL_DARK, BEVEL_SLOTS, scrambleInPlace, SPEECH_BAR_HEIGHT } from "./ui";
 import { HUD_HEIGHT, STAGE_HEIGHT } from "./stage";
@@ -175,6 +178,17 @@ describe("puzzle board overlay", () => {
     expect(sameFlatItems([a], [a])).toBe(true);
     expect(sameFlatItems([a], [b])).toBe(false);
   });
+
+  it("keys CRACK spin frames by url so deg swaps do not retarget one img", () => {
+    const a = { name: "spin", url: "00.png", x: 163, y: 47, w: 180, h: 180 };
+    const b = { ...a, url: "01.png" };
+    expect(flatBoardCacheKey(a, 0)).not.toBe(flatBoardCacheKey(b, 0));
+    expect(flatBoardCacheKey(a, 0)).toBe("spin\0" + "00.png");
+    expect(samePuzzleLabels([{ text: "08", x: 57, y: 337, size: 12 }], [{ text: "08", x: 57, y: 337, size: 12 }])).toBe(
+      true,
+    );
+    expect(samePuzzleLabels([{ text: "08", x: 57, y: 337 }], [{ text: "23", x: 57, y: 337 }])).toBe(false);
+  });
 });
 
 describe("HUD portrait frames", () => {
@@ -254,5 +268,12 @@ describe("range EXIT plaque", () => {
     expect(fromHud!.y).toBeCloseTo(fromStage!.y);
     expect(hitMacRect([exit], fromStage!.x, fromStage!.y)?.name).toBe("exit");
     expect(hitMacRect([exit], fromHud!.x, fromHud!.y)?.name).toBe("exit");
+  });
+});
+
+describe("actor layer vs puppet", () => {
+  it("clears inline visibility when the world is shown so the puppet CSS can hide CST sprites", () => {
+    expect(actorLayerVisibility(true)).toBe("");
+    expect(actorLayerVisibility(false)).toBe("hidden");
   });
 });

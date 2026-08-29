@@ -221,6 +221,17 @@ export function hitsHandSlot(x: number, y: number, hx = HAND_SLOT.x, hy = HAND_S
   return Math.abs(hx - x) < HAND_HIT && Math.abs(hy - y) < HAND_HIT;
 }
 
+/**
+ * Inline `visibility` for `#actor-layer`. Checkers `setvisible (false)`
+ * hides it. Showing the world must **clear** the property — `visible`
+ * is an inline style that beats
+ * `#play-stage:has(#puppet-ui:not([hidden])) #actor-layer` and the CST
+ * stand plate (conversation-scale Leroy) shows around the talking-head.
+ */
+export function actorLayerVisibility(worldOn: boolean): "" | "hidden" {
+  return worldOn ? "" : "hidden";
+}
+
 /** Stage pixel from a pointer on the 512×384 `#play-stage` box. */
 export function stageFromClient(
   clientX: number,
@@ -282,6 +293,18 @@ export function flatItemKey(item: FlatItem, index: number): string {
   return item.name || `${item.url}#${index}`;
 }
 
+/**
+ * Board img identity. Checkers keep one node per piece name; CRACK `spin`
+ * reuses the name while `propdeg` swaps the PNG — key the URL too so
+ * `setItems` can hide/show decoded frames instead of retargeting `src`.
+ */
+export function flatBoardCacheKey(item: FlatItem, index: number): string {
+  if (item.name) {
+    return `${item.name}\0${item.url}`;
+  }
+  return `${item.url}#${index}`;
+}
+
 export function sameFlatItems(a: readonly FlatItem[], b: readonly FlatItem[]): boolean {
   if (a.length !== b.length) {
     return false;
@@ -303,11 +326,35 @@ export function sameFlatItems(a: readonly FlatItem[], b: readonly FlatItem[]): b
   return true;
 }
 
+export function samePuzzleLabels(
+  a: readonly { text: string; x: number; y: number; size?: number }[],
+  b: readonly { text: string; x: number; y: number; size?: number }[],
+): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i += 1) {
+    const left = a[i]!;
+    const right = b[i]!;
+    if (
+      left.text !== right.text ||
+      left.x !== right.x ||
+      left.y !== right.y ||
+      (left.size ?? 12) !== (right.size ?? 12)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export class FlatOverlay {
   readonly root: HTMLDivElement;
   private readonly img: HTMLImageElement;
   private boardUrl = "";
   private boardItems: FlatItem[] = [];
+  private boardLabels: { text: string; x: number; y: number; size?: number }[] = [];
+  private readonly itemCache = new Map<string, HTMLImageElement>();
   private readonly cash: HTMLDivElement;
   private readonly itemsEl: HTMLDivElement;
   private readonly labelsEl: HTMLDivElement;
@@ -356,6 +403,7 @@ export class FlatOverlay {
     this.kind = kind;
     this.root.classList.remove("board");
     this.boardUrl = "";
+    this.clearItemCache();
     this.img.src = url;
     this.root.hidden = false;
     this.cash.hidden = kind !== "avatar";
@@ -391,6 +439,10 @@ export class FlatOverlay {
   }
 
   setLabels(labels: { text: string; x: number; y: number; size?: number }[]): void {
+    if (samePuzzleLabels(this.boardLabels, labels)) {
+      return;
+    }
+    this.boardLabels = labels.map((label) => ({ ...label }));
     this.labelsEl.replaceChildren();
     for (const label of labels) {
       const el = document.createElement("div");
@@ -407,29 +459,18 @@ export class FlatOverlay {
       return;
     }
     this.boardItems = items.map((item) => ({ ...item }));
-    const prev = new Map<string, HTMLImageElement>();
-    for (const node of [...this.itemsEl.children]) {
-      if (!(node instanceof HTMLImageElement)) {
-        node.remove();
-        continue;
-      }
-      const key = node.dataset.item || node.src;
-      if (key && !prev.has(key)) {
-        prev.set(key, node);
-      } else {
-        node.remove();
-      }
-    }
+    const used = new Set<string>();
     for (let i = 0; i < items.length; i += 1) {
       const item = items[i]!;
-      const key = flatItemKey(item, i);
-      let img = prev.get(key);
-      if (img) {
-        prev.delete(key);
-      } else {
+      const key = flatBoardCacheKey(item, i);
+      used.add(key);
+      let img = this.itemCache.get(key);
+      if (!img) {
         img = document.createElement("img");
         img.alt = "";
         img.draggable = false;
+        this.itemCache.set(key, img);
+        this.itemsEl.append(img);
       }
       if (item.name) {
         img.dataset.item = item.name;
@@ -439,14 +480,16 @@ export class FlatOverlay {
       if (img.getAttribute("src") !== item.url) {
         img.src = item.url;
       }
+      img.hidden = false;
       img.style.left = `${(item.x / STAGE_WIDTH) * 100}%`;
       img.style.top = `${(item.y / STAGE_HEIGHT) * 100}%`;
       img.style.width = `${(item.w / STAGE_WIDTH) * 100}%`;
       img.style.height = `${(item.h / STAGE_HEIGHT) * 100}%`;
-      this.itemsEl.append(img);
     }
-    for (const leftover of prev.values()) {
-      leftover.remove();
+    for (const [key, img] of this.itemCache) {
+      if (!used.has(key)) {
+        img.hidden = true;
+      }
     }
   }
 
@@ -455,12 +498,18 @@ export class FlatOverlay {
     this.kind = null;
     this.root.classList.remove("board", "reader");
     this.boardUrl = "";
-    this.setItems([]);
+    this.clearItemCache();
     this.setLabels([]);
     this.root.hidden = true;
     if (!wasBoard) {
       this.onClose?.();
     }
+  }
+
+  private clearItemCache(): void {
+    this.itemCache.clear();
+    this.boardItems = [];
+    this.itemsEl.replaceChildren();
   }
 
   private onPointerDown(event: PointerEvent): void {
@@ -469,6 +518,11 @@ export class FlatOverlay {
     }
     event.preventDefault();
     event.stopPropagation();
+    try {
+      this.root.setPointerCapture(event.pointerId);
+    } catch {
+      /* tests / no active pointer */
+    }
     if (this.kind === "board") {
       const bounds = this.root.getBoundingClientRect();
       if (bounds.width <= 0 || bounds.height <= 0) {

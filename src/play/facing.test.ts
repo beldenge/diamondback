@@ -33,7 +33,11 @@ import {
   pickCstFrame,
   spriteWantedDeg,
   actorSprite,
+  actorFeetInFront,
+  ACTOR_SIDE_CROP,
+  SCALE_MIN_FORWARD,
   gameFrameSec,
+  remainingGameFrameMs,
   dustTicksToMs,
   poseFromTable,
   timingForPose,
@@ -69,6 +73,7 @@ function actor(x: number, y: number, deg = 0): ActorState {
     destX: 0,
     destY: 0,
     destZ: 0,
+    destStar: "",
     route: [],
     degTarget: 0,
     walkStep: 0,
@@ -140,6 +145,12 @@ describe("actordeg octants", () => {
   it("maps boot framerate 3 to a 20 Hz game frame", () => {
     expect(gameFrameSec(3)).toBeCloseTo(3 / 60, 10);
     expect(gameFrameSec(1)).toBeCloseTo(1 / 60, 10);
+  });
+
+  it("forceupdate waits only the leftover of this game frame", () => {
+    expect(remainingGameFrameMs(5, 0, 16)).toBe(11);
+    expect(remainingGameFrameMs(16, 0, 16)).toBe(0);
+    expect(remainingGameFrameMs(20, 0, 16)).toBe(0);
   });
 
   it("holds Leroy walk poses two engine ticks each", () => {
@@ -586,9 +597,81 @@ describe("worldToStill", () => {
     expect(close).not.toBeNull();
     expect(close!.y).toBeGreaterThan(264);
   });
+
+  it("keeps same-tile Oona in front looking east, not after turning away", () => {
+    const oona = { x: 964, y: 900 };
+    const poseE = { x: 3, y: 3, facing: "E" as const };
+    const poseS = { x: 3, y: 3, facing: "S" as const };
+    const east = cameraFromPose(poseE, 180);
+    const south = cameraFromPose(poseS, 180);
+    const hitE = worldToStill(oona, east);
+    expect(hitE).not.toBeNull();
+    expect(actorFeetInFront(hitE!.forward)).toBe(true);
+    expect(angularDistance(spriteWantedDeg(128, oona, east), 0)).toBeLessThan(16);
+
+    const hitS = worldToStill(oona, south);
+    expect(hitS).toBeNull();
+
+    let sawBesideCrop = false;
+    for (let i = 0; i <= 20; i++) {
+      const cam = lerpViewCamera(poseE, poseS, i / 20, 180);
+      const hit = worldToStill(oona, cam);
+      if (!hit) {
+        continue;
+      }
+      if (actorFeetInFront(hit.forward, hit.x)) {
+        expect(angularDistance(spriteWantedDeg(128, oona, cam), 0)).toBeLessThan(32);
+      } else {
+        sawBesideCrop = true;
+        expect(hit.forward).toBeLessThan(SCALE_MIN_FORWARD);
+        expect(Math.abs(hit.x - SPRITE_HOTSPOT_X)).toBeGreaterThanOrEqual(ACTOR_SIDE_CROP);
+        expect(hit.lensForward).toBeGreaterThanOrEqual(SCALE_MIN_FORWARD);
+      }
+    }
+    expect(sawBesideCrop).toBe(true);
+  });
+
+  it("keeps Help on-axis while walktopuppet closes inside 32 feet-forward", () => {
+    const pose = { x: 6, y: 11, facing: "E" as const };
+    const dest = { x: pose.x * TILE_SPAN + 128, y: pose.y * TILE_SPAN + 128 };
+    const cam = cameraFromPose(pose);
+    const near = {
+      x: dest.x + 20,
+      y: dest.y + 16,
+    };
+    const hit = worldToStill(near, cam);
+    expect(hit).not.toBeNull();
+    expect(hit!.forward).toBeLessThan(SCALE_MIN_FORWARD);
+    expect(hit!.lensForward).toBeGreaterThanOrEqual(SCALE_MIN_FORWARD);
+    expect(actorFeetInFront(hit!.forward, hit!.x)).toBe(true);
+    expect(Math.abs(hit!.x - SPRITE_HOTSPOT_X)).toBeLessThan(ACTOR_SIDE_CROP);
+  });
+
+  it("does not hide the N7 E jug on lens-forward when feet-forward is short", () => {
+    const jug = actor(1730, 3476);
+    const n7s = cameraFromPose({ x: 6, y: 13, facing: "S" });
+    const south = worldToStill(jug, n7s);
+    expect(south).not.toBeNull();
+    expect(south!.lensForward).toBeGreaterThanOrEqual(SCALE_MIN_FORWARD);
+    expect(actorFeetInFront(south!.forward)).toBe(false);
+  });
 });
 
 describe("actor sprite size", () => {
+  it("held last scale on a toward walk drops the head below current-scale Y", () => {
+    const place = { x: 219, y: 14, w: 72, h: 200 };
+    const far = engineStillScale(1100, 400);
+    const near = engineStillScale(1100, 80);
+    const hyFar = enginePinholeY(0, 400);
+    const hyNear = enginePinholeY(0, 80);
+    const headFar = spriteStillTopLeft(256, hyFar, place, far).y;
+    const headHeld = spriteStillTopLeft(256, hyNear, place, far).y;
+    const headNear = spriteStillTopLeft(256, hyNear, place, near).y;
+    expect(headHeld).toBeGreaterThan(headNear);
+    expect(headHeld).toBeGreaterThan(headFar);
+    expect(spriteStillTopLeft(256, hyFar, place, near).y).toBeLessThan(headFar);
+  });
+
   it("uses CST +0x2a field 114 over lens-forward (0x415271)", () => {
     expect(engineStillScale(ACTOR_SCALE_REF, 240, CST_SCALE_FIELD)).toBeCloseTo(
       (1450 * 114) / (1000 * 240),

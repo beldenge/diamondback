@@ -116,7 +116,7 @@ Code: [`sceneName.ts`](sceneName.ts).
 | Ground items | Jug at `town.jug` (after Leroy walks off). Bone at `town.bone` (Help’s day1 script). Hotel C3 south poster `dollar.mov` adds $4 when `actionframe (1)`. |
 | Sky / extras | `shootingstar` (night). Tumbleweeds are **day** (`clock != 3`). |
 | Ambience | `night.snd` + looping `town.snd`. `nightfxs`: saloon bed, chin chime, then owl / coyote / cricket. Saloon crowd `sounddone` gates the next yell. |
-| Click movies | South-gate rules / firearms (`nitewarn` / `nitefire`), shop signs, `dog1` / `dog2`, item inspects, store pots (`grocpots.mov`), street mission bells (`bell.mov`), Padre A2 north tower (`towerup` → `towertop` → `towerdn`). Intros skipped unless `?intro`. `dog1.mov` is a 59-tick overlay with two A1 cues 100 ms apart on the same 0.88 s growl. Play **two sequential still+audio passes** (one growl each) so the second cue does not cut the first into one bark. Wait-for-click is DF.EXE command type 2 slot 0 last 2 (`timeline.wait`), not rec+0≠0 (that field is command count). Pots/bells rec 1 is a hotspot still (three bell rects + dismiss; pots clang + dismiss). Play waits there and jumps to dest rec on click. `playmovie` also follows timeline `next` (rec+0x16==3) and type-4 nested `.mov` names. Linear `clips` stay for `--video`. WARNING/BONE wait; DOG1 rec+32 cues only. |
+| Click movies | South-gate rules / firearms (`nitewarn` / `nitefire`), shop signs, `dog1` / `dog2`, item inspects, store pots (`grocpots.mov`), street mission bells (`bell.mov`), Padre A2 north tower (`towerup` → `towertop` → `towerdn`). Intros skipped unless `?intro`. `dog1.mov` plays **two sequential bark passes** (one 0.88 s growl each). Rec+32 stamps A1 at tick 20 and 26. Skipping the rest still on later passes did not fix the start hitch; both passes use the full table. Stutter remains. Wait-for-click is DF.EXE command type 2 slot 0 last 2 (`timeline.wait`), not rec+0≠0. Pots/bells rec 1 is a hotspot still. `playmovie` follows timeline `next` (rec+0x16==3). Linear `clips` stay for `--video`. WARNING/BONE wait; DOG1 rec+32 cues only. Tests: [`movies.test.ts`](movies.test.ts) two full bark passes. |
 | Lodging / sleep | Fear sells the room for $9 at `phase = 4` (Blood’s cigar), or takes Help’s ring. `phase = 5` unlocks the upstairs playroom. Click the bed sign → `hotbed.mov` → `actionframe (1)` → `advanceday` (Day 2 morning in the room, `d1nd2m.mov`). |
 | Dell fight | Optional. After the key (`phase = 7`), leave the hotel looking **west** (G5) → `phase = 8`, Jones walks you; D7 south starts `FIGHT.FLT`. Sleep at `phase = 5` skips it. |
 | Locked | Jail, chin (until `phase >= 2`), bank, apoth, store, doctor, stage. Hotel + saloon open. Saloon upstairs: Ruby knock-talk; Oona’s room is locked this night; Mazie is knock-only. |
@@ -244,12 +244,21 @@ scheduler.
 `setAnimationLoop` — after Jan’s second-hand bet that fade never
 finished and `dealcards` never ran.
 
-**`forceupdate` (`0x433740`)** is one 20 Hz **display + walk** pump:
+**`forceupdate` (`0x433740`)** is one **display + walk** pump:
 step actors, refresh the still/puzzle, drain `walkEnds` / `turnEnds` /
-`ballEnds` on **this** stack, wait one game frame. It is **not** a
+`ballEnds` on **this** stack, wait the **remainder** of one game frame
+(`framerate` ticks of 60 Hz — boot 3 → 50 ms, CRACK `framerate (1)` →
+16.7 ms). Sleeping a full extra period after the work made the bank
+tumbler sample `mouse()` tens of ticks late. It is **not** a
 `makeloop` drain. Nested `forceupdate` during `dealcards` / `drawcash`
 must not run other `makeloop` callbacks (Isao/crowd idles nested into
-the deal; first card painted via `propdist`, then freeze).
+the deal; first card painted via `propdist`, then freeze). Puzzle
+boards skip world actor layout on that pump.
+
+Tests: [`facing.test.ts`](facing.test.ts) `remainingGameFrameMs`;
+[`crack.test.ts`](crack.test.ts) vault tick map + wrap freeze;
+[`lock.test.ts`](lock.test.ts) skip capture on puppet chrome /
+`stillDown` on cancel.
 
 **Idle `runQueued`** is the only place `makeloop` fires. Tick starts it
 only when `idlePumpAllowed` (`!talking && !scriptBusy`). A sit-click
@@ -697,6 +706,11 @@ still has forward > 0.
 | Colorize HOUSE world overlays with HOUSE.PRP unused-black | Silhouette doors and card tables. Dust 8-bit-blits those onto the SET; extract recolors any sprite whose HOUSE unused-black ratio is ≥ 0.5. |
 | `force-cache` + 1-day PNG `max-age` | Re-extracted gamblers/blackjack/table1 stay black until the browser cache dies. Extract PNGs revalidate (`no-cache` + ETag). |
 | Treat `actordeg` 0 as south | DF.EXE `calcdeg` / look-deg are **0 = east**. Dump Trotter `0` at `sal.trotter1` then faces the C3 W camera (front). Dump Oona `128` at `sallower.oona` faces the east-wall camera. `0`=south showed both as profiles (perpendicular to the bar / wall). Isao dump `0` is east too; idle sways 236–20 through east. |
+| Draw same-tile NPCs on a 90° turn because lens-forward is still > 32 | Oona at `sallower.oona` (964, 900) shares camera tile (3,3). Looking east she is 68 in front of the feet (front). Looking south she is 4 past the feet and 68 beside — set-back lens-forward 68 still draws a huge ¾ bun crop. **Remake extra cull** (`actorFeetInFront`): skip **off-center** feet-forward < 32 (hotspot ≥ 128px from still center). EXE skip is lens-forward < 32 and hotspot x outside the still ±48. Do not skip on-axis `walktopuppet` (Help/Leroy vanished). Do not invert `spriteWantedDeg`. Do not move the dump star. Ground props stay on lens-forward. |
+| Force `currentdeg + 128` for the whole `walktopuppet` beeline | Extracted walk faces `calcdeg` to `playerxyz`; camera-facing is the **after** `turntodeg`. The shortcut made off-axis Help (town.help east of the road) use the receding ¾ toward the player. Do not invert `spriteWantedDeg` (dog street ¾ is `actordeg − calcdeg(lens)`). |
+| Hold last sprite **scale** while the next walk PNG loads | Toward/away walks change pinhole Y every game frame. Frozen `last.stillScale` sinks (toward) or levitates (away) until the plate decodes, then snaps. Keep the last bits/hotspot; recompute scale from current lens-forward. |
+| `walkdest` as `"${destX},${destY},${destZ}"` while idle-turning | Cast `walktopuppet` saves `walkdest` when `iswalk` (walk **or** idle `turntodeg`). Fresh dest is 0,0,0 — after talk, Help/Leroy `moveactor` to the origin past the cemetery. Named dest is the star (`Marie` `walkdest = "town.cem1"`). Idle is `actorstar`. Keep `actorstar` as the from-star until arrival. |
+| Skip dog1 rest stills on later remake passes | Two A1 stamps are two barks. Cutting the 20-tick rest off pass 2 did not remove the start hitch. Two full sequential still+audio passes, one growl each. Stutter is open. |
 | Padre A2 north climb is only `towerup.mov` / invent a tower SET / reuse E4 `bell.mov` | Scripts name `towerup.mov` then `currentview ("south")`. DF.EXE rec+0x16==3 chains `towertop.mov` (single-bell examine, type-4 windows) then `towerdn.mov`. Street E4 N is three hanging bells. There is no tower SET. |
 | Patch `dfextract/out/**` (Trotter/Oona `Script.json` `actordeg`) | Re-extract wipes it. The dump is faithful; the compass was wrong. Fix `src/play/facing.ts` (or `dfextract/` if the decoder is wrong). Never hand-edit generated scripts, stills, or sprites. |
 | Hardcode camZ **62** in every SET | Help floats behind the counter. Interior **door overlays** (salout z=174) sit at that SET’s +26 (sallower **180**); town 62 throws them off the top of the still. Use `cameraZOf(world)`. |
@@ -732,6 +746,7 @@ still has forward > 0.
 | FIGHT fists overlay winning `hittest` | Gut/jaw clicks no-op (`knife_2` has no `mousedown`). Punches are Dell’s script. Prefer a puzzle prop that actually has `mousedown`. |
 | Load NEW.FLT flats without running `openflat` | HUD portrait stays the cowboy baked into `frame_3.png`. Engine `openstagefile` shows mainpanel (`noface` / `makeloop makeface`). `initall` `stoploop ("flat", "all")` then `opensetfile` must re-arm that loop. |
 | `openstagefile` without the stage `openstage` hook | Bank CRACK `spin` never appears (knob is a still). Mission SCORP `trigger` never starts (drawer looks frozen). Same pattern as `openset` / `opencast`. NEW.FLT has no `openstage`. |
+| `forceupdate` extra full wait + world layout + one `<img src>` per CRACK spin PNG | Vault `mousedown` is `while stilldown` at `framerate (1)` (60 Hz). `limiter` applies the whole `orig−newd` up to 24 ticks, then rejects a wrap. A 50 ms hitch plus another 16 ms sleep (or decode of the next `propdeg` PNG) jumps the knob or freezes it after `tumbler`. The same loop holds `talking`, so a lost `pointerup` hangs. Wait the leftover of the game frame, skip hidden-world actor blits, cache spin frames by URL, capture the pointer, drop `stilldown` on blur/cancel. |
 | `mixclut` amount 20 as the whole fade plate | Dell lose stays ~8% dark. Hub `gotoblack` is `from=set` absolute 0…255. FIGHT `fadetoblack` is `from=current` stepped 20. Do not invent `death()` — extracted lose is KO + long fade + `quitfight`. |
 | Leave FIGHT `fadetoblack` armed after `closeshopfile` | Slider `makeloop` re-arms every 3 frames. `quitfight` `blacktoscreen` then drains those due ticks and the plate goes black and stays there. Stop that shop’s prop loops; skip due prop loops from a closed puzzle shop. Unlocked has no Jones; still not `death()`. |
 | Kid insult menus in authored `puppetbevel` order | Dump writes the `101` (winning) line first, then `puppetscramble ()`. A no-op scramble makes every round first-choice-wins. Shuffle the current list only; Goodbye bevels after scramble stay last. Jones/Help do not scramble. |
@@ -745,6 +760,7 @@ still has forward > 0.
 | Avatar EXAMINE on DOM `click` after `#play-stage` `pointerdown` | First press lost. Dust is button `mousedown` + `trackbut`. Overlay fires on **pointerdown**; HUD buttons win over item sprites. |
 | `infoyoself` on boot `handitem` `helpbut` | Empty shop `infoyoself`. `addinven ("helpbut")` is chrome, not an inspect target. |
 | `skipNextClick` after a captured actionframe `pointerdown` | Next real EXAMINE / world click eaten. `preventDefault` on that pointerdown already kills the synthetic `click`. |
+| `#play-stage` `setPointerCapture` on every press | CRACK `stilldown` needs capture; bevels sit under the stage. Capture retargets `click` off `butbevel` so `puppetevent` never returns. Skip capture on puppet chrome; choices fire on **pointerdown** (Dust `mousedown`). |
 | `puppetevent` as a click-only Promise | Hold a Yes/No and Leroy never fidgets. `0x431330` runs four `idle 1`–`4` timers (`0x40B060`); `puppetevent (240)` returns -2. |
 | `idlefx` every 240 ticks | Same spoken line at 4 s, no blinks. The EXE plays named idle clips with a random per-clip wait, not that script. |
 | Await `speak()` for blinks / glances | Hourglass and dead bevels on every silent fidget. Only `idlespeak` awaits `puppetspeak`; blinks/gestures `fidget()` with `waitEvent` still live. |
@@ -753,6 +769,7 @@ still has forward > 0.
 | Hide portrait / skip CST blit when the next PNG is still decoding | Face and town people flicker on `makeface` / a deg step. Keep the last blit; high-priority the plate in view. |
 | `openpuppetfile` unhide with the previous canvas | Next talk flashes the last face. `screentoblack` is a no-op here; clear + drop stale blits, show the UI after the new sheet paints. |
 | Talking-head under `#actor-layer` / rest from sprite headers | Help outdoor idle painted the shop-interior plate and stacked both sleeves on the chest (384 headers). Rest is **idle 1** extras for every PUP (`Background: -1` on Help1/Dell1/Cobb; Help2 indoor keeps the plate). Unencoded `idle 1.json` / `Hands 1` 404s drop that rest. Encode extract path segments; do not default Background to frame 0. `#puppet-ui` stacks above the actor layer. |
+| Inline `#actor-layer { visibility: visible }` from `setvisible` | Beats `#play-stage:has(#puppet-ui:not([hidden])) #actor-layer`. After `walktopuppet` the CST stand is conversation-scale and shows around the talking-head. Extracted `prepuppet` (`Cast.txt`) is `screentoblack ("current")` → `openpuppetfile` → `blacktoscreen ("puppet")`. Scripts do not `actorvisible (false)`. Remake skips Leroy’s covering brown plate (`isFlatBackdrop`) so the SET still stays — then the CST layer must hide. Clear the inline property; `openpuppetfile` / `closepuppetfile` `refreshActors`. Do not chroma-key CST ochre (that ate the vest). |
 | Viseme / CSV cache keyed only by ident (`idle 1`) | Every PUP names **`idle 1`–`idle 4`**. Boot-warming Leroy then talking to Help plays Leroy extras on Help’s sheet (shop plate + Picasso head). Rest can look fine — live idle used the ident cache. Key `folder/ident`. Book: [PUP viseme tracks](#pup-viseme-tracks). |
 | `pointinactor` as ±40×80 px around the feet hotspot | Head unclickable; `touch` on the dirt. Chin Help is `actorscale` 5800 — 80px is the chest. Use CST dest Mac Rect (`0x415271`). |
 | Map `cross` at 1-based `scenerow * 20 + 93` | `scene g15` y=393, clipped off the parchment. Opcode is 1-based for pig `isadj`; the grid is **0-based** tiles from (222, 93). Slot 2 of `1,1,1,2,2,2` has no frame (blink). |
@@ -928,8 +945,10 @@ click, without the player clicking. `clearattention` when they walk out
 of range. Do not skip that fake mousedown.
 
 Talk approach is `walktopuppet`: in town he walks to `playerxyz` facing
-that vector (straight-on toward the camera), then `turntodeg (currentdeg
-+ 128)`. Scripts `stoploop` for the walk. Do not spin during the walk.
+that vector (`calcdeg` to dest), then `turntodeg (currentdeg + 128)` on
+arrival. Do not force `currentdeg + 128` for the whole beeline — Help
+east of the road then used the receding ¾ while walking toward the
+player. Scripts `stoploop` for the walk. Do not spin during the walk.
 Dust’s VM is single-threaded: `cursor ("watch")` then `while iswalk {
 forceupdate }` — no nested mousedown/keydown, no player SET walk, no HUD
 map/inven. Play sets `talking` on click/key, and `scriptBusy` on an
@@ -949,8 +968,15 @@ record’s +0x18 container for **that star pair** (any actor, any SET).
 Points run A→B; going B→A reverses them. Extract: `SET/_<PLACE>/paths.json`
 (TOWN/NITE have 12 pairs; interiors that authored a path have 1–3).
 Explicit `"x,y,z"` strings stay a beeline (town `walktopuppet`). Hops
-use `calcdeg` to the next vertex. `currentdeg + 128` is only the talk
-beeline.
+use `calcdeg` to the next vertex. `currentdeg + 128` is the post-walk
+face-the-camera turn, not the walk heading. `actorstar` stays the from
+pin until arrival; `walkdest` is the dest star so `walktopuppet` can
+resume it. Idle `iswalk` (a `turntodeg`) must not report `"0,0,0"`.
+
+Tests: [`help-facing.test.ts`](help-facing.test.ts) walk heading vs
+stuck east; [`facing.test.ts`](facing.test.ts) on-axis approach inside
+32 feet-forward; [`host.test.ts`](host.test.ts) `walkdest` while walking
+and during idle turn.
 
 Worked example — Leroy `walkout` → `town.leroy2`: pair container **262**,
 range (2656, 2720) → … → (1664, 3476) → sign (1740, 3536). Walkout
@@ -987,7 +1013,8 @@ Help). Full book: **World → still** below.
 ### World → still (locked — do not re-debug)
 
 Code: [`facing.ts`](facing.ts), [`occlude.ts`](occlude.ts). Tests in
-`facing.test.ts` / `occlude.test.ts`. Binary: [`dustdecompile/docs/findings.md`](../../dustdecompile/docs/findings.md)
+`facing.test.ts` (including remake `actorFeetInFront`) / `occlude.test.ts`
+/ [`help-facing.test.ts`](help-facing.test.ts). Binary: [`dustdecompile/docs/findings.md`](../../dustdecompile/docs/findings.md)
 §7a. SET header: [`dfextract/docs/file-types.md`](../../dfextract/docs/file-types.md).
 
 There are **three** cameras. Do not collapse them.
@@ -1148,13 +1175,12 @@ PUP talking-heads do not use this. Re-dump: `python cli.py --type cst --frames`.
 pointer). Do not leave the hourglass on the puppet window.
 
 Leroy’s first walk on talk is **64 `forceupdate` ticks** (dist ~192 /
-`actorspeed` 3), then `turntodeg` + `openpuppet` + `puppetspeak` on the
-same tick (`startWalk` already faces `currentdeg+128`, so the turn is
-a no-op). Do not cap the `while iswalk { forceupdate }` loop so low
-that the walk never finishes (256 was too small; 2048 is enough). Do not also `advanceActors` from the
-rAF tick during `forceupdate` — that doubles the approach. Town
-`walktopuppet` dest is `playerxyz`; face `currentdeg + 128` so he walks
-straight-on, not the sub-tile diagonal.
+`actorspeed` 3), then `turntodeg (currentdeg + 128)` + `openpuppet` +
+`puppetspeak`. Walk heading is `calcdeg` to `playerxyz`; the post-walk
+turn faces the camera. Do not cap the `while iswalk { forceupdate }`
+loop so low that the walk never finishes (256 was too small; 2048 is
+enough). Do not also `advanceActors` from the rAF tick during
+`forceupdate` — that doubles the approach.
 
 PUP line text is **Mac Roman** (0xD5 apostrophe). latin-1 turned it into `Õ`
 (`ItÕs near on midnight`). Decode `mac_roman`.
@@ -1254,6 +1280,12 @@ Play therefore:
    (`idle 1.json`, `Hands 1`).
 4. Do not special-case Help. The next street talk after Leroy (Dell,
    Cobb, Jones, …) is the same ident collision.
+5. Hide `#actor-layer` while `#puppet-ui` is up (CSS `:has` +
+   `refreshActors` on open/close). Extracted `prepuppet` fades onto
+   `"puppet"`; `walktopuppet` does not `actorvisible (false)`. Skipping
+   Leroy’s brown plate leaves the SET still, so the walk-up CST stand
+   must not stay composited. Do not write inline `visibility: visible`
+   from `setWorldVisible`. Do not key CST ochre.
 
 ### Dead ends (do not retry)
 
@@ -1262,13 +1294,16 @@ Play therefore:
 | Rest from idle 1 + hide Background when unspecified | Rest looked OK until the first fidget. Live idle still applied Leroy’s track. |
 | Encode `idle 1.json` / `Hands 1` | 404s dropped extras (sleeves stacked on the 384 header) but did not stop the ident-cache mix. |
 | `#puppet-ui` above `#actor-layer` | The shop plate was the PUP Background layer, not the CST actor. |
+| Flood CST tan / `studio_backdrop_mask` | Vest is the same ochre as the photographed neck. Knockout punched ¾/walk torsos. The double was the CST stand layer still showing after we skip Leroy’s covering plate. |
 | Always skip Help’s Background | Indoor Help2 must keep the shop plate. Help1 vs Help2 share `idle 1`. |
 | Clear the viseme map on `openpuppetfile` | Drops warm tracks; a Help fetch still joins Leroy’s in-flight `idle 1` job if the key is ident-only. Key the pending map too. |
 
 Tests: [`host.test.ts`](host.test.ts) per-puppet viseme cache (Leroy then
 Help, in-flight race, Help2 plate, Help1 after Help2, idle 2 / idle 4
-speak, CSV restore, late fetch, Cobb); [`viseme.test.ts`](viseme.test.ts)
-Help vs Leroy extras and idle 2/4 dumps.
+speak, CSV restore, late fetch, Cobb) and CST layer refresh on
+`openpuppetfile` / `closepuppetfile`; [`hud.test.ts`](hud.test.ts)
+`actorLayerVisibility`; [`viseme.test.ts`](viseme.test.ts) Help vs Leroy
+extras and idle 2/4 dumps.
 
 ---
 

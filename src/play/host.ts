@@ -24,7 +24,9 @@ import {
   dirToDeg,
   DRINK_HOLD_FRAMES,
   dustTicksToMs,
+  actorFeetInFront,
   gameFrameSec,
+  remainingGameFrameMs,
   playerWorldPoint,
   PRP_SCALE_FIELD,
   pointInSpriteDest,
@@ -105,6 +107,7 @@ import {
   indexToSound,
   isGossipTrack,
   sndFolderFromFile,
+  trackClipNames,
 } from "./sndTracks";
 import {
   isTownGridSize,
@@ -199,6 +202,11 @@ export interface ActorState {
   destX: number;
   destY: number;
   destZ: number;
+  /**
+   * Named `walktostar` dest (or `"x,y,z"`). `walkdest` returns this while
+   * walking so Cast `walktopuppet` can resume a star, not `"0,0,0"`.
+   */
+  destStar: string;
   /** Remaining SET polyline hops after the current `dest*` (named `walktostar`). */
   route: RoutePoint[];
   degTarget: number;
@@ -1127,10 +1135,11 @@ export class DustHost implements OpcodeHost {
         // EXE `0x433740`: one walk/display pump, not a `makeloop` drain.
         this.scriptPump += 1;
         try {
+          const started = performance.now();
           this.advanceActorsOnce();
           this.view?.refreshActors();
           await this.runQueued(ctx, true);
-          await waitGameFrame(this.framerateValue);
+          await waitGameFrame(this.framerateValue, started);
         } finally {
           this.scriptPump -= 1;
         }
@@ -1291,6 +1300,7 @@ export class DustHost implements OpcodeHost {
       case "openpuppetfile":
         this.skipSpeech = false;
         await this.openPuppet(str(args[0]), true);
+        this.view?.refreshActors();
         return 0;
       case "closepuppetfile":
         this.skipSpeech = false;
@@ -1300,6 +1310,7 @@ export class DustHost implements OpcodeHost {
         if (this.cursorName === "watch") {
           this.cursorName = "arrow";
         }
+        this.view?.refreshActors();
         return 0;
       case "currentset":
         return this.currentSet;
@@ -1489,23 +1500,16 @@ export class DustHost implements OpcodeHost {
         return 0;
       case "walkdest": {
         const actor = this.namedActor(str(args[0] ?? ctx.me));
-        return `${actor.destX},${actor.destY},${actor.destZ}`;
+        return walkDestOf(actor);
       }
       case "stopwalk": {
         const who = str(args[0] ?? ctx.me).toLowerCase();
         if (who === "all") {
           for (const actor of this.actors.values()) {
-            actor.walking = false;
-            actor.turning = false;
-            actor.route = [];
-            actor.pose = "stand";
+            this.clearWalk(actor);
           }
         } else {
-          const actor = this.namedActor(who);
-          actor.walking = false;
-          actor.turning = false;
-          actor.route = [];
-          actor.pose = "stand";
+          this.clearWalk(this.namedActor(who));
         }
         return 0;
       }
@@ -1519,10 +1523,7 @@ export class DustHost implements OpcodeHost {
             ctx.globals.get("leroyphase"),
           )
         ) {
-          actor.walking = false;
-          actor.turning = false;
-          actor.route = [];
-          actor.pose = "stand";
+          this.clearWalk(actor);
           return false;
         }
         return actor.walking || actor.turning;
@@ -1730,17 +1731,21 @@ export class DustHost implements OpcodeHost {
     const actor = this.namedActor(str(args[0] ?? ctx.me));
     const dest = str(args[1]);
     if (dest.includes(",")) {
-      const [x, y, z] = dest.split(",").map(Number);
+      const [rawX, rawY, rawZ] = dest.split(",").map(Number);
+      const x = Number.isFinite(rawX) ? rawX : actor.x;
+      const y = Number.isFinite(rawY) ? rawY : actor.y;
+      const z = Number.isFinite(rawZ) ? rawZ : actor.z;
       actor.star = "custom";
+      actor.destStar = `${Math.trunc(x)},${Math.trunc(y)},${Math.trunc(z)}`;
       actor.route = [];
-      this.startWalk(actor, x || 0, y || 0, z || 0);
+      this.startWalk(actor, x, y, z);
       return 0;
     }
-    const star = str(args[1]);
+    const star = dest;
     const fromStar = actor.star;
-    actor.star = star;
     const point = this.starPoint(star);
     if (point) {
+      actor.destStar = star;
       const destPt = { x: point.x, y: point.y, z: point.z };
       const hops = routeToStar(this.paths, fromStar, star, actor.x, actor.y, destPt);
       const first = hops[0] ?? destPt;
@@ -1748,6 +1753,24 @@ export class DustHost implements OpcodeHost {
       this.startWalk(actor, first.x, first.y, first.z);
     }
     return 0;
+  }
+
+  private clearWalk(actor: ActorState): void {
+    actor.walking = false;
+    actor.turning = false;
+    actor.route = [];
+    actor.destStar = "";
+    actor.pose = "stand";
+  }
+
+  /** Named dest arrives; `"x,y,z"` stays `custom`. */
+  private finishWalkStar(actor: ActorState): void {
+    const dest = actor.destStar;
+    actor.destStar = "";
+    if (!dest) {
+      return;
+    }
+    actor.star = dest.includes(",") ? "custom" : dest;
   }
 
   startWalk(actor: ActorState, x: number, y: number, z: number, continueCycle = false): void {
@@ -1770,6 +1793,9 @@ export class DustHost implements OpcodeHost {
       actor.walkStep = 0;
       actor.walkAcc = 0;
     }
+    // Idle `turntodeg` must not keep rotating the sprite after the walk
+    // heading is set. EXE turns, then translates (`0x410b80`).
+    actor.turning = false;
     const dx = x - actor.x;
     const dy = y - actor.y;
     if (dx !== 0 || dy !== 0) {
@@ -1779,21 +1805,13 @@ export class DustHost implements OpcodeHost {
   }
 
   /**
-   * Town `walktopuppet` walks to `playerxyz`. Face the camera
-   * (`currentdeg + 128`) so the approach is straight-on, not the
-   * sub-tile diagonal (Leroy 76 east of O7). Path hops use `calcdeg`
-   * to the next vertex. Only the final beeline to the player (empty
-   * route) uses the camera.
+   * Face the next hop (`calcdeg` to dest). Cast `walktopuppet` walks to
+   * `playerxyz` on that vector, then `turntodeg (currentdeg + 128)` at
+   * arrival. Forcing camera-facing for the whole beeline made off-axis
+   * Help (east of the road) use the receding ¾ while she walked toward
+   * the player.
    */
   private facingForWalk(actor: ActorState, x: number, y: number): number {
-    const pose = this.view?.pose;
-    if (pose && actor.route.length === 0) {
-      const px = playerWorldPoint(pose).x;
-      const py = playerWorldPoint(pose).y;
-      if (Math.hypot(x - px, y - py) < 2) {
-        return wrapDeg(dirToDeg(pose.facing) + 128);
-      }
-    }
     return calcDeg(actor, { x, y });
   }
 
@@ -1825,6 +1843,9 @@ export class DustHost implements OpcodeHost {
           continue;
         }
       }
+      if (actor.walking && actor.turning) {
+        actor.turning = false;
+      }
       if (actor.walking) {
         const dx = actor.destX - actor.x;
         const dy = actor.destY - actor.y;
@@ -1833,6 +1854,7 @@ export class DustHost implements OpcodeHost {
         if (!Number.isFinite(dist) || !Number.isFinite(step) || step <= 0) {
           actor.walking = false;
           actor.route = [];
+          this.finishWalkStar(actor);
           actor.pose = "stand";
           this.walkEnds.push(actor.name);
           continue;
@@ -1846,6 +1868,7 @@ export class DustHost implements OpcodeHost {
             this.startWalk(actor, next.x, next.y, next.z, true);
           } else {
             actor.walking = false;
+            this.finishWalkStar(actor);
             if (actor.pose === "walk") {
               actor.pose = "stand";
             }
@@ -2243,6 +2266,7 @@ export class DustHost implements OpcodeHost {
         destX: 0,
         destY: 0,
         destZ: 0,
+        destStar: "",
         route: [],
         degTarget: 0,
         walkStep: 0,
@@ -2406,7 +2430,14 @@ export class DustHost implements OpcodeHost {
         }
         return true;
       }
-      return viewStill(this.view, actor) !== null;
+      const still = viewStill(this.view, actor);
+      if (!still) {
+        return false;
+      }
+      // Same-tile NPCs beside the set-back lens crop bun/side on a 90°
+      // turn. On-axis `walktopuppet` to playerxyz must stay (short
+      // feet-forward, hotspot still near center).
+      return actorFeetInFront(still.forward, still.x);
     });
   }
 
@@ -2824,6 +2855,13 @@ export class DustHost implements OpcodeHost {
     }
     this.shopSprites.set(stem, byGroup);
     this.puzzleGroups.set(stem, new Set(groups.map((group) => group.name.toLowerCase())));
+    warmExtractImages(
+      Object.values(byGroup).flatMap((bag) =>
+        Object.values(bag).flatMap((frames) =>
+          frames.map((frame) => extractUrl(`${folder}/${frame.path}`)),
+        ),
+      ),
+    );
     const timing = await fetchJson<Record<string, Record<string, number[]>>>(
       extractUrl(`${folder}/timing.json`),
     ).catch(() => ({} as Record<string, Record<string, number[]>>));
@@ -4391,6 +4429,10 @@ export class DustHost implements OpcodeHost {
   private openTrack(name: string): void {
     this.trackStack.push(this.trackFolder);
     this.trackFolder = sndFolderFromFile(name);
+    const clips = trackClipNames(this.trackFolder);
+    if (clips.length) {
+      void voices.preload(clips.map((clip) => this.soundUrl(clip)));
+    }
   }
 
   private closeTrack(name: string): void {
@@ -4613,6 +4655,21 @@ function asPoint(value: Value): Point {
   return { kind: "point", x: 0, y: 0, z: 0 };
 }
 
+/**
+ * Cast `walktopuppet` saves `walkdest` when `iswalk` is true — including
+ * idle `turntodeg`. Named dest is the star; idle is `actorstar`, not
+ * `"0,0,0"` (that sent Help/Leroy past the cemetery after talk).
+ */
+function walkDestOf(actor: ActorState): string {
+  if (actor.destStar) {
+    return actor.destStar;
+  }
+  if (actor.walking) {
+    return `${Math.trunc(actor.destX)},${Math.trunc(actor.destY)},${Math.trunc(actor.destZ)}`;
+  }
+  return actor.star;
+}
+
 function xyzAxis(args: Value[], x: number, y: number): Value {
   const axis = num(args[0]);
   if (axis === 1) {
@@ -4644,7 +4701,7 @@ function nextFrame(): Promise<void> {
 }
 
 /** Pace `forceupdate` to one game frame (`framerate` ticks of the 60 Hz clock). */
-async function waitGameFrame(framerate: number): Promise<void> {
+async function waitGameFrame(framerate: number, started = performance.now()): Promise<void> {
   const ms = gameFrameSec(framerate) * 1000;
   const inVitest = Boolean(
     (globalThis as { process?: { env?: { VITEST?: string } } }).process?.env?.VITEST,
@@ -4653,9 +4710,20 @@ async function waitGameFrame(framerate: number): Promise<void> {
     await nextFrame();
     return;
   }
-  // Wall-clock frame, not rAF. Waiting on rAF inside Three's animation
-  // loop can stall after the first blackjack card of an idle `resetgame`.
-  await sleep(ms);
+  // Wall-clock remainder, not rAF. Sleeping a full extra period after a
+  // hitch made CRACK `mouse()` jump half a revolution per pump.
+  await sleep(remainingGameFrameMs(performance.now(), started, ms));
+}
+
+function warmExtractImages(urls: readonly string[]): void {
+  if (typeof Image === "undefined") {
+    return;
+  }
+  for (const url of [...new Set(urls.filter(Boolean))]) {
+    const img = new Image();
+    img.decoding = "async";
+    img.src = url;
+  }
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
