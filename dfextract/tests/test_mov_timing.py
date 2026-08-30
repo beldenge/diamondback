@@ -20,7 +20,9 @@ from mov import (
     FRAME_TABLE_OFF,
     PLAYLIST_OFF,
     REC_END_KIND_OFF,
+    REC_FLAGS_OFF,
     REC_NEXT_NAME_OFF,
+    WAIT_AUDIO_FLAG,
     TICK_HZ,
     AudioCue,
     mix_cues,
@@ -39,6 +41,7 @@ SALUP = DUST / "MOVIES" / "SALUP.MOV"
 HELP = DUST / "MOVIES" / "HELP.MOV"
 WARNING = DUST / "MOVIES" / "WARNING.MOV"
 DOG1 = DUST / "MOVIES" / "DOG1.MOV"
+DOG2 = DUST / "MOVIES" / "DOG2.MOV"
 NITEWARN = DUST / "MOVIES" / "NITEWARN.MOV"
 BONE = DUST / "INVEN" / "BONE.MOV"
 GROCPOTS = DUST / "MOVIES" / "GROCPOTS.MOV"
@@ -88,6 +91,8 @@ class TestTickConstants(unittest.TestCase):
         self.assertEqual(FRAME_REC_SIZE, 80)
         self.assertEqual(FRAME_AUDIO_OFF, 32)
         self.assertEqual(PLAYLIST_OFF, 0x83E)
+        self.assertEqual(REC_FLAGS_OFF, 0x1A)
+        self.assertEqual(WAIT_AUDIO_FLAG, 1)
 
 
 class TestMixCuesTicks(unittest.TestCase):
@@ -238,6 +243,37 @@ class TestActionframeWait(unittest.TestCase):
         self.assertEqual([f.wait for f in bone.frames], [False, True, False])
         self.assertTrue(all(f.action == 0 for f in dog.frames))
         self.assertTrue(all(not f.wait for f in dog.frames))
+        self.assertEqual(
+            [f.wait_audio for f in dog.frames],
+            [False, False, True, False, True, False],
+        )
+
+    def test_dog2_waits_audio_on_rec_5(self) -> None:
+        if not DOG2.is_file():
+            self.skipTest("DOG2.MOV not present")
+        tl = parse_reel_timeline(read_df_file(DOG2))
+        self.assertIsNotNone(tl)
+        assert tl is not None
+        self.assertEqual(len(tl.frames), 7)
+        self.assertEqual(
+            [f.wait_audio for f in tl.frames],
+            [False, False, False, False, False, True, False],
+        )
+
+    def test_intro2_a_retriggers_do_not_set_wait_audio(self) -> None:
+        tl = parse_reel_timeline(read_df_file(INTRO2))
+        self.assertIsNotNone(tl)
+        assert tl is not None
+        a_recs = [
+            (i, f)
+            for i, f in enumerate(tl.frames)
+            if any(
+                c.start_tick == f.start_tick and (c.channel or "").startswith("A")
+                for c in tl.clip_starts
+            )
+        ]
+        self.assertGreater(len(a_recs), 5)
+        self.assertFalse(any(f.wait_audio for _i, f in a_recs))
 
     def test_nitewarn_odd_size_still_parses_actionframe(self) -> None:
         if not NITEWARN.is_file():

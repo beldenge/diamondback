@@ -5,6 +5,8 @@
  * greetings overlap the wait, and later lines can fire in sync (offset).
  */
 
+import { MOV_A_IDLE_RESTART_SEC } from "./movies";
+
 const Ctor: typeof AudioContext | undefined =
   typeof window !== "undefined"
     ? window.AudioContext ||
@@ -24,6 +26,10 @@ export class VoiceBank {
   private readonly buffers = new Map<string, AudioBuffer>();
   /** MOVPLAY group A: same channel restarts (does not stack). */
   private readonly fxSlots = new Map<string, () => void>();
+  private readonly fxEnded = new Map<string, Promise<void>>();
+  private readonly fxEndedResolve = new Map<string, () => void>();
+  /** performance.now() when this A/B channel's current one-shot should end. */
+  private readonly fxUntil = new Map<string, number>();
   /** Looping beds / `soundloop` nodes. Host can drop them on SET change. */
   private readonly looping = new Set<() => void>();
 
@@ -83,6 +89,51 @@ export class VoiceBank {
     this.looping.clear();
   }
 
+  private groupAUntil(): number {
+    let until = 0;
+    for (const [channel, at] of this.fxUntil) {
+      if (channel.startsWith("A") && at > until) {
+        until = at;
+      }
+    }
+    return until;
+  }
+
+  /** DF.EXE 0x4026F0: block until mixer channel 0 (all group-A slots) is idle. */
+  async whenGroupAIdle(): Promise<void> {
+    const waits = [...this.fxEnded.entries()]
+      .filter(([channel]) => channel.startsWith("A"))
+      .map(([, ended]) => ended);
+    const until = this.groupAUntil();
+    if (!waits.length && until <= performance.now()) {
+      return;
+    }
+    if (waits.length) {
+      await Promise.all(waits);
+    }
+    const remain = this.groupAUntil() - performance.now();
+    if (remain > 0) {
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, remain);
+      });
+    }
+    // Empty waveOut ring: Pause/Write/Restart of one 0x4000-byte header.
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, MOV_A_IDLE_RESTART_SEC * 1000);
+    });
+  }
+
+  private settleFx(channel?: string): void {
+    if (!channel) {
+      return;
+    }
+    const resolve = this.fxEndedResolve.get(channel);
+    this.fxEndedResolve.delete(channel);
+    this.fxEnded.delete(channel);
+    this.fxUntil.delete(channel);
+    resolve?.();
+  }
+
   /** One-shot world/UI WAV. Does not stop speech or set the viseme clock. */
   async playFx(
     url: string,
@@ -94,6 +145,7 @@ export class VoiceBank {
     if (channel) {
       this.fxSlots.get(channel)?.();
       this.fxSlots.delete(channel);
+      this.settleFx(channel);
     }
     let cancelled = false;
     let started = false;
@@ -118,6 +170,7 @@ export class VoiceBank {
       if (channel && this.fxSlots.get(channel) === stop) {
         this.fxSlots.delete(channel);
       }
+      this.settleFx(channel);
     };
     if (loop) {
       this.looping.add(stop);
@@ -160,6 +213,22 @@ export class VoiceBank {
     }
     if (channel) {
       this.fxSlots.set(channel, stop);
+      this.settleFx(channel);
+      this.fxUntil.set(channel, performance.now() + buffer.duration * 1000);
+      let resolveEnded: () => void = () => undefined;
+      this.fxEnded.set(
+        channel,
+        new Promise<void>((resolve) => {
+          resolveEnded = resolve;
+        }),
+      );
+      this.fxEndedResolve.set(channel, resolveEnded);
+      source.onended = () => {
+        if (this.fxSlots.get(channel) === stop) {
+          this.fxSlots.delete(channel);
+        }
+        this.settleFx(channel);
+      };
     }
     return stop;
   }

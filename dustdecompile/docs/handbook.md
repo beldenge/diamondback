@@ -238,6 +238,7 @@ Play a MOV file (full-screen cutscene). Engine verb.
 - **Calls in dump:** 59  arities [1]
 - Still holds: 80-byte records at MOV header+0x8C2. Tick = timeGetTime()*3/50 (60 Hz). See findings.md §7.
 - Group A (header+0x1A): start when record+32 equals the 1-based slot; retrigger restarts that slot.
+- rec+0x1A bit 0: after start_A, busy-wait mixer channel 0 idle (`DF.EXE` 0x419300). Extract `wait_audio`. General (75 reels here), not a dog1 name check. `dog1.mov` recs 2 and 4 — two full growls on one table. INTRO2 A2 retriggers do not set it. Empty-device Pause/Write/Restart of one 0x4000-byte header at 22050 Hz 8-bit (≈0.74 s) is an inferred mixer cost, not a decoded sleep.
 - A new scene’s A line is held until the previous scene’s A line’s original end (INTRO clip 325 vs 423).
 - Group B (header+0x1C): sequential theme playlist at +0x83E; a scene with n_b=0 keeps the previous bed.
 - Stills are deltas into one framebuffer. Scene headers are not images — keep prior pixels.

@@ -74,6 +74,9 @@ class TestFactsStatic(unittest.TestCase):
         self.assertIn("0x419a24", blob)
         self.assertIn("bellmoon", blob)
         self.assertIn("intro3.mov", blob)
+        self.assertIn("rec+0x1A bit 0", blob)
+        self.assertIn("wait_audio", blob)
+        self.assertIn("0x419300", blob)
         spot = " ".join(LIBRARY["spotmovie"]["notes"])
         self.assertIn("towerup", spot)
 

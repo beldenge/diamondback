@@ -4397,8 +4397,10 @@ export class DustHost implements OpcodeHost {
         const frames = timeline.frames.map((frame) => ({
           url: frameUrl(folder, frame.container),
           holdSec: Math.max(1, frame.hold_ticks || 0) / hz,
+          startSec: frame.start_tick / hz,
           action: frame.action ?? 0,
           wait: frame.wait,
+          waitAudio: frame.wait_audio,
           hotspots: frame.hotspots,
           timeoutMovie: frame.timeout_movie,
         }));

@@ -138,14 +138,14 @@ import {
   fallbackTimeline,
   frameUrl as movieStillUrl,
   movieClickToStill,
+  movieClipsAtStart,
   movieClipsStarting,
   movieFolder,
+  movieFrameWaitsForAudio,
   movieFrameWaitsForClick,
   movieHotspotSegmentEnd,
-  movieIndexAt,
   movieWaitSetsSkipClick,
   pickMovieHotspot,
-  planMoviePasses,
   type MovieHotspot,
   type MovieTimeline,
 } from "./movies";
@@ -740,8 +740,10 @@ export class PlayGame implements WorldView {
     frames: {
       url: string;
       holdSec: number;
+      startSec?: number;
       action?: number;
       wait?: boolean;
+      waitAudio?: boolean;
       hotspots?: MovieHotspot[];
       timeoutMovie?: string;
     }[],
@@ -755,8 +757,10 @@ export class PlayGame implements WorldView {
     const playable: {
       url: string;
       holdSec: number;
+      startSec?: number;
       action?: number;
       wait?: boolean;
+      waitAudio?: boolean;
       hotspots?: MovieHotspot[];
       timeoutMovie?: string;
     }[] = [];
@@ -776,15 +780,8 @@ export class PlayGame implements WorldView {
       }
       return true;
     }
-    const holds = playable.map((frame) => frame.holdSec);
     const clipUrls = clips.map((clip) => clip.url);
     await voices.preload(clipUrls);
-    const timed = clips.map((clip) => ({
-      url: clip.url,
-      startSec: clip.startSec,
-      channel: clip.channel,
-      durationSec: voices.bufferDuration(clip.url),
-    }));
     this.movieEl.hidden = false;
     let ok = true;
     try {
@@ -797,19 +794,7 @@ export class PlayGame implements WorldView {
       ) {
         ok = await this.playActionMovie(playable, clips);
       } else {
-        const passes = planMoviePasses(holds, timed);
-        for (const pass of passes) {
-          await this.playMoviePass(
-            playable,
-            pass.holdSec,
-            pass.clips.map((clip) => ({
-              url: clip.url ?? "",
-              startSec: clip.startSec,
-              channel: clip.channel,
-            })),
-            pass.passSec,
-          );
-        }
+        await this.playLinearMovie(playable, clips);
       }
     } finally {
       if (!opts?.keepLayer) {
@@ -827,6 +812,43 @@ export class PlayGame implements WorldView {
   }
 
   /**
+   * One 80-byte rec: blit, fire rec+32 A cues, maybe wait mixer idle
+   * (rec+0x1A bit 0 / `wait_audio`), then the rec hold.
+   */
+  private async playLinearMovie(
+    frames: {
+      url: string;
+      holdSec: number;
+      startSec?: number;
+      waitAudio?: boolean;
+    }[],
+    clips: { url: string; startSec: number; channel?: string }[],
+  ): Promise<void> {
+    const starts = clips.map((clip) => clip.startSec);
+    let tableSec = 0;
+    for (const frame of frames) {
+      this.blitMovieFrame(frame.url);
+      const at = frame.startSec ?? tableSec;
+      for (const index of movieClipsAtStart(starts, at)) {
+        const url = clips[index]?.url;
+        if (url) {
+          await voices.playFx(url, 0.85, false, clips[index]?.channel);
+        }
+      }
+      if (movieFrameWaitsForAudio(frame.waitAudio)) {
+        await voices.whenGroupAIdle();
+      }
+      const rest = Math.max(0, frame.holdSec);
+      if (rest > 0) {
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, rest * 1000);
+        });
+      }
+      tableSec += Math.max(0, frame.holdSec);
+    }
+  }
+
+  /**
    * Inspect stills wait for a click (`timeline.wait`, type-2 slot 0 last 2).
    * Then the reel continues — warning fades out; dog1 never hits this path.
    */
@@ -834,8 +856,10 @@ export class PlayGame implements WorldView {
     frames: {
       url: string;
       holdSec: number;
+      startSec?: number;
       action?: number;
       wait?: boolean;
+      waitAudio?: boolean;
       hotspots?: MovieHotspot[];
       timeoutMovie?: string;
     }[],
@@ -845,22 +869,26 @@ export class PlayGame implements WorldView {
       return this.playHotspotMovie(frames, clips);
     }
     const starts = clips.map((clip) => clip.startSec);
-    let t = 0;
+    let tableSec = 0;
     for (const frame of frames) {
       this.blitMovieFrame(frame.url);
+      const at = frame.startSec ?? tableSec;
       const hold = Math.max(0, frame.holdSec);
-      for (const index of movieClipsStarting(starts, t - 1e-6, t + hold)) {
+      for (const index of movieClipsAtStart(starts, at)) {
         const url = clips[index]?.url;
         if (url) {
-          void voices.playFx(url, 0.85, false, clips[index]?.channel);
+          await voices.playFx(url, 0.85, false, clips[index]?.channel);
         }
+      }
+      if (movieFrameWaitsForAudio(frame.waitAudio)) {
+        await voices.whenGroupAIdle();
       }
       if (hold > 0) {
         await new Promise<void>((resolve) => {
           window.setTimeout(resolve, hold * 1000);
         });
       }
-      t += hold;
+      tableSec += hold;
       if (movieFrameWaitsForClick(frame.action, frame.wait)) {
         await this.waitMovieClick();
       }
@@ -977,8 +1005,10 @@ export class PlayGame implements WorldView {
     const frames = timeline.frames.map((frame) => ({
       url: movieStillUrl(folder, frame.container),
       holdSec: Math.max(1, frame.hold_ticks || 0) / hz,
+      startSec: frame.start_tick / hz,
       action: frame.action ?? 0,
       wait: frame.wait,
+      waitAudio: frame.wait_audio,
       hotspots: frame.hotspots,
     }));
     const clips = (timeline.clips ?? []).map((clip) => ({
@@ -1089,61 +1119,6 @@ export class PlayGame implements WorldView {
       this.movieCtx.imageSmoothingEnabled = false;
     }
     this.movieCtx.drawImage(img, 0, 0);
-  }
-
-  private playMoviePass(
-    frames: { url: string }[],
-    holds: number[],
-    clips: { url: string; startSec: number; channel?: string }[],
-    passSec: number,
-  ): Promise<void> {
-    return new Promise((resolve) => {
-      const timers: number[] = [];
-      let shown = -1;
-      const show = (nowSec: number): void => {
-        const index = movieIndexAt(holds, nowSec);
-        if (index === shown) {
-          return;
-        }
-        shown = index;
-        const url = frames[index]?.url;
-        if (url) {
-          this.blitMovieFrame(url);
-        }
-      };
-      show(0);
-      for (const clip of clips) {
-        const delay = Math.max(0, clip.startSec * 1000);
-        timers.push(
-          window.setTimeout(() => {
-            void voices.playFx(clip.url, 0.85, false, clip.channel);
-          }, delay),
-        );
-      }
-      const t0 = performance.now();
-      const totalMs = Math.max(0, passSec) * 1000;
-      const finish = (): void => {
-        for (const id of timers) {
-          window.clearTimeout(id);
-        }
-        resolve();
-      };
-      if (totalMs <= 0) {
-        finish();
-        return;
-      }
-      const step = (): void => {
-        const now = performance.now() - t0;
-        if (now >= totalMs) {
-          show(Math.max(0, passSec - 1e-4));
-          finish();
-          return;
-        }
-        show(now / 1000);
-        requestAnimationFrame(step);
-      };
-      requestAnimationFrame(step);
-    });
   }
 
   private async boot(): Promise<void> {

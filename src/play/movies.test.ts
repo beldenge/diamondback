@@ -6,14 +6,18 @@ import {
   formatMovieClock,
   movieChainName,
   movieClickToStill,
+  MOV_A_IDLE_RESTART_SEC,
+  MOV_WAVEHDR_BYTES,
+  MOV_WAVE_RATE,
+  movieClipsAtStart,
   movieClipsStarting,
   movieDurationSec,
+  movieFrameWaitsForAudio,
   movieFrameWaitsForClick,
   movieHotspotSegmentEnd,
   movieIndexAt,
   movieWaitSetsSkipClick,
   pickMovieHotspot,
-  planMoviePasses,
   type MovieTimeline,
 } from "./movies";
 
@@ -227,8 +231,27 @@ describe("spotmovie SFX commands", () => {
   });
 });
 
+describe("movie A idle restart", () => {
+  it("is one 0x4000-byte WAVEHDR at 22050 Hz 8-bit", () => {
+    expect(MOV_WAVEHDR_BYTES).toBe(0x4000);
+    expect(MOV_WAVE_RATE).toBe(22050);
+    expect(MOV_A_IDLE_RESTART_SEC).toBeCloseTo(0x4000 / 22050, 6);
+    expect(MOV_A_IDLE_RESTART_SEC).toBeGreaterThan(0.7);
+    expect(MOV_A_IDLE_RESTART_SEC).toBeLessThan(0.8);
+  });
+});
+
+describe("movieClipsAtStart", () => {
+  it("matches clips to a rec start, not a time window", () => {
+    const starts = [20 / 60, 26 / 60];
+    expect(movieClipsAtStart(starts, 20 / 60)).toEqual([0]);
+    expect(movieClipsAtStart(starts, 23 / 60)).toEqual([]);
+    expect(movieClipsAtStart(starts, 26 / 60)).toEqual([1]);
+  });
+});
+
 describe("dog1.mov", () => {
-  it("turns two stacked A1 growls into two sequential passes", () => {
+  it("waits for A mixer idle on recs 2 and 4 (rec+0x1A bit 0)", () => {
     const path = resolve("dfextract/out/MOV/_DOG1/timeline.json");
     if (!existsSync(path)) {
       return;
@@ -237,48 +260,43 @@ describe("dog1.mov", () => {
     expect(timeline.duration_ticks).toBe(59);
     expect(timeline.frames).toHaveLength(6);
     expect(timeline.frames.map((frame) => frame.hold_ticks)).toEqual([20, 3, 3, 10, 3, 20]);
+    expect(timeline.frames.map((frame) => movieFrameWaitsForAudio(frame.wait_audio))).toEqual([
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+    ]);
     const clips = timeline.clips ?? [];
     expect(clips).toHaveLength(2);
     expect(clips.map((clip) => clip.container)).toEqual([1, 1]);
     expect(clips[0]!.start_tick).toBe(20);
     expect(clips[1]!.start_tick).toBe(26);
     const hz = timeline.tick_hz || 60;
-    const holds = (timeline.frames ?? []).map((frame) => (frame.hold_ticks ?? 0) / hz);
-    const passes = planMoviePasses(
-      holds,
-      clips.map((clip) => ({
-        startSec: clip.start_tick / hz,
-        channel: clip.channel,
-        durationSec: 0.88,
-      })),
-    );
-    expect(passes).toHaveLength(2);
-    expect(passes[0]!.holdSec).toEqual(holds);
-    expect(passes[1]!.holdSec).toEqual(holds);
-    expect(passes[0]!.clips).toHaveLength(1);
-    expect(passes[1]!.clips).toHaveLength(1);
-    expect(passes[0]!.clips[0]!.startSec).toBeCloseTo(20 / 60);
-    expect(passes[1]!.clips[0]!.startSec).toBeCloseTo(20 / 60);
-    expect(passes[0]!.passSec).toBeGreaterThan(holds.reduce((a, b) => a + b, 0));
-    expect(passes[1]!.passSec).toBe(passes[0]!.passSec);
+    const starts = clips.map((clip) => clip.start_tick / hz);
+    expect(movieClipsAtStart(starts, 20 / hz)).toEqual([0]);
+    expect(movieClipsAtStart(starts, 23 / hz)).toEqual([]);
+    expect(movieClipsAtStart(starts, 26 / hz)).toEqual([1]);
   });
+});
 
-  it("leaves a single-cue reel as one pass", () => {
-    const holds = [20 / 60, 3 / 60, 20 / 60];
-    const passes = planMoviePasses(holds, [
-      { startSec: 0, channel: "A1", durationSec: 0.9 },
+describe("dog2.mov", () => {
+  it("waits for A mixer idle on rec 5", () => {
+    const path = resolve("dfextract/out/MOV/_DOG2/timeline.json");
+    if (!existsSync(path)) {
+      return;
+    }
+    const timeline = JSON.parse(readFileSync(path, "utf8")) as MovieTimeline;
+    expect(timeline.frames).toHaveLength(7);
+    expect(timeline.frames.map((frame) => movieFrameWaitsForAudio(frame.wait_audio))).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
     ]);
-    expect(passes).toHaveLength(1);
-    expect(passes[0]!.clips).toHaveLength(1);
-  });
-
-  it("does not split a long reel that retriggers A on one slot", () => {
-    const holds = [10];
-    const passes = planMoviePasses(holds, [
-      { startSec: 0, channel: "A2", durationSec: 0.5 },
-      { startSec: 0.15, channel: "A2", durationSec: 0.5 },
-    ]);
-    expect(passes).toHaveLength(1);
-    expect(passes[0]!.clips.map((clip) => clip.channel)).toEqual(["A2", "A2"]);
   });
 });

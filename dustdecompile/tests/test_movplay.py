@@ -52,6 +52,19 @@ class TestMovplayBinary(unittest.TestCase):
         self.assertIn("waveOutWrite", winmm[0].names)
         self.assertIn(b"waveOutOpen", self.image.data)
 
+    def test_rec_flags_bit0_waits_mixer_idle(self) -> None:
+        # test byte ptr [esp+0x56], 1  at the play loop (rec+0x1A bit 0)
+        # MOVPLAY 0x40BF6C; DF.EXE 0x419300
+        self.assertIn(bytes.fromhex("f644245601"), self.image.data)
+
+
+@unittest.skipUnless(DUST is not None, SKIP)
+class TestDfMovieWait(unittest.TestCase):
+    def test_same_rec_flag_wait_as_movplay(self) -> None:
+        assert DUST is not None
+        image = load_pe(DUST / "DF.EXE")
+        self.assertIn(bytes.fromhex("f644245601"), image.data)
+
 
 if __name__ == "__main__":
     unittest.main()

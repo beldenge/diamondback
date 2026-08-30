@@ -1,8 +1,9 @@
-"""Play an extracted MOV folder the way MOVPLAY.EXE would.
+"""Play an extracted MOV folder on a linear still clock.
 
 Reads ``timeline.json``, ``FRAMES/frame_<n>.png``, and ``AUDIO/clip_<n>.wav``
 from a dfextract dest (e.g. ``out/MOV/_INTRO``). No ffmpeg, no original
-``.MOV`` file.
+``.MOV`` file. Does **not** honor ``wait_audio`` (rec+0x1A bit 0); in-game
+``playmovie`` does.
 
     python movplay.py out/MOV/_DOG1
     python movplay.py out/MOV/_INTRO --scale 2

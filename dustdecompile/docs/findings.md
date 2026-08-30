@@ -499,7 +499,29 @@ Group A is **not** started at scene load. The play loop calls
 `0x40C1A0(slot)` → `0x40FB60` when the current 80-byte record’s
 **`u16 +32` is 1-based and non-zero**. Same slot again **restarts**
 that object (INTRO2 A2 is retriggered many times ~9 ticks apart).
-Different A slots overlap. A new scene can fire its first line while
+Different A slots overlap.
+
+**rec+0x1A bit 0 (proven in `DF.EXE` and `MOVPLAY.EXE`)** — after
+`start_A` and the rec+0 command pass, `test byte [esp+0x56], 1` then
+`call 0x4026F0` / `0x40FA00`. That function busy-waits
+`GetMessage`/`mix_go` until mixer channel 0 (`obj+0x39` at
+`[0x448F19]` / `[0x431401]`) is idle (`mix_poll` head==tail). Then the
+hold spin. If the wait overruns the rec’s hold, the deadline is already
+past and the playhead advances immediately. `dog1.mov` sets this on recs
+2 and 4 (the still after each A1 stamp): growl 1 finishes on the first
+close still, then rec 3 stamps A1 again. Two full growls, two mouth
+pairs, one 59-tick table. Not a remake double-pass. After the last
+WAVEHDR `WOM_DONE`s, queued count `[0x43131c]` is 0 (`0x40EE46`). The
+next A start’s `waveOutWrite` does Pause/Write/Restart (`0x40F3B4`).
+`dwBufferLength` is **0x4000** (`0x40F069`), device 22050 Hz 8-bit —
+one header is 0x4000/22050 ≈ 0.74 s. That empty-device write is the
+pause between dog1’s two growls (the 0x200/0x400/0x800 values at
+`0x40F5D6` are mix grains, not the waveOut header). `dog2.mov` rec 5
+is the same wait after its single A1. 71 reels in this install use the
+bit (often last stills of day-change cuts). INTRO2 A2 retriggers do
+**not**.
+
+A new scene can fire its first line while
 the previous scene’s line is still playing (INTRO `clip_325` vs
 `clip_423`); the extract **holds** that new cue until the previous
 line’s original end so the two don’t stack. `0x40B820` / `0x40B840`

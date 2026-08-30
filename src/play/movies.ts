@@ -22,6 +22,11 @@ export interface MovieFrame {
   action?: number;
   /** Type-2 slot-0 last=2 with cmd count 1: hold this still until click. */
   wait?: boolean;
+  /**
+   * rec+0x1A bit 0: after this still's A cue, block until group-A mixer
+   * idle (DF.EXE 0x419300 / MOVPLAY 0x40BF6C). dog1 recs 2 and 4.
+   */
+  wait_audio?: boolean;
   /** bell.mov / grocpots: click rects on a wait still. */
   hotspots?: MovieHotspot[];
   /** Rec+0x16. Kind 3 on a timed window plays timeout_movie if you miss. */
@@ -111,6 +116,37 @@ export function movieFrameWaitsForClick(
     return false;
   }
   return action === 1;
+}
+
+/** rec+0x1A bit 0: hold this still until group-A mixer channel 0 is idle. */
+export function movieFrameWaitsForAudio(waitAudio?: boolean): boolean {
+  return waitAudio === true;
+}
+
+/**
+ * MOVPLAY `mov [0x431310], 0x4000` (`0x40F069`) is WAVEHDR.dwBufferLength.
+ * Device is 22050 Hz 8-bit (`0x40F76A` rate-factor 2 × 11025, not 16-bit).
+ * One empty-device `waveOutWrite` (`0x40F3B4` Pause/Write/Restart when
+ * `[0x43131c]==0`) is therefore 0x4000 / 22050 s. The 0x200/0x400/0x800
+ * figures at `0x40F5D6` are mix grains, not the waveOut header.
+ */
+export const MOV_WAVEHDR_BYTES = 0x4000;
+export const MOV_WAVE_RATE = 22050;
+export const MOV_A_IDLE_RESTART_SEC = MOV_WAVEHDR_BYTES / MOV_WAVE_RATE;
+
+/** Clip indices whose start matches this rec's start (not a wall-clock window). */
+export function movieClipsAtStart(
+  startSec: number[],
+  atSec: number,
+  eps = 1e-6,
+): number[] {
+  const due: number[] = [];
+  for (let i = 0; i < startSec.length; i += 1) {
+    if (Math.abs(startSec[i]! - atSec) <= eps) {
+      due.push(i);
+    }
+  }
+  return due;
 }
 
 export function macRectContains(
@@ -219,6 +255,8 @@ export function movieIndexAt(holdSec: number[], nowSec: number): number {
 /**
  * Clip indices whose start falls in `(prevSec, nowSec]`.
  * MOVPLAY group A: same channel again restarts that slot (does not stack).
+ * Timed playback should prefer `movieClipsAtStart` per rec — wait_audio
+ * stretches wall-clock so a global window fires the next A cue too early.
  */
 export function movieClipsStarting(
   startSec: number[],
@@ -235,84 +273,4 @@ export function movieClipsStarting(
   return due;
 }
 
-export interface MovieClipPlay {
-  url?: string;
-  startSec: number;
-  channel?: string;
-  durationSec: number;
-}
 
-export interface MoviePass {
-  holdSec: number[];
-  clips: MovieClipPlay[];
-  /** Still table, stretched to let the last one-shot finish. */
-  passSec: number;
-}
-
-function stillSec(holdSec: number[]): number {
-  return holdSec.reduce((sum, hold) => sum + hold, 0);
-}
-
-function passLength(holdSec: number[], clips: MovieClipPlay[]): number {
-  const audioEnd = clips.reduce(
-    (max, clip) => Math.max(max, clip.startSec + clip.durationSec),
-    0,
-  );
-  return Math.max(stillSec(holdSec), audioEnd);
-}
-
-/**
- * Short overlays (dog1) stamp the same long A clip twice ~100 ms apart.
- * One pass with both cues either stacks into one blast (no channel)
- * or retrigger-cuts the first growl at 100 ms (one bark + twitch).
- * Two cues that close on a reel under 2 s become two sequential
- * still+audio passes, one cue each. Skipping the rest still on later
- * passes did not fix the start hitch — keep the full table.
- */
-export function planMoviePasses(
-  holdSec: number[],
-  clips: MovieClipPlay[],
-): MoviePass[] {
-  const total = stillSec(holdSec);
-  const one = (passClips: MovieClipPlay[]): MoviePass => ({
-    holdSec,
-    clips: passClips,
-    passSec: passLength(holdSec, passClips),
-  });
-  if (clips.length < 2 || total <= 0 || total > 2) {
-    return [one(clips)];
-  }
-  let copies = 1;
-  const byChannel = new Map<string, MovieClipPlay[]>();
-  for (const clip of clips) {
-    const key = clip.channel || "";
-    const list = byChannel.get(key) ?? [];
-    list.push(clip);
-    byChannel.set(key, list);
-  }
-  for (const list of byChannel.values()) {
-    if (list.length < 2) {
-      continue;
-    }
-    list.sort((a, b) => a.startSec - b.startSec);
-    const gap = list[1]!.startSec - list[0]!.startSec;
-    const duration = list[0]!.durationSec;
-    if (gap < 0.25 && (duration <= 0 || gap < duration)) {
-      copies = Math.max(copies, list.length);
-    }
-  }
-  if (copies === 1) {
-    return [one(clips)];
-  }
-  const first: MovieClipPlay[] = [];
-  const seen = new Set<string>();
-  for (const clip of clips) {
-    const key = clip.channel || `clip-${first.length}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    first.push(clip);
-  }
-  return Array.from({ length: copies }, () => one(first));
-}

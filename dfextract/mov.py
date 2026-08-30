@@ -32,6 +32,10 @@ from set import looks_like_script
 #   hold_ticks = max(dword header+0x26, dword record+2)
 #   group A (u16 header+0x1A): voice slots; start when rec+32 == 1-based index
 #     (0x40C1A0 -> 0x40FB60). Same index again restarts that slot.
+#   rec+0x1A bit 0: after start_A, busy-wait mixer channel 0 idle
+#     (DF.EXE 0x419300 call 0x4026F0; MOVPLAY 0x40BF6C call 0x40FA00).
+#     dog1 recs 2 and 4: hold the close still until that growl finishes,
+#     then the next rec stamps A1 again — two full growls, two mouth pairs.
 #   group B (u16 header+0x1C): theme playlist; u16 count at +0x34, 1-based
 #     indices at +0x83E into the B clips. Sequential, one theme channel.
 #     A scene with n_b==0 keeps the previous playlist running (0x40BA06).
@@ -67,6 +71,8 @@ PLAYLIST_OFF = 0x83E
 # towerup → towertop → towerdn; intro2 → intro3; *end → finalend.
 CMD_SIZES = {1: 0x0E, 2: 0x10, 3: 0x2E, 4: 0x30, 5: 0x0E}
 REC_END_KIND_OFF = 0x16  # u16; used when rec+0 cmd count is 0
+REC_FLAGS_OFF = 0x1A  # u16; bit 0 = wait until group-A mixer idle
+WAIT_AUDIO_FLAG = 0x1
 REC_NEXT_NAME_OFF = 0x30  # Pascal filename (type-3 chain)
 END_KIND_CHAIN = 3
 CMD_MOVIE_NAME_OFF = 16  # Pascal inside a type-4 command
@@ -173,6 +179,8 @@ class FrameHold:
     action: int = 0
     # Type-2 slot-0 last=2: inspect still, hold until click (WARNING/BONE).
     wait: bool = False
+    # rec+0x1A bit 0: DF.EXE 0x419300 / MOVPLAY 0x40BF6C busy-wait A mixer idle.
+    wait_audio: bool = False
     hotspots: tuple[ClickHotspot, ...] = ()
     # Rec+0x16. Kind 3 on a timed click window plays timeout_movie.
     end_kind: int = 0
@@ -401,6 +409,8 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
                     )
                 )
             wait = False
+            flags = struct.unpack_from("<H", rec, REC_FLAGS_OFF)[0]
+            wait_audio = bool(flags & WAIT_AUDIO_FLAG)
             spots: list[ClickHotspot] = []
             timeout_movie = ""
             end_kind = struct.unpack_from("<H", rec, REC_END_KIND_OFF)[0]
@@ -457,6 +467,7 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
                     start_tick=tick,
                     action=action,
                     wait=wait,
+                    wait_audio=wait_audio,
                     hotspots=tuple(spots),
                     end_kind=end_kind,
                     timeout_movie=(
@@ -495,6 +506,7 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
                 start_tick=frame.start_tick,
                 action=frame.action,
                 wait=frame.wait and not frame.hotspots,
+                wait_audio=frame.wait_audio,
                 hotspots=(),
                 end_kind=frame.end_kind,
                 timeout_movie=frame.timeout_movie,
@@ -761,6 +773,7 @@ def _write_timeline(timeline: ReelTimeline, out_dir: Path) -> None:
                 "start_tick": f.start_tick,
                 "action": f.action,
                 "wait": f.wait,
+                **({"wait_audio": True} if f.wait_audio else {}),
                 **(
                     {
                         "hotspots": [
@@ -801,7 +814,8 @@ def _write_timeline(timeline: ReelTimeline, out_dir: Path) -> None:
             "MOVPLAY tick=timeGetTime()*3/50; record at header+0x8C2 i*80; "
             "hold=max(header+0x26, rec+2); A cue=rec+32; B playlist at +0x83E; "
             "DF.EXE rec+0 command stream at rec+0x24 (spotmovie SFX at dest-frame last); "
-            "type-4 nested .mov; rec+0x16=3 chains rec+0x30"
+            "type-4 nested .mov; rec+0x16=3 chains rec+0x30; "
+            "rec+0x1A bit 0 waits for group-A mixer idle (DF.EXE 0x419300)"
         ),
     }
     (out_dir / "timeline.json").write_text(

@@ -1,5 +1,5 @@
 # Bugs
-- The dog sound is good but animation stutters in the beginning.  It does correctly play twice but each time it has what looks like a stutter.
+- Some movies total length in movie player are too short, but the actual movie itself seems correct
 
 # Future Concepts
 - For the real game, we need a save game capability ASAP if we want to actually make this available online.

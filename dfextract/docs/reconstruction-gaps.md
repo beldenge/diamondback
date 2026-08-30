@@ -152,6 +152,11 @@ Layout: [file-types.md](file-types.md) (MOV).
   `max(dword header+0x26, dword record+2)`.
 - **Group A** (`u16 +0x1A`): voice slots. Start when `record+32` equals
   the 1-based slot. Retrigger restarts that slot (does not stack).
+  **rec+0x1A bit 0** (`wait_audio`): after that rec’s A cue, DF.EXE
+  `0x419300` / MOVPLAY `0x40BF6C` busy-wait mixer channel 0 idle.
+  General flag (75 reels here: dog1 recs 2 and 4, dog2 rec 5, day-change
+  last stills, some intros). INTRO2 A2 retriggers do not set it. Play
+  honors it; `movplay.py` / `--video` do not (linear `start_tick`).
   A new scene that would overlap the previous scene’s still-playing A
   line is **held** until that line’s original end (INTRO 325 vs 423).
   In-game, DF.EXE also fires A-slots from the rec+0x24 command stream

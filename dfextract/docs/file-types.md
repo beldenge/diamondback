@@ -338,6 +338,10 @@ u16 B playlist[]                  @ 0x83E # 1-based indices into the B clips
     u32 extra hold                @ rec+2 # hold = max(default, extra); 0 → default
     u16 end-kind                  @ rec+0x16 # when cmd count is 0: 1 = stop, 3 = playmovie Pascal at rec+0x30 (0x419a24)
     u16 still container           @ rec+28 # relative to this scene header’s index
+    u16 rec+0x1A flags            # bit 0: after this rec’s A cue, busy-wait mixer
+                                  # channel 0 idle (DF.EXE 0x419300 → 0x4026F0;
+                                  # MOVPLAY 0x40BF6C → 0x40FA00). dog1 recs 2 and 4.
+                                  # Extract `wait_audio`. 75 reels in this install.
     u16 group-A slot              @ rec+32 # 0 = none; else 1-based, retrigger restarts
     u32 cmd stream                @ rec+0x24 # offset in the scene header of DF.EXE commands
     Pascal next .mov              @ rec+0x30 # towerup→towertop, towertop→towerdn, intro2→intro3
@@ -384,15 +388,18 @@ was already there. Each scene installs its **own palette** at `+0x3E`;
 PNG/RGB use that palette, not container 0’s.
 
 **Group A** starts when `record+32` matches the slot. Same slot again
-restarts that clip (INTRO2 A2). A new scene that would start while the
-previous scene’s A line is still playing is **held** until that line’s
-original end (INTRO `clip_325` vs `clip_423`). **Group B** is a
-sequential playlist; `n_b == 0` keeps the previous bed.
+restarts that clip (INTRO2 A2). **rec+0x1A bit 0** holds the still until
+mixer channel 0 is idle (`wait_audio`; dog1 recs 2 and 4, 75 reels here).
+A new scene that would start while the previous scene’s A line is still
+playing is **held** until that line’s original end (INTRO `clip_325` vs
+`clip_423`). **Group B** is a sequential playlist; `n_b == 0` keeps the
+previous bed.
 
 INTRO.MOV: 638 frames, 27 audio clips, **42.15 s**. INTRO2: 354 frames,
 **18.60 s**. INTRO3: 1475 frames, **101.30 s**. Three intros ≈ **162 s**
 of picture (was 176 s at a flat 14 fps). SALUP stairs **1.73 s**.
-`DOG1` / `DOG2` overlays are ~1 s (same table, not `playmovie` reels).
+`DOG1` / `DOG2` still tables are ~1 s; in-game `wait_audio` stretches
+them through the growls.
 
 Sidecar WAVs go under `AUDIO/` with `--audio`. `--video` is **opt-in**
 (`python cli.py` does not mux). To watch without an mp4:
