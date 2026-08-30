@@ -22,7 +22,7 @@ npm run dev
 
 Open http://localhost:5173 — title chooser (three cards). Cards switch in-page; they do not reload the document. Vite serves stills from `dfextract/out/` at `/extract/…`.
 
-**Dust: Resurrected** (`/?mode=resurrected`): the VM game (Day 1 night through hotel sleep). Original dashboard, CST sprites, PUP talking-heads. Needs a full extract (PUP/CST/FLT/PRP, not just SET stills). Boot skips intros unless `&intro=1`. Playback notes: [`src/play/README.md`](src/play/README.md).
+**Dust: Resurrected** (`/?mode=resurrected`): the VM game (Day 1 night through Day 5 endings). Original dashboard, CST sprites, PUP talking-heads. Skull HUD is the extracted `score` flat (Save / Open / Quit / Credits). Saves live in the browser (`localStorage`) and download a `.rtd` JSON; Open can import that file. `/?mode=resurrected&continue=1` restores the latest slot. Needs a full extract (PUP/CST/FLT/PRP, not just SET stills). Boot skips intros unless `&intro=1`. Playback notes: [`src/play/README.md`](src/play/README.md).
 
 **Dust: Unlocked** (`/?mode=unlocked`): same PlayGame / VM as Resurrected, sandbox policy. Empty of story casts, every door open (`debugging`), minigame NPCs (Leroy at the range, Bolivar at the store, Dell at D7, Kid at G6, saloon blackjack/poker tables), farm animals including horses (not the dog). Bank sign cracks the safe; apoth bottles open compounding. `N` day/night; `?clock=1|2|3`. Afternoon by default so shops and tables are up. Needs the same full extract as Resurrected (PUP/CST/FLT/PRP, not just SET stills).
 
@@ -36,6 +36,7 @@ Open http://localhost:5173 — title chooser (three cards). Cards switch in-page
 | Click left / right / top of the picture | Turn or walk |
 | Click a door, then walk forward | Open (if allowed) and go inside |
 | Click a nearby person (play mode) | Talk (puppet + choices) |
+| Click the skull (play mode) | Original menu: Save, Open, Quit, Credits, keys, volume |
 | **C** (play mode) | Hide / show the black speech bar (audio keeps going) |
 
 `/?mode=unlocked&clock=1|2|3` — morning / afternoon / night (Unlocked only).

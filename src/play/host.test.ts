@@ -971,12 +971,11 @@ describe("saloon piano player", () => {
     const setup = procs.find((proc) => proc.name === "setupactor");
     const idle = procs.find((proc) => proc.name === "isaoidle");
     expect(JSON.stringify(setup)).toContain(
-      '"name":"actordeg","args":[{"type":"me"},{"type":"num","value":0}]',
+      '"name":"actordeg","args":[{"type":"me"},{"type":"num","value":64}]',
     );
-    expect(JSON.stringify(setup)).not.toContain('"value":64');
     expect(JSON.stringify(setup)).not.toContain('"value":192');
     expect(JSON.stringify(idle)).toContain('"value":20');
-    expect(JSON.stringify(idle)).toContain('"value":236');
+    expect(JSON.stringify(idle)).toContain('"value":64');
     expect(JSON.stringify(idle)).not.toContain('"value":192');
   });
 });

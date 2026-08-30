@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   findWord,
   hitFlatButton,
+  isMenuFlat,
   isPuzzleStage,
   isReaderStage,
   pointHitsFlatItem,
@@ -65,7 +66,11 @@ describe("saloon game helpers", () => {
     expect(isPuzzleStage("hist")).toBe(true);
     expect(isPuzzleStage("pages")).toBe(true);
     expect(isPuzzleStage("new")).toBe(false);
+    expect(isPuzzleStage("credits")).toBe(true);
     expect(isPuzzleStage("target")).toBe(false);
+    expect(isMenuFlat("score")).toBe(true);
+    expect(isMenuFlat("death")).toBe(true);
+    expect(isMenuFlat("mainpanel")).toBe(false);
     expect(isPuzzleStage("target.flt")).toBe(false);
     expect(shopFileOf("salgames")).toBe("salgames.prp");
     expect(shopFileOf("checkers")).toBe("checkers.prp");

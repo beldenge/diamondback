@@ -99,7 +99,7 @@ Default run (`/`) is the title chooser. Modes:
 
 | Name | URL | What |
 |---|---|---|
-| **Dust: Resurrected** | `/?mode=resurrected` | VM game (Day 1 night through hotel sleep). `&intro=1` plays openings in-game |
+| **Dust: Resurrected** | `/?mode=resurrected` | VM game (Day 1 night through Day 5 endings + credits). Skull `score` flat is Save/Open/Quit. `&intro=1` plays openings in-game. `&continue=1` loads the browser save |
 | **Dust: Unlocked** | `/?mode=unlocked` | Same engine as Resurrected; no story casts, all doors, minigame NPCs (range, checkers, tables; Dell / Kid / bounty / gang via top-bar portraits), farm animals including horses (not the dog), bank safe / apoth compounding, extracted underground Yunni cave |
 | **The Picture Show** | `/?mode=movies` | Browser reel player (`timeline.json` + PNG/WAV). Opening is selected first. Coming attractions is CD `INFO/` ads. Not inspect MOVs |
 
@@ -117,12 +117,13 @@ Default run (`/`) is the title chooser. Modes:
 - Extractor setup: [`dfextract/README.md`](dfextract/README.md). The remake does not run that tool.
 - npm package / repo name: `diamondback`.
 
-**Next:** Dust: Resurrected Day 1 night is the full authored loop: street + hotel/saloon, cards/slots, lodging (`$9` / ring), upstairs playroom, `hotbed.mov` `actionframe` → Day 2 morning, optional phase-8 Dell `FIGHT.FLT`. Unlocked also has the extracted underground Yunni cave (fountain `openfoun.mov` → hub → sundial → mine/snake/flute/tbird). Do not inpaint remaining still holes. Day 2 shops and gun/boots gates are the next story slice. Drop the Unlocked fountain override once Resurrected can put `tstone` in the box.
+**Next:** Dust: Resurrected runs extracted `advanceday` / `canadvance` through Day 5 (hotel sleep, walkabout gates, jail night, Kid, street fights, fountain `tstone`, cave, G14 endings, `credits.flt`). Save is NEW.FLT `score` `savegame` / `opengame` (browser slot + `.rtd` JSON). Unlocked still fakes the fountain lock; drop that override once a Resurrected run has put `tstone` in the box. Do not inpaint remaining still holes.
 
 ## 10. Decision Log
 
 | Date | Decision |
 |---|---|
+| 2026-08-30 | Resurrected save is extracted NEW.FLT `score` (skull) `savegame` / `opengame`, not a remake File menu. Layout of original `*.rtd` is unknown; the remake writes JSON (globals, actors, props, pose) to `localStorage` and downloads the same blob as `.rtd`. Open loads the slot or imports a file. `?continue=1` skips boot `advanceday` and restores. `questiondialog` / `quit` are the score/death buttons. Days 2–5 and G14 endings are extracted `advanceday` / `canadvance` / SET scripts — do not author a second plot. |
 | 2026-08-27 | Sprite pal 0 on SET/FLT blits is VGA black, not GDI unused-white. Pal 0 salt on doors, INVEN gun/books, and HUB skeletons was the dump; MINE.CST skeletons use MINE.SET (CST table is an RGB cube). Codec skip is *unwritten* 255; **written** 255 is VGA white (bone/ring highlights). Traps: [`dfextract/docs/images.md`](dfextract/docs/images.md). |
 | 2026-08-27 | Reader `*bord` hittest misses the codec-skip page hole (dumped PNG bbox, not HUD `y < 256` and not whole-sprite `yunnibord`). Inner click is FLT/stage `mousedown` (page turn); frame closes. |
 | 2026-08-27 | HOUSE reader `*bord` dumps from the companion FLT ColorPalette (YUNNI / HIST / PAGES / DIARY / CURE), not chroma-max over every DATA SET. That tie picked TOWN and inverted the leather (`yunnibord` `(88,80,62)` vs `yunnopen.mov` `(41,0,0)`). |

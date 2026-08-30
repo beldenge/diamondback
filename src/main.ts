@@ -2,6 +2,7 @@ import "./style.css";
 import { clientMode, needsUnlockedSpoilerWarning, type ClientMode } from "./core/mode";
 import { MovieGallery } from "./play/gallery";
 import { PlayGame } from "./play/game";
+import { browserHasSave } from "./play/save";
 
 const landing = document.getElementById("landing");
 const unlockedSpoilers = document.getElementById("unlocked-spoilers");
@@ -51,6 +52,17 @@ function showMovies(): void {
   }
 }
 
+function quitStoryToTitle(): void {
+  storyGame?.dispose();
+  storyGame = null;
+  const nextHref = `${window.location.pathname}`;
+  const here = `${window.location.pathname}${window.location.search}`;
+  if (nextHref !== here) {
+    history.pushState(null, "", nextHref);
+  }
+  applyRoute();
+}
+
 function showResurrected(): void {
   sandboxGame?.hide();
   gallery?.hide();
@@ -58,6 +70,7 @@ function showResurrected(): void {
   document.title = "Dust: Resurrected — Diamondback";
   if (!storyGame) {
     storyGame = new PlayGame("story");
+    storyGame.onQuit = quitStoryToTitle;
     storyGame.start();
   } else {
     storyGame.show();
@@ -77,8 +90,17 @@ function showUnlocked(): void {
   }
 }
 
+function refreshContinueLink(): void {
+  const link = document.querySelector(".landing-continue");
+  if (!(link instanceof HTMLElement)) {
+    return;
+  }
+  link.hidden = !browserHasSave();
+}
+
 function applyRoute(): void {
   closeUnlockedSpoilers();
+  refreshContinueLink();
   switch (currentMode()) {
     case "movies":
       showMovies();

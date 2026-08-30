@@ -77,6 +77,8 @@ import {
   findWord,
   flatPropItem,
   hitFlatButton,
+  isMenuFlat,
+  isMenuFlatProp,
   isPuzzleStage,
   isReaderBorderProp,
   isReaderStage,
@@ -91,6 +93,21 @@ import {
   type PuzzleBoard,
   type PuzzleLabel,
 } from "./puzzle";
+import {
+  DEFAULT_SAVE_TITLE,
+  SAVE_ENGINE,
+  SAVE_FORMAT,
+  defaultSavePort,
+  downloadSaveBlob,
+  facingFromSave,
+  pickSaveFile,
+  saveJsonToValue,
+  valueToSaveJson,
+  type ActorSnap,
+  type PropSnap,
+  type SaveBlob,
+  type SavePort,
+} from "./save";
 import {
   actionFrameAfterPlay,
   clipUrl,
@@ -310,6 +327,13 @@ export interface WorldView {
   /** NEW.FLT `gotoflat ("avatar")` after a reader closes. */
   showHudFlat?(name: string): void;
   setWorldVisible?(on: boolean): void;
+  /** Score/death `questiondialog`. Missing → false (do not quit/save). */
+  questionDialog?(prompt: string): Promise<boolean>;
+  noteDialog?(prompt: string): Promise<void>;
+  quitToTitle?(): void;
+  /** Score Open: import a downloaded `.rtd`. Cancel falls back to the slot. */
+  importSave?(): Promise<SaveBlob | undefined>;
+  exportSave?(blob: SaveBlob): Promise<void>;
 }
 
 /** Scene dumps that actually contain scripts (not every cell in the 225 table). */
@@ -437,6 +461,16 @@ export class DustHost implements OpcodeHost {
    * minigame NPCs (Leroy, Bolivar, TARGET) and farm animals (not the dog).
    */
   sandbox = false;
+  /**
+   * Skip extracted `advanceday` for one boot (Continue). Same lookup
+   * hole as Unlocked, without `debugging` / hiding story casts.
+   */
+  skipStoryAdvance = false;
+  savePort: SavePort = defaultSavePort();
+  /** Dust `wavevolume` 0–9. Score slider and `menuvolume`. */
+  waveVolume = 5;
+  /** Dust `puppetparam`. Index 7 is the score-flat subtitle check. */
+  private puppetParams: number[] = [];
   /** Unlocked `?clock=` (default afternoon). Story ignores this. */
   sandboxClock: ClockSlot | undefined;
   /** Top-bar spawns. Re-placed after `initall` / N; fight scouts drop on `closefight`. */
@@ -566,10 +600,13 @@ export class DustHost implements OpcodeHost {
 
   /** Unlocked replaces extracted `advanceday` (Day 1 night + story casts). */
   private sandboxSuppress(name: string): boolean {
+    const op = name.toLowerCase();
+    if (this.skipStoryAdvance && op === "advanceday") {
+      return true;
+    }
     if (!this.sandbox) {
       return false;
     }
-    const op = name.toLowerCase();
     return op === "advanceday" || op === "openfight" || op === "closefight";
   }
 
@@ -856,6 +893,18 @@ export class DustHost implements OpcodeHost {
         return 0;
       }
       case "notedialog":
+        await this.view?.noteDialog?.(str(args[0]));
+        return 0;
+      case "questiondialog":
+        if (this.view?.questionDialog) {
+          return (await this.view.questionDialog(str(args[0]))) ? 1 : 0;
+        }
+        return 0;
+      case "savegame":
+        await this.saveGame(ctx, str(args[0] ?? DEFAULT_SAVE_TITLE));
+        return 0;
+      case "opengame":
+        await this.openGame(ctx, str(args[0] ?? DEFAULT_SAVE_TITLE));
         return 0;
       case "message":
         this.view?.log(str(args[0]));
@@ -1043,7 +1092,17 @@ export class DustHost implements OpcodeHost {
         return pose ? pose.x + 1 : 0;
       }
       case "wavevolume":
-        return 5;
+        if (args.length) {
+          this.waveVolume = Math.max(0, Math.min(9, Math.trunc(num(args[0]))));
+        }
+        return this.waveVolume;
+      case "puppetparam": {
+        const index = Math.trunc(num(args[0]));
+        if (args.length >= 2) {
+          this.puppetParams[index] = num(args[1]);
+        }
+        return this.puppetParams[index] ?? 0;
+      }
       case "themevol":
         return 0;
       case "soundvol":
@@ -1082,6 +1141,7 @@ export class DustHost implements OpcodeHost {
       case "substring":
         return substringIndex(str(args[0]), str(args[1]));
       case "quit":
+        this.view?.quitToTitle?.();
         this.view?.log("quit");
         return 0;
       case "error":
@@ -2739,6 +2799,10 @@ export class DustHost implements OpcodeHost {
         this.stageHits.set(fname, hits);
         for (const hit of hits) {
           const bfile = hit.file ?? `mousedown _arg__${hit.script}.json`;
+          // Death skull `script_37.json` was never dumped (flags-only hit).
+          if (/^script_\d+\.json$/i.test(bfile)) {
+            continue;
+          }
           await this.addScriptFile(`button:${fname}:${hit.name}`, `${folder}/${bfile}`);
         }
       }
@@ -2956,6 +3020,19 @@ export class DustHost implements OpcodeHost {
       return;
     }
     this.view?.showHudLabels?.([]);
+    if (this.menuBoardUp()) {
+      const stillUrl = this.stageStills.get(this.currentFlatName);
+      if (!stillUrl) {
+        this.view?.showPuzzle?.(null);
+        return;
+      }
+      this.view?.showPuzzle?.({
+        stillUrl,
+        items: this.menuFlatItems(),
+        labels: this.puzzleLabels,
+      });
+      return;
+    }
     if (!isPuzzleStage(this.currentStageName)) {
       this.view?.showPuzzle?.(null);
       return;
@@ -2979,15 +3056,28 @@ export class DustHost implements OpcodeHost {
     }
   }
 
+  private menuBoardUp(): boolean {
+    const stage = this.currentStageName.toLowerCase().replace(/\.flt$/i, "");
+    return isMenuFlat(this.currentFlatName) && (stage === "new" || stage === "none");
+  }
+
+  private menuFlatItems(): ReturnType<typeof flatPropItem>[] {
+    return this.blitFlatProps((prop) => isMenuFlatProp(prop.name));
+  }
+
   private puzzleItems(): ReturnType<typeof flatPropItem>[] {
-    const items: ReturnType<typeof flatPropItem>[] = [];
     const shop = this.puzzleShop;
+    return this.blitFlatProps(
+      (prop) => (shop && prop.shop === shop) || isReaderBorderProp(prop.name),
+    );
+  }
+
+  private blitFlatProps(
+    keep: (prop: PropState) => boolean,
+  ): ReturnType<typeof flatPropItem>[] {
+    const items: ReturnType<typeof flatPropItem>[] = [];
     const props = [...this.props.values()]
-      .filter(
-        (prop) =>
-          prop.visible &&
-          ((shop && prop.shop === shop) || isReaderBorderProp(prop.name)),
-      )
+      .filter((prop) => prop.visible && keep(prop))
       .sort((a, b) => b.dist - a.dist);
     for (const prop of props) {
       const view = (prop.view || "normal").toLowerCase();
@@ -3181,6 +3271,221 @@ export class DustHost implements OpcodeHost {
       }
     }
     this.pendingOpenProps = [];
+  }
+
+  captureSnapshot(ctx: VM, title = DEFAULT_SAVE_TITLE): SaveBlob {
+    const pose = this.view?.pose;
+    const facing = pose?.facing ?? parseDir(String(this.currentDir)) ?? "N";
+    const globals: SaveBlob["globals"] = {};
+    for (const name of ctx.globalNames) {
+      globals[name] = valueToSaveJson(ctx.globals.get(name));
+    }
+    for (const [name, value] of ctx.globals) {
+      if (!(name in globals)) {
+        globals[name] = valueToSaveJson(value);
+      }
+    }
+    const actors: ActorSnap[] = [...this.actors.values()].map((actor) => ({
+      name: actor.name,
+      cast: actor.cast,
+      visible: actor.visible,
+      set: actor.set,
+      star: actor.star,
+      x: actor.x,
+      y: actor.y,
+      z: actor.z,
+      deg: actor.deg,
+      scale: actor.scale,
+      pose: actor.pose,
+      owner: actor.owner,
+      value: actor.value,
+      variable: actor.variable,
+      hitboxW: actor.hitboxW,
+      hitboxH: actor.hitboxH,
+      speed: actor.speed,
+      turnSpeed: actor.turnSpeed,
+      zclip: actor.zclip,
+      screen: actor.screen,
+      is3d: actor.is3d,
+    }));
+    const props: PropSnap[] = [...this.props.values()].map((prop) => ({
+      name: prop.name,
+      shop: prop.shop,
+      visible: prop.visible,
+      owner: prop.owner,
+      view: prop.view,
+      set: prop.set,
+      star: prop.star,
+      x: prop.x,
+      y: prop.y,
+      z: prop.z,
+      scale: prop.scale,
+      deg: prop.deg,
+      value: prop.value,
+      speed: prop.speed,
+      zclip: prop.zclip,
+      screen: prop.screen,
+      dist: prop.dist,
+      animTick: prop.animTick,
+      openedAt: prop.openedAt,
+    }));
+    return {
+      format: SAVE_FORMAT,
+      engine: SAVE_ENGINE,
+      title: title.trim() || DEFAULT_SAVE_TITLE,
+      savedAt: new Date().toISOString(),
+      globals,
+      globalNames: [...ctx.globalNames],
+      pose: {
+        world: this.view?.world ?? (this.currentSet === "town" ? "town" : this.currentSet),
+        x: pose?.x ?? 6,
+        y: pose?.y ?? 14,
+        facing,
+      },
+      setFile: this.currentSetFile,
+      currentSet: this.currentSet,
+      currentScene: this.currentScene,
+      currentView: dirWord(this.currentDir),
+      currentFlat: this.currentFlatName,
+      currentStage: this.currentStageName,
+      puzzleShop: this.puzzleShop,
+      waveVolume: this.waveVolume,
+      puppetParams: [...this.puppetParams],
+      actors,
+      props,
+    };
+  }
+
+  async restoreSnapshot(ctx: VM, blob: SaveBlob): Promise<void> {
+    this.stopLoop("scene", "all");
+    this.stopLoop("actor", "all");
+    this.stopLoop("prop", "all");
+    this.stopLoop("flat", "all");
+    await this.call("stopwalk", ["all"], ctx);
+    this.ui.close();
+    this.currentPuppet = "none";
+    this.puppetShown = false;
+    for (const name of blob.globalNames) {
+      ctx.globalNames.add(name);
+    }
+    ctx.globals.clear();
+    for (const [name, raw] of Object.entries(blob.globals)) {
+      ctx.globals.set(name, saveJsonToValue(raw));
+      ctx.globalNames.add(name);
+    }
+    this.waveVolume = blob.waveVolume;
+    this.puppetParams = [...blob.puppetParams];
+    this.currentScene = blob.currentScene;
+    this.currentDir = parseDir(blob.currentView) ?? facingFromSave(blob.pose.facing);
+    this.currentFlatName = blob.currentFlat || "mainpanel";
+    if (blob.setFile) {
+      await this.openSet(blob.setFile);
+    }
+    for (const actor of this.actors.values()) {
+      actor.visible = false;
+      this.clearWalk(actor);
+    }
+    for (const snap of blob.actors) {
+      await this.ensureActor(snap.name);
+      const actor = this.namedActor(snap.name);
+      actor.cast = snap.cast || actor.cast;
+      actor.visible = snap.visible;
+      actor.set = snap.set;
+      actor.star = snap.star;
+      actor.x = snap.x;
+      actor.y = snap.y;
+      actor.z = snap.z;
+      actor.deg = snap.deg;
+      actor.scale = snap.scale;
+      actor.pose = snap.pose;
+      actor.owner = snap.owner;
+      actor.value = snap.value;
+      actor.variable = snap.variable;
+      actor.hitboxW = snap.hitboxW;
+      actor.hitboxH = snap.hitboxH;
+      actor.speed = snap.speed;
+      actor.turnSpeed = snap.turnSpeed;
+      actor.zclip = snap.zclip;
+      actor.screen = snap.screen;
+      actor.is3d = snap.is3d;
+      this.clearWalk(actor);
+      this.attachCastSprites(actor, actor.name);
+    }
+    for (const snap of blob.props) {
+      const prop = this.namedProp(snap.name);
+      prop.shop = snap.shop || prop.shop;
+      prop.visible = snap.visible;
+      prop.owner = snap.owner;
+      prop.view = snap.view;
+      prop.set = snap.set;
+      prop.star = snap.star;
+      prop.x = snap.x;
+      prop.y = snap.y;
+      prop.z = snap.z;
+      prop.scale = snap.scale;
+      prop.deg = snap.deg;
+      prop.value = snap.value;
+      prop.speed = snap.speed;
+      prop.zclip = snap.zclip;
+      prop.screen = snap.screen;
+      prop.dist = snap.dist;
+      prop.animTick = snap.animTick;
+      prop.openedAt = snap.openedAt;
+    }
+    const facing = facingFromSave(blob.pose.facing);
+    if (this.view) {
+      const world = blob.pose.world || this.view.world;
+      await this.view.setPose(world, {
+        x: blob.pose.x,
+        y: blob.pose.y,
+        facing,
+      });
+    }
+    this.currentDir = facing;
+    this.worldVisible = true;
+    this.view?.setWorldVisible?.(true);
+    await this.activateFlat(ctx, blob.currentFlat || "mainpanel");
+    await this.rearmHudFlat(ctx);
+    this.view?.refreshActors();
+    this.syncPuzzleView();
+  }
+
+  async saveGame(ctx: VM, title: string): Promise<void> {
+    const blob = this.captureSnapshot(ctx, title);
+    await this.savePort.write(title, blob);
+    if (this.view?.exportSave) {
+      await this.view.exportSave(blob);
+    } else {
+      downloadSaveBlob(blob);
+    }
+    this.view?.log(`saved ${blob.title}`);
+  }
+
+  async openGame(ctx: VM, title: string): Promise<void> {
+    let blob: SaveBlob | undefined;
+    if (this.view?.importSave) {
+      blob = await this.view.importSave();
+    } else {
+      blob =
+        (await pickSaveFile()) ??
+        (await this.savePort.read(title)) ??
+        (await this.savePort.latest?.());
+    }
+    if (!blob) {
+      await this.view?.noteDialog?.("No saved game.");
+      this.view?.log("no saved game");
+      return;
+    }
+    await this.restoreSnapshot(ctx, blob);
+    this.view?.log(`loaded ${blob.title}`);
+  }
+
+  async hasSave(title = DEFAULT_SAVE_TITLE): Promise<boolean> {
+    const slot = await this.savePort.read(title);
+    if (slot) {
+      return true;
+    }
+    return Boolean(await this.savePort.latest?.());
   }
 
   /**
@@ -3785,7 +4090,7 @@ export class DustHost implements OpcodeHost {
 
   private hitTest(point: Point, handitem = ""): string {
     this.clickAbsorbed = false;
-    if (isPuzzleStage(this.currentStageName)) {
+    if (isPuzzleStage(this.currentStageName) || this.menuBoardUp()) {
       return this.hitTestPuzzle(point);
     }
     const range = this.currentSet === "target";
@@ -3854,7 +4159,15 @@ export class DustHost implements OpcodeHost {
 
   private hitTestPuzzle(point: Point): string {
     const shop = this.puzzleShop;
-    const items = this.puzzleItems();
+    if (this.menuBoardUp()) {
+      const menuHit = hitFlatButton(this.stageHits.get(this.currentFlatName) ?? [], point.x, point.y);
+      if (menuHit) {
+        this.hitKind = "button";
+        this.clickAbsorbed = true;
+        return menuHit.name;
+      }
+    }
+    const items = this.menuBoardUp() ? this.menuFlatItems() : this.puzzleItems();
     const hits: string[] = [];
     for (const item of [...items].reverse()) {
       const name = item.name;
@@ -4629,15 +4942,19 @@ export function dirWord(dir: Dir | string): string {
 async function loadPropSheet(folder: string): Promise<
   { group?: string; state?: string; path?: string; x?: number; y?: number; w?: number; h?: number }[]
 > {
+  const fromProps = await fetchJson<
+    { group?: string; state?: string; path?: string; x?: number; y?: number; w?: number; h?: number }[]
+  >(extractUrl(`${folder}/props.json`)).catch(() => []);
+  if (fromProps.length) {
+    return fromProps;
+  }
   const sidecar = await fetchJson<{
     props?: { group?: string; state?: string; path?: string; x?: number; y?: number; w?: number; h?: number }[];
   }>(extractUrl(`${folder}/sprites.json`)).catch(() => null);
   if (sidecar?.props?.length) {
     return sidecar.props;
   }
-  return fetchJson<
-    { group?: string; state?: string; path?: string; x?: number; y?: number; w?: number; h?: number }[]
-  >(extractUrl(`${folder}/props.json`)).catch(() => []);
+  return [];
 }
 
 function truthyArg(value: Value): boolean {

@@ -75,7 +75,7 @@ the default if you only have the name.
 | `@` | String concat (confirmed in dumps); any other use? |
 | `plugin` / `pluginfx` | Leaves the script VM (see §3) |
 | `path` | Virtual FS (`dust:data:`) vs real folders |
-| `savegame` / `opengame` / `dumpglobal` | Filter in `DF.EXE` is `*.rtd`. No save in this install. Layout unknown. |
+| `savegame` / `opengame` / `dumpglobal` | Filter in `DF.EXE` is `*.rtd`. No original save in this install. Layout unknown. Remake `savegame` writes JSON (VM globals + actors + props + pose) to `localStorage` and a downloaded `.rtd`; `opengame` loads that. Score/death flats are the menu. |
 
 Anything printed as `cmd_<number>` is an opcode **not** in the 4.0
 table. Treat as unknown; do not guess.

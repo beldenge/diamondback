@@ -1,6 +1,7 @@
 # Dust: Resurrected (`/?mode=resurrected`)
 
-How the remake runs Day 1 night: original HUD under the stills, CST actors,
+How the remake runs the extracted story (Day 1 night through Day 5
+endings and credits): original HUD under the stills, CST actors,
 PUP talking-heads, world props, night FX, and spot-movies, all driven by
 extracted DreamFactory scripts (boot → `advanceday` → SET/CST/PRP). Extract formats live in
 [`dfextract/docs/`](../../dfextract/docs/). **Never edit `dfextract/out/`**
@@ -120,6 +121,11 @@ Code: [`sceneName.ts`](sceneName.ts).
 | Lodging / sleep | Fear sells the room for $9 at `phase = 4` (Blood’s cigar), or takes Help’s ring. `phase = 5` unlocks the upstairs playroom. Click the bed sign → `hotbed.mov` → `actionframe (1)` → `advanceday` (Day 2 morning in the room, `d1nd2m.mov`). |
 | Dell fight | Optional. After the key (`phase = 7`), leave the hotel looking **west** (G5) → `phase = 8`, Jones walks you; D7 south starts `FIGHT.FLT`. Sleep at `phase = 5` skips it. |
 | Locked | Jail, chin (until `phase >= 2`), bank, apoth, store, doctor, stage. Hotel + saloon open. Saloon upstairs: Ruby knock-talk; Oona’s room is locked this night; Mazie is knock-only. |
+| Menu / save | Skull HUD (`horn`) is extracted `gotoflat (4)` → NEW.FLT `score`. Save/Open/Quit/Credits/volume/keys are FLT buttons, not a remake File menu. `savegame` writes JSON to `localStorage` and downloads `.rtd` (original `*.rtd` layout unknown). `opengame` loads that slot or imports a file. Death uses the `death` flat (New / Open / Quit). |
+
+Later days are the same `advanceday` / `canadvance` / SET scripts, not a second plot. Day 2 morning shops follow `lock*` (`phase < 2` still knocks). Two of gun/boots/bullets (`day2items > 1`) plus street `triggerx` walkabout → `d2md2a.mov`. Day 2 night is jail (`d2ad2n.mov`). Kid G5 `kiddie.mov` is the extracted walk-in, then `advanceday`. Day 3 item gates are Jones’s ring + `pages`, then mask/book/flute. Day 3 night sleep needs `day3bedtime` (`tbird` + `tstone` + `phase > 3`). Day 4 afternoon is extracted `openfight` (not Unlocked `sandboxfight`). Day 4 night fountain is extracted (`tstone` in the box) — Unlocked still fakes that lock. Day 5 G14 south is the five-ending puppet chain (`trottend` / `mayorend` / `marieend` / `yunniend` / `deserend`) then `credits.flt` `scrollnames`. `/?mode=resurrected&continue=1` skips boot `advanceday` and restores. Code: [`save.ts`](save.ts). Tests: [`save.test.ts`](save.test.ts), [`story.test.ts`](story.test.ts).
+
+Do not treat the skull overlay as a click-to-dismiss poster — that dropped Save/Open. `score` / `death` are menu flats on NEW.FLT (`isMenuFlat`); `isPuzzleStage("new")` stays false so the street still uses world hits.
 
 `gotointerior` (`gotospecial` with an empty scene) stands at the SET
 header spawn (+48 camera tile), not the street cell you left. Mapping
@@ -1365,4 +1371,5 @@ can stall the same device. Cue the bed and start it on a later user click
 - HOUSE door overlays (all buildings): this file, [HOUSE door overlays](#house-door-overlays)
 - TARGET shooting range (FLT HUD, gunhand, EXIT, casts, Z, palettes): this file, [TARGET shooting range](#target-shooting-range)
 - Unlocked underground Yunni (fountain, hub, sundial, mine/snake/flute/tbird): this file, [Unlocked underground](#unlocked-underground-yunni)
+- Save / score / death / Day 2–5 gates: this file, First evening table + later-days paragraph
 - PUP viseme tracks (per-character `idle 1`–`4`): this file, [PUP viseme tracks](#pup-viseme-tracks)

@@ -2,6 +2,13 @@ import { Color, Timer, WebGLRenderer } from "three";
 import { isClockSlot, toggleDayNight, type ClockSlot } from "../core/time";
 import { VM, type Point } from "../vm/runtime";
 import {
+  DEFAULT_SAVE_TITLE,
+  downloadSaveBlob,
+  pickSaveFile,
+  storyContinueFromSearch,
+  type SaveBlob,
+} from "./save";
+import {
   SANDBOX_INVEN_LAYOUT_DAY,
   SANDBOX_TOYS,
   sandboxClockFromSearch,
@@ -218,6 +225,7 @@ export class PlayGame implements WorldView {
   pose: WalkerPose = { x: 6, y: 14, facing: "N" };
   world = WORLD_TOWN;
   graph!: SetGraph;
+  onQuit: (() => void) | null = null;
 
   private readonly renderer: WebGLRenderer;
   private readonly timer = new Timer();
@@ -247,6 +255,9 @@ export class PlayGame implements WorldView {
 
   private booting = true;
   private visible = true;
+  private dialogEl: HTMLDialogElement | null = null;
+  private dialogCopy: HTMLParagraphElement | null = null;
+  private dialogActions: HTMLDivElement | null = null;
   private scriptsReady = false;
   private logLine = "";
   private readonly loadEl: HTMLDivElement;
@@ -417,6 +428,7 @@ export class PlayGame implements WorldView {
     this.hudEl.addEventListener("mousemove", (event) => this.onHudMove(event));
     this.host = new DustHost(this.ui);
     this.host.sandbox = kind === "sandbox";
+    this.mountDialog();
     const params = new URLSearchParams(location.search);
     this.host.skipMovies = kind === "sandbox" || !params.has("intro");
     if (kind === "sandbox") {
@@ -621,12 +633,126 @@ export class PlayGame implements WorldView {
     this.renderer.setAnimationLoop(null);
     this.stageEl.hidden = true;
     this.captionEl.hidden = true;
+    this.dialogEl?.close();
     document.body.classList.remove("play");
+  }
+
+  dispose(): void {
+    this.hide();
+    this.renderer.dispose();
+    this.stageEl.remove();
+    this.captionEl.remove();
+    this.dialogEl?.remove();
+  }
+
+  async questionDialog(prompt: string): Promise<boolean> {
+    const choice = await this.askDialog(prompt, [
+      { id: "yes", label: "Yes" },
+      { id: "no", label: "No" },
+    ]);
+    return choice === "yes";
+  }
+
+  async noteDialog(prompt: string): Promise<void> {
+    await this.askDialog(prompt, [{ id: "ok", label: "OK" }]);
+  }
+
+  quitToTitle(): void {
+    this.onQuit?.();
+  }
+
+  async importSave(): Promise<SaveBlob | undefined> {
+    const has = await this.host.hasSave();
+    if (!has) {
+      return pickSaveFile();
+    }
+    const choice = await this.askDialog("Open a saved game?", [
+      { id: "load", label: "Load" },
+      { id: "import", label: "Import…" },
+      { id: "cancel", label: "Cancel" },
+    ]);
+    if (choice === "import") {
+      return pickSaveFile();
+    }
+    if (choice === "load") {
+      return (
+        (await this.host.savePort.latest?.()) ??
+        (await this.host.savePort.read(DEFAULT_SAVE_TITLE))
+      );
+    }
+    return undefined;
+  }
+
+  async exportSave(blob: SaveBlob): Promise<void> {
+    downloadSaveBlob(blob);
   }
 
   log(message: string): void {
     this.logLine = message;
     this.syncHud();
+  }
+
+  private mountDialog(): void {
+    const dialog = document.createElement("dialog");
+    dialog.id = "play-dialog";
+    dialog.setAttribute("aria-labelledby", "play-dialog-copy");
+    const panel = document.createElement("div");
+    panel.className = "landing-dialog-panel";
+    const kicker = document.createElement("p");
+    kicker.className = "landing-dialog-kicker";
+    kicker.textContent = "Dust";
+    const copy = document.createElement("p");
+    copy.id = "play-dialog-copy";
+    const actions = document.createElement("div");
+    actions.className = "landing-dialog-actions";
+    panel.append(kicker, copy, actions);
+    dialog.append(panel);
+    document.body.append(dialog);
+    this.dialogEl = dialog;
+    this.dialogCopy = copy;
+    this.dialogActions = actions;
+  }
+
+  private askDialog(
+    prompt: string,
+    buttons: ReadonlyArray<{ id: string; label: string }>,
+  ): Promise<string | undefined> {
+    const dialog = this.dialogEl;
+    const actions = this.dialogActions;
+    if (!dialog || !actions || !this.dialogCopy) {
+      return Promise.resolve(buttons[0]?.id);
+    }
+    this.dialogCopy.textContent = prompt;
+    actions.replaceChildren();
+    return new Promise((resolve) => {
+      const finish = (id?: string): void => {
+        dialog.removeEventListener("close", onClose);
+        if (dialog.open) {
+          dialog.close();
+        }
+        resolve(id);
+      };
+      const onClose = (): void => finish(dialog.returnValue || undefined);
+      for (const button of buttons) {
+        const el = document.createElement("button");
+        el.type = "button";
+        el.value = button.id;
+        el.textContent = button.label;
+        if (button.id === "yes" || button.id === "ok" || button.id === "load") {
+          el.className = "landing-dialog-enter";
+        }
+        el.addEventListener("click", () => {
+          dialog.returnValue = button.id;
+          finish(button.id);
+        });
+        actions.append(el);
+      }
+      dialog.returnValue = "";
+      dialog.addEventListener("close", onClose);
+      if (!dialog.open) {
+        dialog.showModal();
+      }
+    });
   }
 
   walk(kind: "strait" | "left" | "right"): void {
@@ -1143,10 +1269,24 @@ export class PlayGame implements WorldView {
       this.syncHud();
       this.host.skipBootBlack = this.host.skipMovies;
       await this.host.installLibrary(this.vm);
+      const resume =
+        !this.host.sandbox &&
+        storyContinueFromSearch(location.search) &&
+        (await this.host.hasSave());
+      this.host.skipStoryAdvance = resume;
       const boot = this.host.index.lookup(["boot"], "boot");
       if (boot) {
         await this.vm.inObject("boot", "", () => this.vm.runProc(boot));
       }
+      if (resume) {
+        const blob =
+          (await this.host.savePort.latest?.()) ??
+          (await this.host.savePort.read(DEFAULT_SAVE_TITLE));
+        if (blob) {
+          await this.host.restoreSnapshot(this.vm, blob);
+        }
+      }
+      this.host.skipStoryAdvance = false;
       if (this.host.sandbox) {
         await this.host.seedSandboxInventory(this.vm);
       }
@@ -1173,6 +1313,7 @@ export class PlayGame implements WorldView {
       this.syncHud();
     } finally {
       this.host.skipBootBlack = false;
+      this.host.skipStoryAdvance = false;
     }
   }
 
@@ -1415,7 +1556,18 @@ export class PlayGame implements WorldView {
       return;
     }
     if (name === "horn") {
-      this.flats.show("score", cash);
+      if (!this.scriptsReady) {
+        this.flats.show("score", cash);
+        return;
+      }
+      this.talking = true;
+      try {
+        this.host.pointer = { kind: "point", x: 256, y: 330, z: 0 };
+        await this.vm.inObject("button", "horn", () => this.vm.evalCall("mousedown", []));
+      } finally {
+        this.talking = false;
+        this.syncHud();
+      }
       return;
     }
     if (name === "self") {

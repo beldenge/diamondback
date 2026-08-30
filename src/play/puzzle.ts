@@ -97,6 +97,23 @@ export function isPuzzleStage(stage: string): boolean {
   return name !== "" && name !== "none" && name !== "new" && name !== "target";
 }
 
+/**
+ * NEW.FLT `score` (skull menu) and `death` are full 512×384 boards on
+ * the town stage. `isPuzzleStage("new")` stays false so the street
+ * still uses world hits.
+ */
+export function isMenuFlat(flat: string): boolean {
+  const name = flat.toLowerCase();
+  return name === "score" || name === "death";
+}
+
+/** HOUSE chrome the score / death flats `propvisible`. */
+export const MENU_FLAT_PROPS = ["slider", "keysel", "check", "butbevel"] as const;
+
+export function isMenuFlatProp(name: string): boolean {
+  return (MENU_FLAT_PROPS as readonly string[]).includes(name.toLowerCase());
+}
+
 /** HOUSE chrome around FLT readers. 512×384; page hole is codec skip 255, not pal 0. */
 export const READER_BORDER_PROPS = [
   "diarybord",
