@@ -186,7 +186,11 @@ export function movieFrameWaitsForAudio(waitAudio?: boolean): boolean {
   return waitAudio === true;
 }
 
-/** rec+0x16 == 1 and rec+0 cmd count 0: DF.EXE stops the reel. */
+/**
+ * rec+0x16 == 1 and rec+0 cmd count 0. Ends a hotspot dest *segment*
+ * (SAFEBOX take dest 17 → rec 31). Linear reels (DESEREND, INTRO3)
+ * use the same kind at scene ends — concatenated stills continue.
+ */
 export const MOV_END_STOP = 1;
 
 export function movieRecStopsReel(frame: {
@@ -328,11 +332,10 @@ export function movieFollowBedIndex(
 }
 
 /**
- * Rec+32 group A fires on that rec's start. Group B is a sequential
- * playlist chained by PCM length (INTRO2 bed 365 sits between recs
- * 363 and 366). Fire a B clip on the rec only if it starts a playlist;
- * schedule continuations at the previous buffer end so the join is not
- * rec-cut or delayed until onended.
+ * Rec+32 group A and a B playlist *head* fire in this rec's still
+ * window. Cross-scene A hold can sit a cue between rec starts
+ * (DESEREND goodbye 809 is on rec 807–819). Continuation B is
+ * scheduled at the previous buffer end, not rec-fired.
  */
 export function movieClipsForRec(
   clips: readonly MovieCue[],
@@ -341,27 +344,17 @@ export function movieClipsForRec(
   eps = 1e-6,
 ): number[] {
   const due: number[] = [];
-  const seen = new Set<number>();
-  const starts = clips.map((clip) => clip.startSec);
-  for (const index of movieClipsAtStart(starts, recStart, eps)) {
-    if (movieGroupBChannel(clips[index]?.channel)) {
-      continue;
-    }
-    due.push(index);
-    seen.add(index);
-  }
   const end = recEnd > recStart ? recEnd : recStart + eps;
   for (let i = 0; i < clips.length; i += 1) {
-    if (seen.has(i) || !movieGroupBChannel(clips[i]?.channel)) {
-      continue;
-    }
     const at = clips[i]!.startSec;
     if (at + eps < recStart || at >= end) {
       continue;
     }
-    const prev = previousBedClip(clips, i);
-    if (prev && movieBedContinues(prev, clips[i]!)) {
-      continue;
+    if (movieGroupBChannel(clips[i]?.channel)) {
+      const prev = previousBedClip(clips, i);
+      if (prev && movieBedContinues(prev, clips[i]!)) {
+        continue;
+      }
     }
     due.push(i);
   }

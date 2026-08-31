@@ -983,9 +983,6 @@ export class PlayGame implements WorldView {
         });
       }
       tableSec = recStart + rest;
-      if (movieRecStopsReel(frame)) {
-        break;
-      }
     }
   }
 
@@ -1036,9 +1033,6 @@ export class PlayGame implements WorldView {
       tableSec = recStart + hold;
       if (movieFrameWaitsForClick(frame.action, frame.wait)) {
         await this.waitMovieClick();
-      }
-      if (movieRecStopsReel(frame)) {
-        break;
       }
     }
     return true;

@@ -199,12 +199,40 @@ describe("spotmovie SFX commands", () => {
     ]);
   });
 
-  it("cmd-count 0 end_kind 1 stops the reel", () => {
+  it("cmd-count 0 end_kind 1 ends a dest segment", () => {
     expect(movieRecStopsReel({ action: 0, endKind: 1 })).toBe(true);
     expect(movieRecStopsReel({ action: 2, endKind: 1 })).toBe(false);
     expect(movieRecStopsReel({ action: 0, wait: true, endKind: 1 })).toBe(false);
     expect(movieRecStopsReel({ action: 0, endKind: 2 })).toBe(false);
     expect(movieRecStopsReel({ action: 0, end_kind: 1 })).toBe(true);
+  });
+
+  it("deserend town goodbye is stills after the first end_kind 1", () => {
+    const path = resolve("dfextract/out/MOV/_DESEREND/timeline.json");
+    if (!existsSync(path)) {
+      return;
+    }
+    const timeline = JSON.parse(readFileSync(path, "utf8")) as MovieTimeline;
+    const frames = timeline.frames ?? [];
+    const firstStop = frames.findIndex((frame) => frame.end_kind === 1);
+    expect(firstStop).toBeGreaterThan(0);
+    expect(firstStop).toBeLessThan(frames.length - 1);
+    expect(frames[firstStop + 1]?.container).toBeGreaterThan(frames[firstStop]?.container ?? 0);
+    expect(moviePlaybackSec(timeline)).toBeGreaterThan(40);
+    expect(timeline.next ?? "").toBe("");
+    const hz = timeline.tick_hz || 60;
+    const clips = (timeline.clips ?? []).map((clip) => ({
+      startSec: clip.start_tick / hz,
+      durationSec: (clip.duration_ticks ?? 0) / hz,
+      channel: clip.channel,
+    }));
+    const goodbye = clips.findIndex(
+      (clip) => clip.channel === "A1" && Math.abs(clip.startSec - 809 / hz) < 1e-6,
+    );
+    expect(goodbye).toBeGreaterThanOrEqual(0);
+    expect(movieClipsAtStart(clips.map((clip) => clip.startSec), 807 / hz)).toEqual([]);
+    expect(movieClipsForRec(clips, 787 / hz, 807 / hz)).not.toContain(goodbye);
+    expect(movieClipsForRec(clips, 807 / hz, 819 / hz)).toContain(goodbye);
   });
 
   it("SAFEBOX take-stone is a playhead jump, not a bell segment", () => {

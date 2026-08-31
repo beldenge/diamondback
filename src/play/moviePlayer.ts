@@ -7,7 +7,6 @@ import {
   movieFrameWaitsForAudio,
   movieFrameWaitsForClick,
   moviePlaybackSec,
-  movieRecStopsReel,
   movieTableEndSec,
   playMovieRecAudio,
   type MovieCue,
@@ -68,9 +67,11 @@ export class MoviePlayer {
     } = {},
   ): Promise<void> {
     const gen = ++this.gen;
+    this.bedToken.gen += 1;
     this.clearTimers();
     this.images.clear();
     voices.stop();
+    voices.stopAllFx();
     const folder = movieFolder(`${stem}.mov`);
     const timeline = await loadTimeline(stem);
     if (gen !== this.gen) {
@@ -219,9 +220,6 @@ export class MoviePlayer {
         });
       }
       wall += hold;
-      if (movieRecStopsReel(frame)) {
-        return;
-      }
     }
   }
 
@@ -274,9 +272,6 @@ export class MoviePlayer {
       wall += hold;
       if (movieFrameWaitsForClick(frame.action, frame.wait) && waitClick) {
         await waitClick();
-      }
-      if (movieRecStopsReel(frame)) {
-        return;
       }
     }
   }

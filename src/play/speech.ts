@@ -26,6 +26,9 @@ export class VoiceBank {
   private readonly buffers = new Map<string, AudioBuffer>();
   /** Live sources per mixer slot (queued B keeps more than one). */
   private readonly fxStops = new Map<string, Set<() => void>>();
+  /** Unchanneled one-shots (stopAllFx must still halt them). */
+  private readonly fxOrphans = new Set<() => void>();
+  private fxGen = 0;
   private readonly fxEnded = new Map<string, Promise<void>>();
   private readonly fxEndedResolve = new Map<string, () => void>();
   /** performance.now() when this A/B channel's current one-shot should end. */
@@ -137,11 +140,16 @@ export class VoiceBank {
     resolve?.();
   }
 
-  /** Stop A/B movie slots. Leaves unchanneled looping beds. */
+  /** Stop A/B movie slots and unchanneled one-shots. Leaves looping beds. */
   stopAllFx(): void {
+    this.fxGen += 1;
     for (const channel of [...this.fxStops.keys()]) {
       this.stopChannel(channel);
     }
+    for (const halt of [...this.fxOrphans]) {
+      halt();
+    }
+    this.fxOrphans.clear();
   }
 
   private stopChannel(channel: string): void {
@@ -180,9 +188,11 @@ export class VoiceBank {
     let started = false;
     let source: AudioBufferSourceNode | null = null;
     let gain: GainNode | null = null;
+    const gen = this.fxGen;
     const stop = (): void => {
       cancelled = true;
       this.looping.delete(stop);
+      this.fxOrphans.delete(stop);
       if (started && source) {
         try {
           source.stop();
@@ -205,12 +215,12 @@ export class VoiceBank {
     }
     const raw = this.raw.get(url) ?? (await this.fetchRaw(url));
     const ctx = this.ctx;
-    if (cancelled || !raw || !ctx) {
+    if (cancelled || gen !== this.fxGen || !raw || !ctx) {
       stop();
       return stop;
     }
     const buffer = this.decodeRaw(url, raw);
-    if (cancelled || !buffer) {
+    if (cancelled || gen !== this.fxGen || !buffer) {
       stop();
       return stop;
     }
@@ -226,7 +236,7 @@ export class VoiceBank {
       if (ctx.state !== "running") {
         await ctx.resume();
       }
-      if (cancelled) {
+      if (cancelled || gen !== this.fxGen) {
         stop();
         return stop;
       }
@@ -240,7 +250,7 @@ export class VoiceBank {
       );
       source.start(startAt);
       started = true;
-      if (cancelled) {
+      if (cancelled || gen !== this.fxGen) {
         stop();
         return stop;
       }
@@ -273,6 +283,11 @@ export class VoiceBank {
       }
       source.onended = () => {
         this.dropFxStop(channel, stop);
+      };
+    } else if (!loop) {
+      this.fxOrphans.add(stop);
+      source.onended = () => {
+        this.fxOrphans.delete(stop);
       };
     }
     return stop;

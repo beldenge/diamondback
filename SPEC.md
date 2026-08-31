@@ -123,6 +123,8 @@ Default run (`/`) is the title chooser. Modes:
 
 | Date | Decision |
 |---|---|
+| 2026-08-30 | Group A cues fire in the rec still window, not only on an exact rec start. Cross-scene A hold can park a line between recs (DESEREND goodbye rec+32 at 807, held to 809). Continuation B still schedules at buffer end. |
+| 2026-08-30 | Linear playmovie does not abort on rec+0x16==1. That kind ends a hotspot dest segment (SAFEBOX take → rec 31). DESEREND/INTRO3/d1nd2m use it at scene ends; the town goodbye is later stills in `deserend.mov`. Other `*end` reels chain `finalend.mov`; desert does not. |
 | 2026-08-30 | MOV group B is a PCM-chained playlist, not rec+32. INTRO2 bed 365 sits between stills 363 and 366; rec-start-only cues killed the hum. Rec-window fire and onended-then-playFx stuttered the ~6 s / ~12 s joins. Skip continuation B on the rec; schedule the next clip at the previous buffer end. Rec+32 A stays exact. |
 | 2026-08-30 | Bank SAFEBOX: take-stone slot 65516 is not mixer `A65516` (playhead jump). Rec+0x16==1 with cmd count 0 stops the reel at rec 31 after dest 17; playing through dest 35 closes the box twice. |
 | 2026-08-30 | Picture Show length is wait_audio wall-clock, not the still table. `d1nd2m` table is ~18 s; voice-over mixer waits stretch playback. `duration_seconds` stays the table. Clips dump `duration_ticks`. Do not change in-game `playmovie` order. |

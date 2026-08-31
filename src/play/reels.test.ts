@@ -35,6 +35,17 @@ describe("picture-show reels", () => {
     expect(ids.has("gun")).toBe(false);
     expect(ids.has("salup")).toBe(false);
     expect(ids.has("dog1")).toBe(false);
+    expect(ids.has("safebox")).toBe(false);
+  });
+
+  it("groups Yunni cave payoffs under Underground", () => {
+    expect(galleryReel("openfoun")?.group).toBe("Underground");
+    expect(galleryReel("skeleton")?.group).toBe("Underground");
+    expect(galleryReel("snake")?.group).toBe("Underground");
+    expect(galleryReel("flute")?.group).toBe("Underground");
+    expect(galleryReel("chestapp")?.group).toBe("Underground");
+    expect(galleryReel("tumtran")?.group).toBe("Underground");
+    expect(galleryReel("vault")?.group).toBe("Town");
   });
 
   it("lists the CD INFO attract reels as coming attractions", () => {
@@ -61,8 +72,10 @@ describe("picture-show reels", () => {
       "Opening",
       "Days",
       "Endings",
-      "Deaths",
+      "Underground",
       "Town",
+      "Talk",
+      "Deaths",
       "Coming attractions",
     ]);
   });

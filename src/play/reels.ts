@@ -1,8 +1,9 @@
 /** Full-screen playmovie reels for the picture show.
 
-Not INVEN inspectables or stairs. Coming attractions is the CD `INFO/`
-attract pack (Jump Raven, Lunicus, Skull Cracker, Titanic, plus the
-kiosk catalog and Dust screens).
+Not INVEN inspectables or stairs. Underground is the Yunni cave
+payoffs (fountain, skeleton, snake, flute, chest, tumble). Coming
+attractions is the CD `INFO/` attract pack (Jump Raven, Lunicus,
+Skull Cracker, Titanic, plus the kiosk catalog and Dust screens).
 */
 
 export interface GalleryReel {
@@ -32,15 +33,26 @@ export const GALLERY_REELS: readonly GalleryReel[] = [
   { id: "trottend", title: "Trotter", group: "Endings" },
   { id: "yunniend", title: "Yunni", group: "Endings" },
   { id: "finalend", title: "Finale", group: "Endings" },
+  { id: "openfoun", title: "The fountain", group: "Underground" },
+  { id: "skeleton", title: "The skeleton", group: "Underground" },
+  { id: "snake", title: "The snake", group: "Underground" },
+  { id: "flute", title: "The flute", group: "Underground" },
+  { id: "chestapp", title: "The chest", group: "Underground" },
+  { id: "tumtran", title: "Tumbleweeds", group: "Underground" },
+  { id: "vault", title: "The vault", group: "Town" },
+  { id: "spanmar", title: "Marie (Spanish)", group: "Talk" },
+  { id: "spanbld", title: "Blood (Spanish)", group: "Talk" },
   { id: "diec1", title: "Cobb", group: "Deaths" },
   { id: "dieh1", title: "Help", group: "Deaths" },
   { id: "dieh2", title: "Help (2)", group: "Deaths" },
   { id: "dieh3", title: "Help (3)", group: "Deaths" },
-  { id: "dies2", title: "The Stranger", group: "Deaths" },
-  { id: "dies3", title: "The Stranger (2)", group: "Deaths" },
+  { id: "dies1", title: "The Stranger", group: "Deaths" },
+  { id: "dies2", title: "The Stranger (2)", group: "Deaths" },
+  { id: "dies3", title: "The Stranger (3)", group: "Deaths" },
   { id: "kiddie", title: "The Kid", group: "Deaths" },
-  { id: "skeleton", title: "The skeleton", group: "Town" },
-  { id: "openfoun", title: "The fountain", group: "Town" },
+  { id: "kidwin", title: "The Kid wins", group: "Deaths" },
+  { id: "bountdie", title: "Bounty hunter", group: "Deaths" },
+  { id: "cobbshot", title: "Cobb's shot", group: "Deaths" },
   { id: "main", title: "Catalog", group: "Coming attractions" },
   { id: "duss", title: "Dust (screens)", group: "Coming attractions" },
   { id: "jrpre", title: "Jump Raven", group: "Coming attractions" },
