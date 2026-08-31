@@ -807,6 +807,127 @@ export function sandboxFightOn(value: unknown): boolean {
 }
 
 /**
+ * During a street fight, EXTRA/GANG Cast `hit()` is the hanging murder
+ * death (`playerdeath = "shot kidgang1"`). Use only the walker script.
+ */
+export function sandboxFightActorHit(
+  object: string,
+  me: string,
+  fighton: unknown,
+): boolean {
+  return object === "actor" && sandboxFightActor(me) && sandboxFightOn(fighton);
+}
+
+export function sandboxFightWavePrefix(me: string): "bounty" | "kidgang" {
+  return me.toLowerCase().startsWith("kidgang") ? "kidgang" : "bounty";
+}
+
+/**
+ * Extracted `deadexits` waits until all five poses are `dead` and off the
+ * still. Unspawned hunters stay `stand` (initxyz hides them on-camera),
+ * so killing the ones you can see never `closefight`s. Count only living
+ * *visible* hunters; `todie` is already dying. Skip the off-still wait
+ * so a corpse in view does not hold the wave.
+ */
+export function sandboxFightDeadExits(me: string): Proc {
+  const prefix = sandboxFightWavePrefix(me);
+  const nameExpr: Expr = {
+    type: "binary",
+    op: "@",
+    left: strLit(prefix),
+    right: fn("numtostring", [varRef("count")]),
+  };
+  const stillAlive: Expr = {
+    type: "binary",
+    op: "&",
+    left: {
+      type: "binary",
+      op: "&",
+      left: {
+        type: "binary",
+        op: "!=",
+        left: fn("actorpose", [varRef("name")]),
+        right: strLit("dead"),
+      },
+      right: {
+        type: "binary",
+        op: "!=",
+        left: fn("actorpose", [varRef("name")]),
+        right: strLit("todie"),
+      },
+    },
+    right: fn("actorvisible", [varRef("name")]),
+  };
+  const putdownWave: Stmt = {
+    type: "for",
+    name: "count",
+    from: numLit(1),
+    to: numLit(5),
+    step: numLit(1),
+    body: [
+      { type: "assign", target: varRef("name"), value: nameExpr },
+      run("sendtoactor", [varRef("name"), fn("putdownactor", [])]),
+    ],
+  };
+  const body: Stmt[] = [
+    { type: "local", names: ["name"] },
+    {
+      type: "for",
+      name: "count",
+      from: numLit(1),
+      to: numLit(5),
+      step: numLit(1),
+      body: [
+        { type: "assign", target: varRef("name"), value: nameExpr },
+        { type: "if", cond: stillAlive, then: [{ type: "exitcode" }] },
+      ],
+    },
+    putdownWave,
+  ];
+  if (prefix === "kidgang") {
+    body.push(
+      { type: "global", names: ["fightphase"] },
+      {
+        type: "assign",
+        target: varRef("fightphase"),
+        value: {
+          type: "binary",
+          op: "+",
+          left: varRef("fightphase"),
+          right: numLit(1),
+        },
+      },
+      {
+        type: "if",
+        cond: {
+          type: "binary",
+          op: "<=",
+          left: varRef("fightphase"),
+          right: numLit(3),
+        },
+        then: [
+          {
+            type: "for",
+            name: "count",
+            from: numLit(1),
+            to: numLit(5),
+            step: numLit(1),
+            body: [
+              { type: "assign", target: varRef("name"), value: nameExpr },
+              run("sendtoactor", [varRef("name"), fn("setupactor", [strLit("fight")])]),
+            ],
+          },
+        ],
+        else: [run("sendtoset", [fn("closefight", [])])],
+      },
+    );
+  } else {
+    body.push(run("sendtoset", [fn("closefight", [])]));
+  }
+  return { name: "deadexits", params: [], body };
+}
+
+/**
  * Extracted `openfight` `initactor`s every CST. Unlocked must not
  * `putdown` Bolivar in the store (or Help/Jones). Street toys and
  * livestock are restored after `closefight`.
@@ -871,6 +992,20 @@ export function sandboxFightScoutMousedown(kind: SandboxFightKind): Proc {
       ...sandboxFightStartBody(kind),
     ],
   };
+}
+
+/**
+ * Extracted `makemove` zeros `actorvalue` on every tile step. Walker
+ * `bountyloop` then `walkcloser`s again while you are shooting, so hits
+ * never reach `hotdist (4)` (die at 3). Keep landed shots until `setupactor`.
+ */
+export function keepFightActorHits(
+  fighton: unknown,
+  name: string,
+  current: number,
+  next: number,
+): boolean {
+  return sandboxFightOn(fighton) && sandboxFightActor(name) && next === 0 && current > 0;
 }
 
 /** CST `_EXTRA` `hotdist (1..4)`. Cast `hotdist()` is town talk 384 and would never kill. */

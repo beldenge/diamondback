@@ -175,6 +175,22 @@ describe("street-fight opcodes", () => {
     expect(await host.call("currentcd", ["player", 1], vm)).toBe(100);
     expect(await host.call("sendtopostfx", [14, 6], vm)).toBe("scene g15");
   });
+
+  it("stopwalk after dead does not put the hunter back on stand", async () => {
+    const host = new DustHost({} as PuppetUi);
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    const hunter = host.namedActor("bounty1");
+    hunter.pose = "dead";
+    hunter.walking = true;
+    await host.call("stopwalk", ["bounty1"], vm);
+    expect(hunter.walking).toBe(false);
+    expect(hunter.pose).toBe("dead");
+    hunter.pose = "todie";
+    await host.call("stopwalk", ["bounty1"], vm);
+    expect(hunter.pose).toBe("todie");
+  });
 });
 
 describe("lazy cast scripts", () => {
@@ -2454,6 +2470,153 @@ describe("range gunhand reload hit", () => {
     vm.globalNames.add("bulletcount");
     await host.dispatchGunhandClick(vm);
     expect(gun.view).toBe("reload");
+  });
+
+  it("hits the current aim cel, not frames[0], so the sight cursor can leave the revolver", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.currentSet = "target";
+    host.view = rangeView();
+    const left = { path: "FRAMES/gunhand/Hi/00_c327.png", x: 85, y: 137, w: 80, h: 80 };
+    const mid = { path: "FRAMES/gunhand/Hi/06_c333.png", x: 220, y: 133, w: 80, h: 158 };
+    const gun = host.ensureProp("gunhand");
+    gun.visible = true;
+    gun.screen = true;
+    gun.view = "hi";
+    gun.deg = 7;
+    gun.x = 260;
+    gun.y = 165;
+    gun.sprites = { hi: Array.from({ length: 13 }, (_, i) => (i === 6 ? mid : left)) };
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    expect(
+      await host.call("pointinprop", ["gunhand", { kind: "point", x: 260, y: 150, z: 0 }], vm),
+    ).toBe(true);
+    expect(
+      await host.call("pointinprop", ["gunhand", { kind: "point", x: 120, y: 150, z: 0 }], vm),
+    ).toBe(false);
+  });
+
+  it("opens the cylinder from an elevation view after the gun is empty", async () => {
+    const script = resolve("dfextract/out/PRP/_HOUSE/setcursor _arg__270.json");
+    if (!existsSync(script)) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    host.currentSet = "target";
+    for (const proc of loadProcs("PRP/_HOUSE/setcursor _arg__270.json")) {
+      host.index.add("prop:gunhand", proc, "gunhand");
+    }
+    const gun = host.ensureProp("gunhand");
+    gun.visible = true;
+    gun.view = "hi";
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    vm.globals.set("bulletcount", 0);
+    vm.globalNames.add("bulletcount");
+    await host.dispatchGunhandClick(vm);
+    expect(gun.view).toBe("reload");
+  });
+
+  it("snaps an empty aim pose back to idle after a still click so relax is not required", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.view = rangeView();
+    const gun = host.ensureProp("gunhand");
+    gun.visible = true;
+    gun.view = "hi";
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    vm.globals.set("bulletcount", 0);
+    vm.globalNames.add("bulletcount");
+    await host.dispatchMouse(vm, { kind: "point", x: 256, y: 80, z: 0 });
+    expect(gun.view).toBe("idle");
+  });
+
+  it("does not snap a live recoil pose while ammo remains", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.view = rangeView();
+    const gun = host.ensureProp("gunhand");
+    gun.visible = true;
+    gun.view = "hifire";
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    vm.globals.set("bulletcount", 3);
+    vm.globalNames.add("bulletcount");
+    await host.dispatchMouse(vm, { kind: "point", x: 256, y: 80, z: 0 });
+    expect(gun.view).toBe("hifire");
+  });
+});
+
+describe("powder keg gun hits", () => {
+  function townView(): NonNullable<DustHost["view"]> {
+    return {
+      pose: { x: 6, y: 9, facing: "N" },
+      world: "town",
+      graph: { scenes: new Map(), cameraTiles: new Set(), transitions: [], byFrom: new Map() },
+      walk() {},
+      async setPose() {},
+      log() {},
+      refreshActors() {},
+    };
+  }
+
+  it("hittest reports a keg that only has hit(), not mousedown", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.currentSet = "town";
+    host.currentScene = "scene g10";
+    host.view = townView();
+    host.index.add(
+      "prop:powderkeg1",
+      { name: "hit", params: [], body: [] },
+      "keg",
+    );
+    const keg = host.ensureProp("powderkeg1");
+    keg.visible = true;
+    keg.shop = "house";
+    keg.set = "town";
+    keg.view = "idle";
+    keg.screen = true;
+    keg.x = 256;
+    keg.y = 140;
+    keg.sprites = {
+      idle: [{ path: "FRAMES/powderkeg1/idle/00_c531.png", x: 256, y: 192, w: 80, h: 100 }],
+    };
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    const at = { kind: "point" as const, x: 256, y: 140, z: 0 };
+    expect(await host.call("hittest", [at], vm)).toBe("powderkeg1");
+    expect(host.hitKind).toBe("prop");
+  });
+
+  it("keg hit() switches to explode", async () => {
+    const rel = "PRP/_HOUSE/initprop_530.json";
+    if (!existsSync(resolve("dfextract/out", rel))) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    for (const proc of loadProcs(rel)) {
+      host.index.add("prop:powderkeg1", proc, rel);
+    }
+    const keg = host.ensureProp("powderkeg1");
+    keg.view = "idle";
+    keg.visible = true;
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    await vm.inObject("prop", "powderkeg1", () => vm.evalCall("hit", []));
+    expect(keg.view).toBe("explode");
   });
 });
 

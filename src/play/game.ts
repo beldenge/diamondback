@@ -121,6 +121,8 @@ import {
   inventorySpriteView,
   isInventoryHudView,
   MAINPANEL_BUTTONS,
+  townHudChromePress,
+  flatBoardPressSetsSkipClick,
   mapCrossHotspot,
   propBlitFrame,
   propViewFrame,
@@ -421,7 +423,7 @@ export class PlayGame implements WorldView {
       const point: Point = { kind: "point", x, y, z: 0 };
       this.host.pointer = point;
       this.hoverPoint = point;
-      this.skipNextClick = true;
+      this.skipNextClick = flatBoardPressSetsSkipClick();
       if (!this.scriptsReady) {
         return;
       }
@@ -1537,7 +1539,13 @@ export class PlayGame implements WorldView {
       this.skipNextClick = false;
       return;
     }
-    if (this.inputBlocked() || this.host.currentPuppet !== "none") {
+    if (
+      this.booting ||
+      this.busy ||
+      this.talking ||
+      this.flats.open ||
+      this.host.currentPuppet !== "none"
+    ) {
       return;
     }
     // Range EXIT is `pointerdown` + `stilldown`. Town map/portrait still
@@ -1783,15 +1791,18 @@ export class PlayGame implements WorldView {
       return;
     }
     this.host.stillDown = true;
-    try {
-      this.stageEl.setPointerCapture(event.pointerId);
-    } catch {
-      /* no active pointer (jsdom) */
+    const held = Boolean(point && this.hitsHeldAt(point));
+    if (!point || !townHudChromePress(point.y, this.onRange(), held)) {
+      try {
+        this.stageEl.setPointerCapture(event.pointerId);
+      } catch {
+        /* no active pointer (jsdom) */
+      }
     }
     if (!point || this.booting || this.busy || !this.scriptsReady) {
       return;
     }
-    if (this.hitsHeldAt(point)) {
+    if (held) {
       if (this.inputBlocked()) {
         return;
       }
@@ -2424,6 +2435,11 @@ export class PlayGame implements WorldView {
       if (!still) {
         continue;
       }
+      const propView = (prop.view || "base").toLowerCase();
+      const cels = prop.sprites[propView];
+      if (cels?.length && (prop.poseTiming[propView]?.length ?? 0) > 1) {
+        this.warmPropPlates(prop, cels);
+      }
       const raw = propSprite(prop);
       if (!raw) {
         continue;
@@ -2752,9 +2768,15 @@ export class PlayGame implements WorldView {
   private warmActorPlates(actor: {
     standSprites: { path: string }[];
     walkSprites?: { path: string }[];
+    sprites?: Record<string, { path: string }[]>;
     spriteRoot: string;
   }): void {
-    const plates = [...actor.standSprites, ...(actor.walkSprites ?? [])];
+    const plates = [
+      ...actor.standSprites,
+      ...(actor.walkSprites ?? []),
+      ...(actor.sprites?.todie ?? []),
+      ...(actor.sprites?.dead ?? []),
+    ];
     for (const plate of plates) {
       const url = extractUrl(`${actor.spriteRoot}/${plate.path}`);
       if (!this.spriteBits.has(url) && !this.spriteLoading.has(url) && !this.spriteMiss.has(url)) {

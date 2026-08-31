@@ -136,6 +136,24 @@ export function hitMacRect(rects: MacRect[], x: number, y: number): MacRect | un
 }
 
 /** HUD-band cursor. Range EXIT is a FLT button; town uses MAINPANEL_BUTTONS. */
+/**
+ * Town map / skull / portrait fire on `#play-hud` `click`. Range EXIT
+ * and the held-item slot use `pointerdown` + `stilldown`. Capturing the
+ * pointer on `#play-stage` retargets that click off the bar.
+ */
+export function townHudChromePress(y: number, range: boolean, held: boolean): boolean {
+  return y >= STAGE_HEIGHT - HUD_HEIGHT && !range && !held;
+}
+
+/**
+ * `#play-flat` pointerdown already `preventDefault`s, so the leftover
+ * `click` never fires. Setting `skipNextClick` here eats the next map /
+ * inventory press after closing the skull menu (score board).
+ */
+export function flatBoardPressSetsSkipClick(): boolean {
+  return false;
+}
+
 export function hudBarCursor(
   range: boolean,
   flatButton: string | undefined,
@@ -202,9 +220,14 @@ export function propBlitFrame<T>(
   if (!frames.length) {
     return undefined;
   }
+  // Powder keg `explode` is a 15-cel +0x2e strip on a world prop. An
+  // 8-dir octant of `propdeg 0` stuck on cel 1.
+  if (timing && timing.length > 1) {
+    return propViewFrame(frames, deg, timing, animTick);
+  }
   if (screen) {
     const d = Math.trunc(deg);
-    if ((!timing || timing.length <= 1) && frames.length > 8 && d >= 1 && d <= frames.length) {
+    if (frames.length > 8 && d >= 1 && d <= frames.length) {
       return frames[d - 1];
     }
     return propViewFrame(frames, deg, timing, animTick);

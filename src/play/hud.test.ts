@@ -18,6 +18,8 @@ import {
   inventorySpriteView,
   isInventoryHudView,
   MAINPANEL_BUTTONS,
+  townHudChromePress,
+  flatBoardPressSetsSkipClick,
   mapCrossHotspot,
   mapCrossLit,
   propBlitFrame,
@@ -41,6 +43,17 @@ describe("mainpanel Mac rects", () => {
 
   it("hits the skull as the menu, not the map or portrait", () => {
     expect(hitMacRect(MAINPANEL_BUTTONS, 256, 330)?.name).toBe("horn");
+  });
+
+  it("does not skip the next HUD click after a menu-board pointerdown", () => {
+    expect(flatBoardPressSetsSkipClick()).toBe(false);
+  });
+
+  it("lets town HUD chrome use click instead of stage pointer capture", () => {
+    expect(townHudChromePress(320, false, false)).toBe(true);
+    expect(townHudChromePress(100, false, false)).toBe(false);
+    expect(townHudChromePress(320, true, false)).toBe(false);
+    expect(townHudChromePress(320, false, true)).toBe(false);
   });
 
   it("misses the stills above the bar", () => {
@@ -220,6 +233,14 @@ describe("range gunhand", () => {
     expect(isInventoryHudView("large")).toBe(true);
     expect(isInventoryHudView("idle")).toBe(false);
     expect(isInventoryHudView("hifire")).toBe(false);
+  });
+
+  it("plays world powder-keg explode from the +0x2e table, not octant 0", () => {
+    const frames = ["c1", "c2", "c3", "c4", "c5"];
+    const timing = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5];
+    expect(propBlitFrame(frames, 0, timing, 0, false)).toBe("c1");
+    expect(propBlitFrame(frames, 0, timing, 2, false)).toBe("c2");
+    expect(propBlitFrame(frames, 0, timing, 8, false)).toBe("c5");
   });
 
   it("aims with propdeg 1..13, not an 8-dir octant", () => {

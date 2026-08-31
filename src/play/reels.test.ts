@@ -48,6 +48,16 @@ describe("picture-show reels", () => {
     expect(galleryReel("vault")?.group).toBe("Town");
   });
 
+  it("lists kid-gang rooftop and window falls under Deaths", () => {
+    expect(galleryReel("bountdie")?.group).toBe("Deaths");
+    expect(galleryReel("hench1")?.title).toBe("Henchman (roof)");
+    expect(galleryReel("hench2")?.title).toBe("Henchman (window)");
+    expect(galleryReel("hench1")?.group).toBe("Deaths");
+    expect(galleryReel("hench2")?.group).toBe("Deaths");
+    expect(reelFromSearch("?mode=movies&reel=hench1")).toBe("hench1");
+    expect(reelFromSearch("?mode=movies&reel=HENCH2.mov")).toBe("hench2");
+  });
+
   it("lists the CD INFO attract reels as coming attractions", () => {
     const ids = new Set(GALLERY_REELS.map((reel) => reel.id));
     for (const id of [

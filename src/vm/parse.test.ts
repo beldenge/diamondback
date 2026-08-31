@@ -45,6 +45,20 @@ describe("parseScript", () => {
     expect(names).toEqual(expect.arrayContaining(["boot", "advanceday", "initactors", "runpuppet"]));
   });
 
+  it("parses kidgang1 even though kidgangloop closes switch with endif", () => {
+    const path = resolve(here, "../../dfextract/out/CST/_EXTRA/kidgang1/Script.json");
+    if (!existsSync(path)) {
+      return;
+    }
+    const file = JSON.parse(readFileSync(path, "utf8")) as ScriptFile;
+    const procs = parseScript(file.tokens);
+    expect(procs.map((p) => p.name)).toEqual(
+      expect.arrayContaining(["setupactor", "kidgangloop", "walkloop", "hit", "deadexits"]),
+    );
+    const loop = procs.find((p) => p.name === "kidgangloop");
+    expect(loop?.body.some((s) => s.type === "switch")).toBe(true);
+  });
+
   it("parses checkers procs that close with endif instead of endcode", () => {
     if (!existsSync(checkersAuto) || !existsSync(checkersPiece)) {
       return;

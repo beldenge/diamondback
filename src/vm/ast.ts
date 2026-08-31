@@ -236,17 +236,23 @@ class Parser {
     this.expectCmd(KW.switch);
     const expr = this.parseExpr();
     const cases: { match: Expr; body: Stmt[] }[] = [];
-    while (!this.done() && !this.isCmd(KW.endswitch)) {
+    // Dust sometimes stores `endif` (4007) as the switch closer
+    // (`kidgangloop`). Nested `if` still consumes its own `endif`.
+    const switchEnd = [KW.endswitch, KW.endif];
+    while (!this.done() && !this.isAnyCmd(switchEnd)) {
       this.skipBreaks();
-      if (this.isCmd(KW.endswitch)) {
+      if (this.isAnyCmd(switchEnd)) {
         break;
       }
       this.expectCmd(KW.case);
       const match = this.parseExpr();
-      const body = this.parseBlock([KW.case, KW.endswitch]);
+      const body = this.parseBlock([KW.case, ...switchEnd]);
       cases.push({ match, body });
     }
-    this.expectCmd(KW.endswitch);
+    if (!this.isAnyCmd(switchEnd)) {
+      throw new ParseError("expected endswitch", this.peek());
+    }
+    this.i += 1;
     return { type: "switch", expr, cases };
   }
 

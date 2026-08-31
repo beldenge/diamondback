@@ -24,11 +24,15 @@ import {
   sandboxFightFromSearch,
   sandboxFightKind,
   sandboxFightOn,
+  sandboxFightActorHit,
   sandboxFightScout,
   sandboxFightPutdown,
   sandboxFightScoutClick,
   sandboxFightScoutHit,
   sandboxFightHotdist,
+  sandboxFightDeadExits,
+  sandboxFightWavePrefix,
+  keepFightActorHits,
   sandboxFightScoutMousedown,
   hideSandboxIdleFighters,
   SANDBOX_FIGHT_SCOUTS,
@@ -238,6 +242,223 @@ describe("sandbox street fights", () => {
     const json = JSON.stringify(sandboxFightHotdist());
     expect(json).toContain('"value":2');
     expect(json).not.toContain("384");
+  });
+
+  it("does not use Cast extra hanging-murder hit during a street fight", () => {
+    expect(sandboxFightActorHit("actor", "kidgang1", 1)).toBe(true);
+    expect(sandboxFightActorHit("actor", "bounty2", 1)).toBe(true);
+    expect(sandboxFightActorHit("actor", "kidgang1", 0)).toBe(false);
+    expect(sandboxFightActorHit("set", "kidgang1", 1)).toBe(false);
+  });
+
+  it("keeps landed fight hits when makemove tries to zero actorvalue", () => {
+    expect(keepFightActorHits(1, "bounty1", 2, 0)).toBe(true);
+    expect(keepFightActorHits(1, "kidgang2", 1, 0)).toBe(true);
+    expect(keepFightActorHits(1, "bounty1", 0, 0)).toBe(false);
+    expect(keepFightActorHits(0, "bounty1", 2, 0)).toBe(false);
+    expect(keepFightActorHits(1, "leroy", 2, 0)).toBe(false);
+    expect(keepFightActorHits(1, "bounty1", 2, 3)).toBe(false);
+  });
+
+  it("kills a bounty walker after four landed hits and plays todie", async () => {
+    const scriptPath = resolve("dfextract/out/CST/_EXTRA/bounty1/Script.json");
+    const extraPath = resolve("dfextract/out/CST/_EXTRA/Cast.json");
+    const gangPath = resolve("dfextract/out/CST/_GANG/Cast.json");
+    if (!existsSync(scriptPath) || !existsSync(extraPath) || !existsSync(gangPath)) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    host.sandbox = true;
+    host.currentSet = "town";
+    host.currentScene = "scene g14";
+    host.view = dummyView();
+    host.rng = () => 0.99;
+    for (const proc of loadProcs("CST/_EXTRA/bounty1/Script.json")) {
+      host.index.add("actor:bounty1", proc, "bounty1");
+    }
+    for (const proc of loadProcs("CST/_EXTRA/Cast.json")) {
+      host.index.add("cast:extra", proc, "extra");
+    }
+    for (const proc of loadProcs("CST/_GANG/Cast.json")) {
+      host.index.add("cast:gang", proc, "gang");
+    }
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    vm.globals.set("fighton", 1);
+    vm.globalNames.add("fighton");
+    const hunter = host.namedActor("bounty1");
+    hunter.cast = "extra";
+    hunter.visible = true;
+    hunter.set = "town";
+    hunter.pose = "stand";
+    hunter.variable = 1;
+    hunter.value = 0;
+    hunter.x = 6 * 256 + 128;
+    hunter.y = 13 * 256 + 128;
+    const n = (value: number) => ({ type: "num" as const, value });
+    const dist = await vm.inObject("actor", "bounty1", () =>
+      vm.evalCall("hotdist", [n(4)]),
+    );
+    expect(dist).toBe(2);
+    const poses: string[] = [];
+    const values: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      await vm.inObject("actor", "bounty1", () => vm.evalCall("hit", []));
+      poses.push(hunter.pose);
+      values.push(hunter.value);
+    }
+    expect(values).toEqual([1, 2, 3, 3, 3]);
+    expect(poses[3]).toBe("todie");
+    expect(poses[4]).toBe("todie");
+    expect(hunter.visible).toBe(true);
+    await vm.inObject("actor", "bounty1", () => vm.evalCall("stopwalk", [{ type: "me" }]));
+    expect(hunter.pose).toBe("todie");
+    hunter.value = 2;
+    hunter.walking = true;
+    await vm.inObject("actor", "bounty1", () =>
+      vm.evalCall("actorvalue", [{ type: "me" }, n(0)]),
+    );
+    expect(hunter.value).toBe(2);
+    await vm.inObject("actor", "bounty1", () =>
+      vm.evalCall("actorpose", [{ type: "me" }, { type: "str", value: "dead" }]),
+    );
+    expect(hunter.visible).toBe(true);
+    expect(hunter.pose).toBe("dead");
+  });
+
+  it("names bounty vs kidgang deadexits waves", () => {
+    expect(sandboxFightWavePrefix("bounty3")).toBe("bounty");
+    expect(sandboxFightWavePrefix("kidgang1")).toBe("kidgang");
+    const gang = JSON.stringify(sandboxFightDeadExits("kidgang1"));
+    expect(gang).toContain("fightphase");
+    expect(gang).toContain("setupactor");
+    expect(gang).toContain("closefight");
+    const bounty = JSON.stringify(sandboxFightDeadExits("bounty2"));
+    expect(bounty).toContain("closefight");
+    expect(bounty).not.toContain("setupactor");
+  });
+
+  it("ends a bounty fight when only the hunters who appeared are down", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.sandbox = true;
+    host.currentSet = "town";
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    vm.globals.set("fighton", 1);
+    vm.globals.set("sandboxfight", "bounty");
+    vm.globalNames.add("fighton");
+    vm.globalNames.add("sandboxfight");
+    for (let i = 1; i <= 5; i++) {
+      const a = host.namedActor(`bounty${i}`);
+      a.visible = i <= 2;
+      a.pose = i <= 2 ? "dead" : "stand";
+    }
+    vm.object = "actor";
+    vm.me = "bounty1";
+    const proc = host.lookup("deadexits", vm);
+    expect(proc?.name).toBe("deadexits");
+    await vm.inObject("actor", "bounty1", () => vm.runProc(proc!));
+    expect(vm.globals.get("fighton")).toBe(0);
+    expect(host.namedActor("bounty1").visible).toBe(false);
+  });
+
+  it("starts the next kid-gang wave when the visible hunters are down", async () => {
+    const host = new DustHost({} as PuppetUi);
+    host.sandbox = true;
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    vm.globals.set("fighton", 1);
+    vm.globals.set("fightphase", 1);
+    vm.globals.set("sandboxfight", "gang");
+    vm.globalNames.add("fighton");
+    vm.globalNames.add("fightphase");
+    vm.globalNames.add("sandboxfight");
+    for (let i = 1; i <= 3; i++) {
+      const a = host.namedActor(`kidgang${i}`);
+      a.visible = true;
+      a.pose = "dead";
+    }
+    host.namedActor("kidgang4").pose = "dead";
+    host.namedActor("kidgang4").visible = false;
+    host.namedActor("kidgang5").pose = "dead";
+    host.namedActor("kidgang5").visible = false;
+    for (let i = 1; i <= 5; i++) {
+      host.index.add(
+        `actor:kidgang${i}`,
+        {
+          name: "setupactor",
+          params: ["where"],
+          body: [
+            {
+              type: "assign",
+              target: { type: "call", name: "actorvisible", args: [{ type: "me" }] },
+              value: { type: "bool", value: false },
+            },
+          ],
+        },
+        "test",
+      );
+      host.index.add(
+        `actor:kidgang${i}`,
+        { name: "putdownactor", params: [], body: [] },
+        "test",
+      );
+    }
+    const proc = sandboxFightDeadExits("kidgang1");
+    await vm.inObject("actor", "kidgang1", () => vm.runProc(proc));
+    expect(vm.globals.get("fightphase")).toBe(2);
+    expect(vm.globals.get("fighton")).toBe(1);
+  });
+
+  it("shooting a kid-gang walker does not hang the player for murder", async () => {
+    const gangPath = resolve("dfextract/out/CST/_EXTRA/kidgang1/Script.json");
+    const extraPath = resolve("dfextract/out/CST/_EXTRA/Cast.json");
+    if (!existsSync(gangPath) || !existsSync(extraPath)) {
+      return;
+    }
+    const host = new DustHost({} as PuppetUi);
+    host.sandbox = true;
+    host.currentSet = "town";
+    host.view = dummyView();
+    host.rng = () => 0.99;
+    for (const proc of loadProcs("CST/_EXTRA/kidgang1/Script.json")) {
+      host.index.add("actor:kidgang1", proc, "kidgang1");
+    }
+    for (const proc of loadProcs("CST/_EXTRA/Cast.json")) {
+      host.index.add("cast:extra", proc, "extra");
+    }
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+      lookup: (name, ctx) => host.lookup(name, ctx),
+      lookupChain: (name, ctx) => host.lookupChain(name, ctx),
+    });
+    vm.object = "actor";
+    vm.me = "kidgang1";
+    vm.globals.set("fighton", 1);
+    vm.globals.set("fightphase", 1);
+    vm.globalNames.add("fighton");
+    vm.globalNames.add("fightphase");
+    const hunter = host.namedActor("kidgang1");
+    hunter.cast = "extra";
+    hunter.visible = true;
+    hunter.pose = "stand";
+    hunter.value = 0;
+    hunter.variable = 1;
+    const hit = host.lookup("hit", vm);
+    expect(JSON.stringify(hit ?? {})).not.toContain("shot ");
+    expect(host.lookupChain("hit", vm).length).toBe(1);
+    await vm.inObject("actor", "kidgang1", () => vm.evalCall("hit", []));
+    expect(String(vm.globals.get("playerdeath") ?? "")).not.toMatch(/shot /);
+    expect(hunter.value).toBe(1);
   });
 });
 

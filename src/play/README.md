@@ -45,7 +45,28 @@ starts after boot. `openfight` `addinven`s the gun
 extracted `death()` like the Kid duel. Bounty swaps to night stills, gang
 to afternoon, matching `openfight`. Walker AI needs host `variable`,
 `actorhitbox` (`currentcd`), `rowcoltoscene` (`sendtopostfx`), and
-`scenebuild` (`sendtoserverfx`) — not no-ops. `N` is ignored while `fighton`.
+`scenebuild` (`sendtoserverfx`) — not no-ops. `hotdist (4)` is 2 (die
+when `actorvalue` is already 3: four landed shots). Do not let
+`makemove` zero `actorvalue` or a walker that keeps `walkcloser`ing
+never dies. Leave `todie` / `dead` poses on the still (corpses). `stopwalk` must not
+reset those to `stand` (`walkloop` case 4 is pose dead then stopwalk —
+that put a live sprite back and they kept taking shots). Extracted
+`deadexits` waits for all five `dead` *and* off-still — Unlocked only
+requires every *visible* hunter down (`todie` counts), then putdown and
+`closefight` (bounty) or the next kid-gang wave (`fightphase` 1: three
+walkers, 2–3: five). Kid-gang `kidgangloop` closes `switch` with
+`endif` — parse that or `Script.json` is dropped and a shot runs EXTRA
+Cast `hit()` (hanging murder, `playerdeath = "shot kidgang1"`). During
+`fighton` do not inherit Cast `hit()`. Powder kegs (and TARGET cans)
+have `hit()` and no `mousedown` — `hittest` must still return them or
+`bullet()` treats the still as empty. Keg `explode` is a +0x2e cel
+strip: do not blit world props as 8-dir when that table is longer than
+1 (`propdeg 0` stuck on cel 1). Empty `bullet()` aims (`hi`/`mid`/…) and
+`makeloop relax`; extracted gunhand `mousedown` only accepts `idle` /
+`reload`. Mashing dry-fire re-arms that loop while `talking` skips
+`runQueued`, so the sight cursor stays until you walk. Snap to idle
+after empty and on gunhand press; `pointinprop` uses the current
+`propdeg` cel, not `frames[0]`. `N` is ignored while `fighton`.
 Do not `initactor` Bolivar (store checkers). Restore Leroy after
 `closefight`. Bank D1 west sign runs `docrack` (no teller) — walk
 **north** from the lobby to the window; `openstagefile` runs CRACK
@@ -548,7 +569,14 @@ are stage pixels: EXIT `(256,292)–(340,315)`.
 hand. Reload is **left-click the revolver** (`pointinprop ("gunhand")`
 skips `bullet`; gunhand `mousedown` opens the cylinder). Mac was
 one-button; browser right-click maps to that same click so the context
-menu does not steal it.
+menu does not steal it. Empty `bullet()` sets elevation (`hi`/`mid`/…)
+and `makeloop relax`. Extracted `mousedown` `exitcode`s unless the view
+is `idle` or `reload`; dry-fire restarts relax, and `talking` skips the
+idle pump, so the aimed sprite never drops until you walk. After
+`bulletcount <= 0`, snap `gunhand` to `idle` and stop that loop so the
+next revolver click opens the cylinder. `pointinprop` must hit the
+current `propBlitFrame` cel — `frames[0]` is the far-left aim plate,
+so hovering the visible revolver kept `cursor ("sight")`.
 
 **Scores.** `targetshotcount` increments on every shot. Hits call
 `updatescore` on the actor. Misses go
@@ -617,6 +645,7 @@ Leroy), `occlude.test.ts` (range Z + filmstrip hold),
 | Right-click to reload | Not in the scripts. Mac one-button `mousedown` on gunhand. Browser menu ate the press until we mapped button 2. |
 | World PRP scale on `propxy` gunhand | Dest sat under the HUD; every still click shot. Screen props use scale 1. |
 | 8-dir octant for gunhand `propdeg` | Aim always faced left. 13-cel strips are 1-based cel index. |
+| Wait for gunhand `relax` after empty / `pointinprop` on `frames[0]` | Sight stuck; clicking the aimed revolver dry-fires until you walk. Mash restarts `relax`; `talking` skips `runQueued`; extracted `mousedown` only accepts idle/reload. Snap idle after empty and on gunhand press; hit the current `propdeg` cel. |
 | `drawstring` scores on the puzzle overlay / NEW.FLT holster | Counts gone; INVEN empty/large gun on the range still. TARGET is not a puzzle stage; hide INVEN HUD views. |
 | CST pal 36 unused-black on TARGET plates | Bottles/plates silhouette. Companion SET pal for used slots. |
 | SET pal unused-white on TARGET pal 0 | Crows blank. Pal 0 is VGA still black. |
@@ -774,8 +803,8 @@ still has forward > 0.
 | New face blit per 60 Hz tick (`paintGen` drops in-flight jaws) | Idle head, then a late jump. One blit; queue the latest pose; share one `Image` onload. |
 | Avatar EXAMINE on DOM `click` after `#play-stage` `pointerdown` | First press lost. Dust is button `mousedown` + `trackbut`. Overlay fires on **pointerdown**; HUD buttons win over item sprites. |
 | `infoyoself` on boot `handitem` `helpbut` | Empty shop `infoyoself`. `addinven ("helpbut")` is chrome, not an inspect target. |
-| `skipNextClick` after a captured actionframe `pointerdown` | Next real EXAMINE / world click eaten. `preventDefault` on that pointerdown already kills the synthetic `click`. |
-| `#play-stage` `setPointerCapture` on every press | CRACK `stilldown` needs capture; bevels sit under the stage. Capture retargets `click` off `butbevel` so `puppetevent` never returns. Skip capture on puppet chrome; choices fire on **pointerdown** (Dust `mousedown`). |
+| `skipNextClick` after a captured actionframe `pointerdown` | Next real EXAMINE / world click eaten. `preventDefault` on that pointerdown already kills the synthetic `click`. Same for skull-menu (score board) `pointerdown`: do not `skipNextClick` or map / inventory need two presses after closing the menu. |
+| `#play-stage` `setPointerCapture` on every press | CRACK `stilldown` needs capture; bevels sit under the stage. Capture retargets `click` off `butbevel` so `puppetevent` never returns. Skip capture on puppet chrome; choices fire on **pointerdown** (Dust `mousedown`). Same capture ate town map / skull / portrait: those are `#play-hud` `click`. Do not capture a HUD-band press unless it is Range EXIT or the held-item slot. Do not fold idle `scriptBusy` into HUD `talking`. |
 | `puppetevent` as a click-only Promise | Hold a Yes/No and Leroy never fidgets. `0x431330` runs four `idle 1`–`4` timers (`0x40B060`); `puppetevent (240)` returns -2. |
 | `idlefx` every 240 ticks | Same spoken line at 4 s, no blinks. The EXE plays named idle clips with a random per-clip wait, not that script. |
 | Await `speak()` for blinks / glances | Hourglass and dead bevels on every silent fidget. Only `idlespeak` awaits `puppetspeak`; blinks/gestures `fidget()` with `waitEvent` still live. |

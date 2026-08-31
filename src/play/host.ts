@@ -62,7 +62,7 @@ import {
   type VisemeLine,
 } from "./ui";
 import { voices } from "./speech";
-import { gunhandWantsSight, isInventoryHudView, propViewFrame } from "./hud";
+import { gunhandWantsSight, isInventoryHudView, propBlitFrame, propViewFrame } from "./hud";
 import {
   HOUSE_GROUPS,
   INVEN_GROUPS,
@@ -162,12 +162,15 @@ import {
   sandboxFightKind,
   sandboxFightKindOf,
   sandboxFightOn,
+  sandboxFightActorHit,
   sandboxFightPutdown,
   sandboxFightScout,
   sandboxFightScoutClick,
   sandboxFightScoutHit,
   sandboxFightIdleHitProc,
   sandboxFightHotdist,
+  sandboxFightDeadExits,
+  keepFightActorHits,
   sandboxFightScoutMousedown,
   hideSandboxIdleFighters,
   SANDBOX_TOYS,
@@ -551,6 +554,9 @@ export class DustHost implements OpcodeHost {
   constructor(readonly ui: PuppetUi) {}
 
   lookup(name: string, ctx: VM): Proc | undefined {
+    if (name.toLowerCase() === "mousedown" && ctx.object === "prop" && ctx.me.toLowerCase() === "gunhand") {
+      this.settleGunhandForReload();
+    }
     if (this.sandboxSuppress(name)) {
       return undefined;
     }
@@ -570,10 +576,16 @@ export class DustHost implements OpcodeHost {
     if (toy) {
       return toy;
     }
+    if (sandboxFightActorHit(ctx.object, ctx.me, ctx.globals.get("fighton")) && name.toLowerCase() === "hit") {
+      return this.index.lookup([`actor:${ctx.me.toLowerCase()}`], name);
+    }
     return this.index.lookup(this.lookupKeys(ctx), name);
   }
 
   lookupChain(name: string, ctx: VM): Proc[] {
+    if (name.toLowerCase() === "mousedown" && ctx.object === "prop" && ctx.me.toLowerCase() === "gunhand") {
+      this.settleGunhandForReload();
+    }
     if (this.sandboxSuppress(name)) {
       return [];
     }
@@ -595,6 +607,9 @@ export class DustHost implements OpcodeHost {
         return [toy, ...this.index.lookupAll(this.lookupKeys(ctx), name)];
       }
       return [toy];
+    }
+    if (sandboxFightActorHit(ctx.object, ctx.me, ctx.globals.get("fighton")) && name.toLowerCase() === "hit") {
+      return this.index.lookupAll([`actor:${ctx.me.toLowerCase()}`], name);
     }
     return this.index.lookupAll(this.lookupKeys(ctx), name);
   }
@@ -676,6 +691,9 @@ export class DustHost implements OpcodeHost {
     }
     if (op === "hotdist" && ctx.object === "actor" && sandboxFightActor(ctx.me)) {
       return sandboxFightHotdist();
+    }
+    if (op === "deadexits" && ctx.object === "actor" && sandboxFightActor(ctx.me)) {
+      return sandboxFightDeadExits(ctx.me);
     }
     if (
       sandboxApothBottlesClick(this.currentSet, ctx.object, ctx.me) &&
@@ -1507,7 +1525,20 @@ export class DustHost implements OpcodeHost {
         });
       case "actorvalue":
         return this.actorField(ctx, args, "value", (actor, value) => {
-          actor.value = num(value);
+          const next = num(value);
+          if (keepFightActorHits(ctx.globals.get("fighton"), actor.name, actor.value, next)) {
+            return;
+          }
+          if (
+            sandboxFightOn(ctx.globals.get("fighton")) &&
+            sandboxFightActor(actor.name) &&
+            next > actor.value
+          ) {
+            actor.walking = false;
+            actor.turning = false;
+            actor.route = [];
+          }
+          actor.value = next;
         });
       case "actordeg":
         return this.actorField(ctx, args, "deg", (actor, value) => {
@@ -1821,7 +1852,11 @@ export class DustHost implements OpcodeHost {
     actor.turning = false;
     actor.route = [];
     actor.destStar = "";
-    actor.pose = "stand";
+    // Extracted death is `actorpose ("dead")` then `stopwalk`. Do not
+    // put them back on stand or they keep taking shots as a live sprite.
+    if (actor.pose !== "todie" && actor.pose !== "dead") {
+      actor.pose = "stand";
+    }
   }
 
   /** Named dest arrives; `"x,y,z"` stays `custom`. */
@@ -1916,7 +1951,9 @@ export class DustHost implements OpcodeHost {
           actor.walking = false;
           actor.route = [];
           this.finishWalkStar(actor);
-          actor.pose = "stand";
+          if (actor.pose !== "todie" && actor.pose !== "dead") {
+            actor.pose = "stand";
+          }
           this.walkEnds.push(actor.name);
           continue;
         }
@@ -4089,6 +4126,18 @@ export class DustHost implements OpcodeHost {
     return Boolean(shop && this.index.lookup([`shop:${shop}`], "mousedown"));
   }
 
+  /**
+   * `hittest` for `bullet()`. Powder kegs and TARGET cans have `hit()`
+   * and no `mousedown` — requiring a click handler made shots miss as
+   * scene empties.
+   */
+  private hitHasGunTarget(kind: "actor" | "prop", name: string): boolean {
+    if (this.hitHasMousedown(kind, name)) {
+      return true;
+    }
+    return Boolean(this.index.lookup([`${kind}:${name.toLowerCase()}`], "hit"));
+  }
+
   private hitTest(point: Point, handitem = ""): string {
     this.clickAbsorbed = false;
     if (isPuzzleStage(this.currentStageName) || this.menuBoardUp()) {
@@ -4135,7 +4184,7 @@ export class DustHost implements OpcodeHost {
       hits.push({ kind: "prop", name: held, forward: -1 });
     }
     hits.sort((a, b) => a.forward - b.forward);
-    const top = hits.find((hit) => this.hitHasMousedown(hit.kind, hit.name));
+    const top = hits.find((hit) => this.hitHasGunTarget(hit.kind, hit.name));
     if (top) {
       this.hitKind = top.kind;
       this.clickAbsorbed = true;
@@ -4288,7 +4337,9 @@ export class DustHost implements OpcodeHost {
       prop.sprites.small ??
       prop.sprites.base ??
       Object.values(prop.sprites)[0];
-    const frame = frames?.[0];
+    const frame =
+      propBlitFrame(frames, prop.deg, prop.poseTiming[view], prop.animTick, prop.screen) ??
+      frames?.[0];
     const stillScale = prop.screen ? 1 : propStillScale(prop, still.lensForward);
     if (!frame || frame.w <= 0 || frame.h <= 0) {
       return worldSpriteHitsPoint(
@@ -4645,7 +4696,32 @@ export class DustHost implements OpcodeHost {
         this.clickAbsorbed = true;
       }
     }
+    if (num(ctx.globals.get("bulletcount")) <= 0) {
+      this.settleGunhandForReload();
+    }
     return this.clickAbsorbed;
+  }
+
+  /**
+   * Empty `bullet()` sets elevation (`hi`/`mid`/…) and re-arms `relax`.
+   * Extracted gunhand `mousedown` only accepts idle/reload, so mashing
+   * dry-fires never lets the loop reach idle (sight stuck until you walk
+   * and stop clicking). Snap back to idle so the next click opens the
+   * cylinder.
+   */
+  private settleGunhandForReload(): void {
+    const gun = this.props.get("gunhand");
+    if (!gun?.visible) {
+      return;
+    }
+    const view = gun.view.toLowerCase();
+    if (view === "idle" || view === "reload") {
+      return;
+    }
+    gun.view = "idle";
+    gun.animTick = 0;
+    this.stopLoop("prop", "gunhand");
+    this.view?.refreshActors();
   }
 
   /**

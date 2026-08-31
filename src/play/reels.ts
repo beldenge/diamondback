@@ -52,6 +52,8 @@ export const GALLERY_REELS: readonly GalleryReel[] = [
   { id: "kiddie", title: "The Kid", group: "Deaths" },
   { id: "kidwin", title: "The Kid wins", group: "Deaths" },
   { id: "bountdie", title: "Bounty hunter", group: "Deaths" },
+  { id: "hench1", title: "Henchman (roof)", group: "Deaths" },
+  { id: "hench2", title: "Henchman (window)", group: "Deaths" },
   { id: "cobbshot", title: "Cobb's shot", group: "Deaths" },
   { id: "main", title: "Catalog", group: "Coming attractions" },
   { id: "duss", title: "Dust (screens)", group: "Coming attractions" },
