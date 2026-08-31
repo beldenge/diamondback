@@ -179,9 +179,10 @@ Default extract writes `FRAMES/`, `AUDIO/`, and `timeline.json` — enough
 for a MOVPLAY-style player without muxing `movie.mp4`. `timeline.json`
 may include `wait` / `wait_audio` (rec+0x1A bit 0: hold until group-A
 mixer idle) / `hotspots` (type-2 dest+channel; type-4 nested `movie`)
-and `next` (rec+0x16==3, e.g. `towerup` → `towertop.mov`).
-`movplay.py` is linear and does not honor `wait_audio`; in-game
-`playmovie` does.
+and `next` (rec+0x16==3, e.g. `towerup` → `towertop.mov`). Clips include
+`duration_ticks` (PCM). `duration_seconds` is the still table, not
+wait_audio wall-clock. `movplay.py` is linear and does not honor
+`wait_audio`; in-game `playmovie` does.
 
 ```
 python movplay.py out/MOV/_DOG1

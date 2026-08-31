@@ -10,10 +10,18 @@ import {
   MOV_WAVEHDR_BYTES,
   MOV_WAVE_RATE,
   movieClipsAtStart,
+  armMovieBedFollow,
+  movieBedContinues,
+  movieClipsForRec,
+  movieFollowBedIndex,
+  movieQueueWhen,
   movieClipsStarting,
   movieDurationSec,
   movieFrameWaitsForAudio,
   movieFrameWaitsForClick,
+  moviePlaybackSec,
+  movieRecStopsReel,
+  movieHotspotPlaysClip,
   movieHotspotSegmentEnd,
   movieIndexAt,
   movieWaitSetsSkipClick,
@@ -95,6 +103,45 @@ describe("movie duration", () => {
     expect(movieDurationSec({ duration_ticks: 2529, duration_seconds: 42.15, frames: [] })).toBe(42.15);
     expect(movieDurationSec({ duration_ticks: 2529, tick_hz: 60, frames: [] })).toBeCloseTo(42.15);
   });
+
+  it("playback clock waits out group-A then the still hold", () => {
+    const timeline: MovieTimeline = {
+      duration_ticks: 60,
+      tick_hz: 60,
+      frames: [
+        { container: 1, hold_ticks: 30, start_tick: 0, wait_audio: true },
+        { container: 2, hold_ticks: 30, start_tick: 30 },
+      ],
+      clips: [{ container: 9, start_tick: 0, channel: "A1", duration_ticks: 120 }],
+    };
+    expect(movieDurationSec(timeline)).toBe(1);
+    expect(moviePlaybackSec(timeline)).toBeCloseTo(2 + MOV_A_IDLE_RESTART_SEC + 1, 5);
+  });
+
+  it("B beds do not stretch wait_audio", () => {
+    const timeline: MovieTimeline = {
+      duration_ticks: 30,
+      tick_hz: 60,
+      frames: [{ container: 1, hold_ticks: 30, start_tick: 0, wait_audio: true }],
+      clips: [{ container: 4, start_tick: 0, channel: "B", duration_ticks: 600 }],
+    };
+    expect(moviePlaybackSec(timeline)).toBeCloseTo(0.5 + MOV_A_IDLE_RESTART_SEC, 5);
+  });
+
+  it("d1nd2m still table is ~18s; wait_audio stretches the picture-show clock", () => {
+    const path = resolve("dfextract/out/MOV/_D1ND2M/timeline.json");
+    if (!existsSync(path)) {
+      return;
+    }
+    const timeline = JSON.parse(readFileSync(path, "utf8")) as MovieTimeline;
+    const table = movieDurationSec(timeline);
+    expect(table).toBeCloseTo(18.58, 1);
+    const play = moviePlaybackSec(timeline);
+    expect(play).toBeGreaterThan(table);
+    if ((timeline.clips ?? []).some((clip) => (clip.duration_ticks ?? 0) > 0)) {
+      expect(play).toBeGreaterThan(30);
+    }
+  });
 });
 
 describe("movie clock", () => {
@@ -127,7 +174,9 @@ describe("spotmovie SFX commands", () => {
     const timeline = JSON.parse(readFileSync(path, "utf8")) as MovieTimeline;
     expect(timeline.frames[1]?.wait).toBe(true);
     expect((timeline.frames[1]?.hotspots ?? []).length).toBe(2);
-    expect(timeline.clips ?? []).toEqual([{ container: 1, start_tick: 42, channel: "A1" }]);
+    expect(timeline.clips ?? []).toEqual([
+      { container: 1, start_tick: 42, channel: "A1", duration_ticks: 81 },
+    ]);
   });
 
   it("schedules each mission-bell clip at its dest-frame", () => {
@@ -144,10 +193,40 @@ describe("spotmovie SFX commands", () => {
       { top: 0, left: 0, bottom: 264, right: 512, dest: 64, channel: "" },
     ]);
     expect(timeline.clips ?? []).toEqual([
-      { container: 1, start_tick: 18, channel: "A1" },
-      { container: 2, start_tick: 78, channel: "A2" },
-      { container: 3, start_tick: 141, channel: "A3" },
+      { container: 1, start_tick: 18, channel: "A1", duration_ticks: 228 },
+      { container: 2, start_tick: 78, channel: "A2", duration_ticks: 215 },
+      { container: 3, start_tick: 141, channel: "A3", duration_ticks: 251 },
     ]);
+  });
+
+  it("cmd-count 0 end_kind 1 stops the reel", () => {
+    expect(movieRecStopsReel({ action: 0, endKind: 1 })).toBe(true);
+    expect(movieRecStopsReel({ action: 2, endKind: 1 })).toBe(false);
+    expect(movieRecStopsReel({ action: 0, wait: true, endKind: 1 })).toBe(false);
+    expect(movieRecStopsReel({ action: 0, endKind: 2 })).toBe(false);
+    expect(movieRecStopsReel({ action: 0, end_kind: 1 })).toBe(true);
+  });
+
+  it("SAFEBOX take-stone is a playhead jump, not a bell segment", () => {
+    const path = resolve("dfextract/out/MOV/_SAFEBOX/timeline.json");
+    if (!existsSync(path)) {
+      return;
+    }
+    const timeline = JSON.parse(readFileSync(path, "utf8")) as MovieTimeline;
+    const waits = (timeline.frames ?? []).filter((frame) => frame.wait === true);
+    expect(waits.length).toBeGreaterThanOrEqual(2);
+    const take = waits[1]?.hotspots?.[0];
+    expect(take?.dest).toBe(17);
+    expect(take?.channel ?? "").toBe("");
+    const clips = timeline.clips ?? [];
+    expect(movieHotspotPlaysClip("A1", clips)).toBe(true);
+    expect(movieHotspotPlaysClip("", clips)).toBe(false);
+    expect(movieHotspotPlaysClip("A65516", clips)).toBe(false);
+    const takeStop = timeline.frames[31];
+    expect(take?.dest).toBeLessThan(35);
+    expect(movieRecStopsReel(takeStop)).toBe(true);
+    expect(takeStop?.end_kind).toBe(1);
+    expect((take?.dest ?? 0) < 31 && 31 < 35).toBe(true);
   });
 
   it("picks mission-bell rects in command order", () => {
@@ -157,6 +236,9 @@ describe("spotmovie SFX commands", () => {
       { top: 11, left: 377, bottom: 155, right: 462, dest: 43, channel: "A3" },
       { top: 0, left: 0, bottom: 264, right: 512, dest: 64, channel: "" },
     ];
+    expect(movieHotspotPlaysClip("A1", [{ channel: "A1" }])).toBe(true);
+    expect(movieHotspotPlaysClip("", [{ channel: "A1" }])).toBe(false);
+    expect(movieHotspotPlaysClip("A65516", [{ channel: "A1" }])).toBe(false);
     expect(pickMovieHotspot(150, 100, spots)?.channel).toBe("A1");
     expect(pickMovieHotspot(300, 100, spots)?.channel).toBe("A2");
     expect(pickMovieHotspot(400, 80, spots)?.channel).toBe("A3");
@@ -278,6 +360,75 @@ describe("dog1.mov", () => {
     expect(movieClipsAtStart(starts, 20 / hz)).toEqual([0]);
     expect(movieClipsAtStart(starts, 23 / hz)).toEqual([]);
     expect(movieClipsAtStart(starts, 26 / hz)).toEqual([1]);
+  });
+});
+
+describe("INTRO2 group B bed", () => {
+  it("fires B clips that sit between still recs", () => {
+    const path = resolve("dfextract/out/MOV/_INTRO2/timeline.json");
+    if (!existsSync(path)) {
+      return;
+    }
+    const timeline = JSON.parse(readFileSync(path, "utf8")) as MovieTimeline;
+    const hz = timeline.tick_hz || 60;
+    const recStarts = new Set((timeline.frames ?? []).map((frame) => frame.start_tick));
+    expect(recStarts.has(0)).toBe(true);
+    expect(recStarts.has(365)).toBe(false);
+    expect(recStarts.has(727)).toBe(false);
+    const clips = (timeline.clips ?? []).map((clip) => ({
+      startSec: clip.start_tick / hz,
+      durationSec: (clip.duration_ticks ?? 0) / hz,
+      channel: clip.channel,
+    }));
+    const starts = clips.map((clip) => clip.startSec);
+    expect(movieClipsAtStart(starts, 363 / hz)).toEqual([]);
+    expect(movieClipsAtStart(starts, 366 / hz)).toEqual([]);
+    const first = movieClipsForRec(clips, 0, 30 / hz);
+    const head = first.find((i) => clips[i]?.channel === "B" && clips[i]?.startSec === 0);
+    expect(head).toBeDefined();
+    expect(movieBedContinues(clips[head!]!, clips[movieFollowBedIndex(clips, head!)!]!)).toBe(true);
+    const mid = movieClipsForRec(clips, 363 / hz, 366 / hz);
+    expect(mid.some((i) => Math.abs((clips[i]?.startSec ?? 0) - 365 / hz) < 1e-6)).toBe(false);
+    const later = movieClipsForRec(clips, 726 / hz, 729 / hz);
+    expect(later.some((i) => Math.abs((clips[i]?.startSec ?? 0) - 727 / hz) < 1e-6)).toBe(false);
+    const second = movieFollowBedIndex(clips, head!);
+    expect(second).toBeDefined();
+    expect(Math.abs((clips[second!]!.startSec) - 365 / hz)).toBeLessThan(1e-6);
+    const third = movieFollowBedIndex(clips, second!);
+    expect(third).toBeDefined();
+    expect(Math.abs((clips[third!]!.startSec) - 727 / hz)).toBeLessThan(1e-6);
+    const tableEnd = (timeline.duration_ticks ?? 0) / hz;
+    expect(movieFollowBedIndex(clips, third!, tableEnd)).toBeUndefined();
+  });
+
+  it("queues the next B clip without waiting for onended", async () => {
+    const clips = [
+      { startSec: 0, durationSec: 6, channel: "B", url: "a" },
+      { startSec: 6, durationSec: 6, channel: "B", url: "b" },
+      { startSec: 12, durationSec: 8, channel: "B", url: "c" },
+    ];
+    const played: string[] = [];
+    armMovieBedFollow(
+      clips,
+      0,
+      async (clip) => {
+        played.push(clip.url ?? "");
+      },
+      () => false,
+    );
+    for (let i = 0; i < 8; i += 1) {
+      await Promise.resolve();
+    }
+    expect(played).toEqual(["b", "c"]);
+  });
+});
+
+describe("movieQueueWhen", () => {
+  it("joins a queued bed at the previous channel end", () => {
+    expect(movieQueueWhen(1, 7, true)).toBe(7);
+    expect(movieQueueWhen(8, 7, true)).toBe(8);
+    expect(movieQueueWhen(1, 7, false)).toBe(1);
+    expect(movieQueueWhen(1, undefined, true)).toBe(1);
   });
 });
 

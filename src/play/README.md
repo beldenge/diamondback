@@ -420,8 +420,12 @@ SALGAMES. Scene D7 `fight()` opens the flat after Jones walks you there
 
 **Table.** Still `frame_3.png`. Dell + fists + two power sliders are
 screen PRP. Player clicks Dell (not the fist overlay — that sprite has
-no `mousedown`). `getpunch` is stage Y bands. `makeloop` `punch` is
-Dell’s AI. Win → `setupactor ("tko")` / knife `runaway`; lose →
+no `mousedown`). `getpunch` is stage pixels: `y < 93` is an **eye poke
+on both sides** (no left/right), then left/right split at `x = 246`
+for hook (`y < 120`), jaw (`y < 145`, more damage), gut (`y < 205`),
+and a low-gut fallback. `mousedown` no-ops while fists are not `rest`
+(the poke arm covers the face for those 8 frames). `makeloop` `punch`
+is Dell’s AI. Win → `setupactor ("tko")` / knife `runaway`; lose →
 `actorowner ("dell", "wonfight")`, `putdownactor`, `fadetoblack` (looped
 `mixclut ("current", "black", …, 20)`), `makeface ("ko")`, then
 `sendquit` after 300 frames and `quitfight` `blacktoscreen ("set", 180)`.
@@ -746,6 +750,8 @@ still has forward > 0.
 | `screentoblack` / `delay` waiting on `requestAnimationFrame` | Those opcodes are 60 Hz ticks (`blacktoscreen (…, 30)` = 0.5 s). Waiting on rAF inside Three’s animation loop can stall after the second-hand bet (fade never finishes, `dealcards` never runs). Use wall-clock ticks. `forceupdate` (`0x433740`) is one 20 Hz display/walk pump, not a `makeloop` drain. |
 | Leave `actionframe` unimplemented | `hotbed.mov` plays and `advanceday` never runs (return 0). Same miss on hotel `dollar.mov` `$4`. After `playmovie` finishes, frame **1** is set. |
 | Play `kiddie.mov` straight through | Auto-kills the Kid. Dump type-2 recs 10–19 / 21–31 / 38–48 are timed clicks (hand, gun, Kid). Last rec of each window type-3 `kidwin.mov` is the miss. `openkid` only `setupactor("dead")` when `actionframe (1)`. |
+| SAFEBOX take dest as a mixer channel | Slot 65516 is not A65516. Bell-style “play dest then wait” put the stone back; giveup is under `#play-movie`. Empty / out-of-range slot is a playhead jump (`0x419b73`). Rec 17 take then rec+0x16==1 stop at 31; playing through dest 35 closes the box twice. |
+| MOV group B rec-window fire or onended-then-playFx | INTRO2 hum stutters at the ~6 s / ~12 s joins. Clip 4/5 starts (365, 727) sit between stills. Rec-window fire cuts the previous bed before the next buffer is ready; waiting for `onended` then `playFx` leaves a resume/start gap. Skip continuation B on the rec; `source.start(when)` at the previous buffer end. Rec+32 A stays exact. Scene-replace B (`n_b≠0`) still rec-fires. |
 | `closetrackfile ("gossip")` as `halttheme` | Mazie knock / Fear through-the-door killed the saloon or lobby bed. Gossip is a voice-bank pop. |
 | `putword (list, " ", n, "")` dropping the word | SALGAMES `shuffle` clears a slot then writes the swap. Filtering empties shrinks 52 cards to ~12. Hand two `findword` past the end deals nothing. Keep holes; `findword` is the same 1-based split. |
 | `setVar` writing checkers `move` to the automove global | Bolivar’s man vanished; jumps never captured; overlay/click patches did nothing. `makemove (move, person)` reassigns the **parameter** to the decoded delta; the global stays the comma list. Params are locals even when the name is a declared global. |

@@ -123,6 +123,9 @@ Default run (`/`) is the title chooser. Modes:
 
 | Date | Decision |
 |---|---|
+| 2026-08-30 | MOV group B is a PCM-chained playlist, not rec+32. INTRO2 bed 365 sits between stills 363 and 366; rec-start-only cues killed the hum. Rec-window fire and onended-then-playFx stuttered the ~6 s / ~12 s joins. Skip continuation B on the rec; schedule the next clip at the previous buffer end. Rec+32 A stays exact. |
+| 2026-08-30 | Bank SAFEBOX: take-stone slot 65516 is not mixer `A65516` (playhead jump). Rec+0x16==1 with cmd count 0 stops the reel at rec 31 after dest 17; playing through dest 35 closes the box twice. |
+| 2026-08-30 | Picture Show length is wait_audio wall-clock, not the still table. `d1nd2m` table is ~18 s; voice-over mixer waits stretch playback. `duration_seconds` stays the table. Clips dump `duration_ticks`. Do not change in-game `playmovie` order. |
 | 2026-08-30 | Resurrected save is extracted NEW.FLT `score` (skull) `savegame` / `opengame`, not a remake File menu. Layout of original `*.rtd` is unknown; the remake writes JSON (globals, actors, props, pose) to `localStorage` and downloads the same blob as `.rtd`. Open loads the slot or imports a file. `?continue=1` skips boot `advanceday` and restores. `questiondialog` / `quit` are the score/death buttons. Days 2–5 and G14 endings are extracted `advanceday` / `canadvance` / SET scripts — do not author a second plot. |
 | 2026-08-27 | Sprite pal 0 on SET/FLT blits is VGA black, not GDI unused-white. Pal 0 salt on doors, INVEN gun/books, and HUB skeletons was the dump; MINE.CST skeletons use MINE.SET (CST table is an RGB cube). Codec skip is *unwritten* 255; **written** 255 is VGA white (bone/ring highlights). Traps: [`dfextract/docs/images.md`](dfextract/docs/images.md). |
 | 2026-08-27 | Reader `*bord` hittest misses the codec-skip page hole (dumped PNG bbox, not HUD `y < 256` and not whole-sprite `yunnibord`). Inner click is FLT/stage `mousedown` (page turn); frame closes. |

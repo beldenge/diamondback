@@ -115,6 +115,7 @@ import {
   frameUrl,
   isIntroMovie,
   movieChainName,
+  movieClipDurationSec,
   movieFolder,
   type MovieHotspot,
   type MovieTimeline,
@@ -4714,12 +4715,14 @@ export class DustHost implements OpcodeHost {
           action: frame.action ?? 0,
           wait: frame.wait,
           waitAudio: frame.wait_audio,
+          endKind: frame.end_kind,
           hotspots: frame.hotspots,
           timeoutMovie: frame.timeout_movie,
         }));
         const clips = (timeline.clips ?? []).map((clip) => ({
           url: clipUrl(folder, clip.container),
           startSec: clip.start_tick / hz,
+          durationSec: movieClipDurationSec(clip, hz),
           channel: clip.channel,
         }));
         if (this.view?.playMovie && frames.length) {

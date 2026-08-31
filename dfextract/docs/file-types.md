@@ -363,6 +363,9 @@ still, and not again when a later still repeats the same jump (store
 pots rec 9 last=2 is “clang again”, not a second timed clang). Drop
 command SFX when a reel has more than 32 last>1 A-slot commands (`INFO/MAIN`).
 Type 2 slot 0 last 2 with cmd count 1 is inspect wait-for-click.
+Slot must be 1-based into that scene’s group A (`n_a`). SAFEBOX’s
+take-stone click stores 65516 — dump `channel ""`, not `A65516`
+(that made play treat a playhead jump as a bell ring).
 Type 3 (46 bytes) is a Pascal `.mov` at +14. `KIDDIE.MOV` click windows
 carry `kidwin.mov`; rec+0x16==3 on the last rec of a window plays that
 reel if the type-2 dest was missed (Kid wins). Type-2 last>1 on a run of
@@ -399,7 +402,9 @@ INTRO.MOV: 638 frames, 27 audio clips, **42.15 s**. INTRO2: 354 frames,
 **18.60 s**. INTRO3: 1475 frames, **101.30 s**. Three intros ≈ **162 s**
 of picture (was 176 s at a flat 14 fps). SALUP stairs **1.73 s**.
 `DOG1` / `DOG2` still tables are ~1 s; in-game `wait_audio` stretches
-them through the growls.
+them through the growls. Picture Show `moviePlaybackSec` is that
+wall-clock (A remaining + empty waveOut header + still hold), not
+`duration_seconds`. Clip `duration_ticks` is PCM length.
 
 Sidecar WAVs go under `AUDIO/` with `--audio`. `--video` is **opt-in**
 (`python cli.py` does not mux). To watch without an mp4:

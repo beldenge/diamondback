@@ -2,8 +2,8 @@ import { extractUrl } from "../world/set/extract";
 import { MoviePlayer } from "./moviePlayer";
 import {
   formatMovieClock,
-  movieDurationSec,
   movieFolder,
+  moviePlaybackSec,
   type MovieTimeline,
 } from "./movies";
 import { DEFAULT_REEL, GALLERY_REELS, galleryGroups, galleryReel, reelFromSearch } from "./reels";
@@ -247,7 +247,7 @@ export class MovieGallery {
             return;
           }
           const timeline = (await res.json()) as MovieTimeline;
-          const sec = movieDurationSec(timeline);
+          const sec = moviePlaybackSec(timeline);
           if (!(sec > 0)) {
             return;
           }

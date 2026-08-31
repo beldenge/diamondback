@@ -2,14 +2,18 @@ import { extractUrl } from "../world/set/extract";
 import {
   clipUrl,
   frameUrl,
-  movieClipsAtStart,
-  movieDurationSec,
+  movieClipDurationSec,
   movieFolder,
   movieFrameWaitsForAudio,
   movieFrameWaitsForClick,
+  moviePlaybackSec,
+  movieRecStopsReel,
+  movieTableEndSec,
+  playMovieRecAudio,
+  type MovieCue,
   type MovieTimeline,
 } from "./movies";
-import { voices } from "./speech";
+import { playMovieClip, voices } from "./speech";
 
 export interface MovieStatus {
   label: string;
@@ -40,6 +44,7 @@ async function loadTimeline(stem: string): Promise<MovieTimeline> {
 
 export class MoviePlayer {
   private gen = 0;
+  private readonly bedToken = { gen: 0 };
   private images = new Map<string, HTMLImageElement>();
   private timers: number[] = [];
   private raf = 0;
@@ -48,8 +53,10 @@ export class MoviePlayer {
 
   stop(): void {
     this.gen += 1;
+    this.bedToken.gen += 1;
     this.clearTimers();
     voices.stop();
+    voices.stopAllFx();
   }
 
   async play(
@@ -77,10 +84,12 @@ export class MoviePlayer {
       action: frame.action ?? 0,
       wait: frame.wait,
       waitAudio: frame.wait_audio,
+      endKind: frame.end_kind,
     }));
     const clips = (timeline.clips ?? []).map((clip) => ({
       url: clipUrl(folder, clip.container),
       startSec: clip.start_tick / hz,
+      durationSec: movieClipDurationSec(clip, hz),
       channel: clip.channel,
     }));
     if (!frames.length) {
@@ -105,15 +114,16 @@ export class MoviePlayer {
       return;
     }
     report(this.images.size, "Playing");
-    const stillSec = frames.reduce((sum, frame) => sum + frame.holdSec, 0);
-    opts.onProgress?.(0, stillSec || movieDurationSec(timeline));
+    const clipDurations = clips.map((clip) => voices.bufferDuration(clip.url));
+    const totalSec = moviePlaybackSec(timeline, clipDurations);
+    opts.onProgress?.(0, totalSec);
     if (frames.some((frame) => movieFrameWaitsForClick(frame.action, frame.wait))) {
-      await this.playAction(frames, clips, gen, opts.waitClick, opts.onProgress);
+      await this.playAction(frames, clips, gen, totalSec, opts.waitClick, opts.onProgress);
     } else {
-      await this.playLinear(frames, clips, gen, opts.onProgress);
+      await this.playLinear(frames, clips, gen, totalSec, opts.onProgress);
     }
     if (gen === this.gen) {
-      opts.onProgress?.(stillSec, stillSec);
+      opts.onProgress?.(totalSec, totalSec);
     }
   }
 
@@ -166,13 +176,20 @@ export class MoviePlayer {
   }
 
   private async playLinear(
-    frames: { url: string; holdSec: number; startSec: number; waitAudio?: boolean }[],
-    clips: { url: string; startSec: number; channel?: string }[],
+    frames: {
+      url: string;
+      holdSec: number;
+      startSec: number;
+      waitAudio?: boolean;
+      endKind?: number;
+    }[],
+    clips: MovieCue[],
     gen: number,
+    totalSec: number,
     onProgress?: (nowSec: number, totalSec: number) => void,
   ): Promise<void> {
-    const starts = clips.map((clip) => clip.startSec);
-    const total = frames.reduce((sum, frame) => sum + Math.max(0, frame.holdSec), 0);
+    const total = Math.max(0, totalSec);
+    const endSec = movieTableEndSec(frames);
     let wall = 0;
     for (const frame of frames) {
       if (gen !== this.gen) {
@@ -180,23 +197,31 @@ export class MoviePlayer {
       }
       await this.ensureFrame(frame.url);
       this.blit(frame.url);
-      onProgress?.(wall, total);
-      for (const index of movieClipsAtStart(starts, frame.startSec)) {
-        const url = clips[index]?.url;
-        if (url) {
-          await voices.playFx(url, 0.85, false, clips[index]?.channel);
-        }
-      }
-      if (movieFrameWaitsForAudio(frame.waitAudio)) {
-        await voices.whenGroupAIdle();
-      }
+      onProgress?.(Math.min(wall, total), total);
       const hold = Math.max(0, frame.holdSec);
+      await playMovieRecAudio(
+        clips,
+        frame.startSec,
+        frame.startSec + hold,
+        playMovieClip,
+        () => gen !== this.gen,
+        this.bedToken,
+        endSec,
+      );
+      if (movieFrameWaitsForAudio(frame.waitAudio)) {
+        wall += await awaitWhile(voices.whenGroupAIdle(), () => gen !== this.gen, (sec) => {
+          onProgress?.(Math.min(wall + sec, total), total);
+        });
+      }
       if (hold > 0) {
         await sleep(hold * 1000, () => gen !== this.gen, (frac) => {
-          onProgress?.(wall + hold * frac, total);
+          onProgress?.(Math.min(wall + hold * frac, total), total);
         });
       }
       wall += hold;
+      if (movieRecStopsReel(frame)) {
+        return;
+      }
     }
   }
 
@@ -208,40 +233,50 @@ export class MoviePlayer {
       action?: number;
       wait?: boolean;
       waitAudio?: boolean;
+      endKind?: number;
     }[],
-    clips: { url: string; startSec: number; channel?: string }[],
+    clips: MovieCue[],
     gen: number,
+    totalSec: number,
     waitClick?: () => Promise<void>,
     onProgress?: (nowSec: number, totalSec: number) => void,
   ): Promise<void> {
-    const starts = clips.map((clip) => clip.startSec);
-    const total = frames.reduce((sum, frame) => sum + Math.max(0, frame.holdSec), 0);
-    let tableSec = 0;
+    const total = Math.max(0, totalSec);
+    const endSec = movieTableEndSec(frames);
+    let wall = 0;
     for (const frame of frames) {
       if (gen !== this.gen) {
         return;
       }
       await this.ensureFrame(frame.url);
       this.blit(frame.url);
-      onProgress?.(tableSec, total);
+      onProgress?.(Math.min(wall, total), total);
       const hold = Math.max(0, frame.holdSec);
-      for (const index of movieClipsAtStart(starts, frame.startSec)) {
-        const url = clips[index]?.url;
-        if (url) {
-          await voices.playFx(url, 0.85, false, clips[index]?.channel);
-        }
-      }
+      await playMovieRecAudio(
+        clips,
+        frame.startSec,
+        frame.startSec + hold,
+        playMovieClip,
+        () => gen !== this.gen,
+        this.bedToken,
+        endSec,
+      );
       if (movieFrameWaitsForAudio(frame.waitAudio)) {
-        await voices.whenGroupAIdle();
+        wall += await awaitWhile(voices.whenGroupAIdle(), () => gen !== this.gen, (sec) => {
+          onProgress?.(Math.min(wall + sec, total), total);
+        });
       }
       if (hold > 0) {
         await sleep(hold * 1000, () => gen !== this.gen, (frac) => {
-          onProgress?.(tableSec + hold * frac, total);
+          onProgress?.(Math.min(wall + hold * frac, total), total);
         });
       }
-      tableSec += hold;
+      wall += hold;
       if (movieFrameWaitsForClick(frame.action, frame.wait) && waitClick) {
         await waitClick();
+      }
+      if (movieRecStopsReel(frame)) {
+        return;
       }
     }
   }
@@ -256,6 +291,28 @@ export class MoviePlayer {
       this.raf = 0;
     }
   }
+}
+
+async function awaitWhile(
+  done: Promise<void>,
+  cancelled: () => boolean,
+  onElapsed?: (sec: number) => void,
+): Promise<number> {
+  const t0 = performance.now();
+  let settled = false;
+  void done.finally(() => {
+    settled = true;
+  });
+  while (!settled) {
+    if (cancelled()) {
+      return (performance.now() - t0) / 1000;
+    }
+    onElapsed?.((performance.now() - t0) / 1000);
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+  }
+  return (performance.now() - t0) / 1000;
 }
 
 function sleep(

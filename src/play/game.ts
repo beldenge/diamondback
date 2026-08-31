@@ -145,18 +145,21 @@ import {
   fallbackTimeline,
   frameUrl as movieStillUrl,
   movieClickToStill,
-  movieClipsAtStart,
   movieClipsStarting,
   movieFolder,
+  movieTableEndSec,
+  playMovieRecAudio,
   movieFrameWaitsForAudio,
   movieFrameWaitsForClick,
+  movieHotspotPlaysClip,
+  movieRecStopsReel,
   movieHotspotSegmentEnd,
   movieWaitSetsSkipClick,
   pickMovieHotspot,
   type MovieHotspot,
   type MovieTimeline,
 } from "./movies";
-import { unlockVoices, voices } from "./speech";
+import { playMovieClip, unlockVoices, voices } from "./speech";
 
 const CURSORS: Record<string, string> = {
   arrow: "/rsrc/cursors/arrow.cur",
@@ -297,6 +300,7 @@ export class PlayGame implements WorldView {
   private readonly movieEl: HTMLCanvasElement;
   private readonly movieCtx: CanvasRenderingContext2D;
   private readonly movieImages = new Map<string, HTMLImageElement>();
+  private readonly movieBed = { gen: 0 };
   private readonly handEl: HTMLCanvasElement;
   private readonly handCtx: CanvasRenderingContext2D;
   private handSrc = "";
@@ -870,10 +874,11 @@ export class PlayGame implements WorldView {
       action?: number;
       wait?: boolean;
       waitAudio?: boolean;
+      endKind?: number;
       hotspots?: MovieHotspot[];
       timeoutMovie?: string;
     }[],
-    clips: { url: string; startSec: number; channel?: string }[],
+    clips: { url: string; startSec: number; channel?: string; durationSec?: number }[],
     opts?: { keepLayer?: boolean },
   ): Promise<boolean> {
     if (!frames.length) {
@@ -887,6 +892,7 @@ export class PlayGame implements WorldView {
       action?: number;
       wait?: boolean;
       waitAudio?: boolean;
+      endKind?: number;
       hotspots?: MovieHotspot[];
       timeoutMovie?: string;
     }[] = [];
@@ -932,6 +938,8 @@ export class PlayGame implements WorldView {
 
   endMovie(): void {
     this.movieEl.hidden = true;
+    this.movieBed.gen += 1;
+    voices.stopAllFx();
     this.movieImages.clear();
     this.busy = false;
     this.needsRender = true;
@@ -947,30 +955,37 @@ export class PlayGame implements WorldView {
       holdSec: number;
       startSec?: number;
       waitAudio?: boolean;
+      endKind?: number;
     }[],
-    clips: { url: string; startSec: number; channel?: string }[],
+    clips: { url: string; startSec: number; channel?: string; durationSec?: number }[],
   ): Promise<void> {
-    const starts = clips.map((clip) => clip.startSec);
+    const endSec = movieTableEndSec(frames);
     let tableSec = 0;
     for (const frame of frames) {
       this.blitMovieFrame(frame.url);
-      const at = frame.startSec ?? tableSec;
-      for (const index of movieClipsAtStart(starts, at)) {
-        const url = clips[index]?.url;
-        if (url) {
-          await voices.playFx(url, 0.85, false, clips[index]?.channel);
-        }
-      }
+      const recStart = frame.startSec ?? tableSec;
+      const rest = Math.max(0, frame.holdSec);
+      await playMovieRecAudio(
+        clips,
+        recStart,
+        recStart + rest,
+        playMovieClip,
+        () => !!this.movieEl.hidden,
+        this.movieBed,
+        endSec,
+      );
       if (movieFrameWaitsForAudio(frame.waitAudio)) {
         await voices.whenGroupAIdle();
       }
-      const rest = Math.max(0, frame.holdSec);
       if (rest > 0) {
         await new Promise<void>((resolve) => {
           window.setTimeout(resolve, rest * 1000);
         });
       }
-      tableSec += Math.max(0, frame.holdSec);
+      tableSec = recStart + rest;
+      if (movieRecStopsReel(frame)) {
+        break;
+      }
     }
   }
 
@@ -986,26 +1001,30 @@ export class PlayGame implements WorldView {
       action?: number;
       wait?: boolean;
       waitAudio?: boolean;
+      endKind?: number;
       hotspots?: MovieHotspot[];
       timeoutMovie?: string;
     }[],
-    clips: { url: string; startSec: number; channel?: string }[],
+    clips: { url: string; startSec: number; channel?: string; durationSec?: number }[],
   ): Promise<boolean> {
     if (frames.some((frame) => frame.hotspots && frame.hotspots.length > 0)) {
       return this.playHotspotMovie(frames, clips);
     }
-    const starts = clips.map((clip) => clip.startSec);
+    const endSec = movieTableEndSec(frames);
     let tableSec = 0;
     for (const frame of frames) {
       this.blitMovieFrame(frame.url);
-      const at = frame.startSec ?? tableSec;
+      const recStart = frame.startSec ?? tableSec;
       const hold = Math.max(0, frame.holdSec);
-      for (const index of movieClipsAtStart(starts, at)) {
-        const url = clips[index]?.url;
-        if (url) {
-          await voices.playFx(url, 0.85, false, clips[index]?.channel);
-        }
-      }
+      await playMovieRecAudio(
+        clips,
+        recStart,
+        recStart + hold,
+        playMovieClip,
+        () => !!this.movieEl.hidden,
+        this.movieBed,
+        endSec,
+      );
       if (movieFrameWaitsForAudio(frame.waitAudio)) {
         await voices.whenGroupAIdle();
       }
@@ -1014,9 +1033,12 @@ export class PlayGame implements WorldView {
           window.setTimeout(resolve, hold * 1000);
         });
       }
-      tableSec += hold;
+      tableSec = recStart + hold;
       if (movieFrameWaitsForClick(frame.action, frame.wait)) {
         await this.waitMovieClick();
+      }
+      if (movieRecStopsReel(frame)) {
+        break;
       }
     }
     return true;
@@ -1033,6 +1055,7 @@ export class PlayGame implements WorldView {
       holdSec: number;
       action?: number;
       wait?: boolean;
+      endKind?: number;
       hotspots?: MovieHotspot[];
       timeoutMovie?: string;
     }[],
@@ -1070,7 +1093,7 @@ export class PlayGame implements WorldView {
           this.blitMovieFrame(frame.url);
           continue;
         }
-        if (hit.channel) {
+        if (movieHotspotPlaysClip(hit.channel, clips)) {
           const clip = clips.find((item) => item.channel === hit.channel);
           if (clip?.url) {
             void voices.playFx(clip.url, 0.85, false, clip.channel);
@@ -1103,6 +1126,9 @@ export class PlayGame implements WorldView {
       t += hold;
       if (movieFrameWaitsForClick(frame.action, frame.wait)) {
         await this.waitMovieClick();
+      }
+      if (movieRecStopsReel(frame)) {
+        return true;
       }
       i += 1;
     }

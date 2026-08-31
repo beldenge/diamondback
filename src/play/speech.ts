@@ -5,7 +5,7 @@
  * greetings overlap the wait, and later lines can fire in sync (offset).
  */
 
-import { MOV_A_IDLE_RESTART_SEC } from "./movies";
+import { MOV_A_IDLE_RESTART_SEC, movieQueueWhen } from "./movies";
 
 const Ctor: typeof AudioContext | undefined =
   typeof window !== "undefined"
@@ -24,12 +24,14 @@ export class VoiceBank {
   private readonly raw = new Map<string, ArrayBuffer>();
   private readonly pendingRaw = new Map<string, Promise<ArrayBuffer | null>>();
   private readonly buffers = new Map<string, AudioBuffer>();
-  /** MOVPLAY group A: same channel restarts (does not stack). */
-  private readonly fxSlots = new Map<string, () => void>();
+  /** Live sources per mixer slot (queued B keeps more than one). */
+  private readonly fxStops = new Map<string, Set<() => void>>();
   private readonly fxEnded = new Map<string, Promise<void>>();
   private readonly fxEndedResolve = new Map<string, () => void>();
   /** performance.now() when this A/B channel's current one-shot should end. */
   private readonly fxUntil = new Map<string, number>();
+  /** AudioContext time when this channel's last queued buffer ends. */
+  private readonly fxCtxEnd = new Map<string, number>();
   /** Looping beds / `soundloop` nodes. Host can drop them on SET change. */
   private readonly looping = new Set<() => void>();
 
@@ -131,7 +133,38 @@ export class VoiceBank {
     this.fxEndedResolve.delete(channel);
     this.fxEnded.delete(channel);
     this.fxUntil.delete(channel);
+    this.fxCtxEnd.delete(channel);
     resolve?.();
+  }
+
+  /** Stop A/B movie slots. Leaves unchanneled looping beds. */
+  stopAllFx(): void {
+    for (const channel of [...this.fxStops.keys()]) {
+      this.stopChannel(channel);
+    }
+  }
+
+  private stopChannel(channel: string): void {
+    const stops = this.fxStops.get(channel);
+    this.fxStops.delete(channel);
+    if (stops) {
+      for (const halt of stops) {
+        halt();
+      }
+    }
+    this.settleFx(channel);
+  }
+
+  private dropFxStop(channel: string, halt: () => void): void {
+    const stops = this.fxStops.get(channel);
+    if (!stops) {
+      return;
+    }
+    stops.delete(halt);
+    if (stops.size === 0) {
+      this.fxStops.delete(channel);
+      this.settleFx(channel);
+    }
   }
 
   /** One-shot world/UI WAV. Does not stop speech or set the viseme clock. */
@@ -140,13 +173,9 @@ export class VoiceBank {
     volume = 0.8,
     loop = false,
     channel?: string,
+    queue?: boolean,
   ): Promise<() => void> {
     this.engage();
-    if (channel) {
-      this.fxSlots.get(channel)?.();
-      this.fxSlots.delete(channel);
-      this.settleFx(channel);
-    }
     let cancelled = false;
     let started = false;
     let source: AudioBufferSourceNode | null = null;
@@ -167,10 +196,9 @@ export class VoiceBank {
       } catch {
         /* already disconnected */
       }
-      if (channel && this.fxSlots.get(channel) === stop) {
-        this.fxSlots.delete(channel);
+      if (channel) {
+        this.dropFxStop(channel, stop);
       }
-      this.settleFx(channel);
     };
     if (loop) {
       this.looping.add(stop);
@@ -193,6 +221,7 @@ export class VoiceBank {
     source.loop = loop;
     source.connect(gain);
     gain.connect(ctx.destination);
+    let startAt = ctx.currentTime;
     try {
       if (ctx.state !== "running") {
         await ctx.resume();
@@ -201,7 +230,15 @@ export class VoiceBank {
         stop();
         return stop;
       }
-      source.start();
+      if (channel && queue !== true) {
+        this.stopChannel(channel);
+      }
+      startAt = movieQueueWhen(
+        ctx.currentTime,
+        channel ? this.fxCtxEnd.get(channel) : undefined,
+        queue === true && Boolean(channel),
+      );
+      source.start(startAt);
       started = true;
       if (cancelled) {
         stop();
@@ -212,25 +249,41 @@ export class VoiceBank {
       return stop;
     }
     if (channel) {
-      this.fxSlots.set(channel, stop);
-      this.settleFx(channel);
-      this.fxUntil.set(channel, performance.now() + buffer.duration * 1000);
-      let resolveEnded: () => void = () => undefined;
-      this.fxEnded.set(
+      let stops = this.fxStops.get(channel);
+      if (!stops) {
+        stops = new Set();
+        this.fxStops.set(channel, stops);
+      }
+      stops.add(stop);
+      const endAt = startAt + buffer.duration;
+      this.fxCtxEnd.set(channel, endAt);
+      this.fxUntil.set(
         channel,
-        new Promise<void>((resolve) => {
-          resolveEnded = resolve;
-        }),
+        performance.now() + (endAt - ctx.currentTime) * 1000,
       );
-      this.fxEndedResolve.set(channel, resolveEnded);
+      if (!this.fxEnded.has(channel)) {
+        let resolveEnded: () => void = () => undefined;
+        this.fxEnded.set(
+          channel,
+          new Promise<void>((resolve) => {
+            resolveEnded = resolve;
+          }),
+        );
+        this.fxEndedResolve.set(channel, resolveEnded);
+      }
       source.onended = () => {
-        if (this.fxSlots.get(channel) === stop) {
-          this.fxSlots.delete(channel);
-        }
-        this.settleFx(channel);
+        this.dropFxStop(channel, stop);
       };
     }
     return stop;
+  }
+
+  /** Resolves when this mixer slot's current one-shot ends (or now if idle). */
+  async whenChannelEnded(channel: string): Promise<void> {
+    const ended = this.fxEnded.get(channel);
+    if (ended) {
+      await ended;
+    }
   }
 
   async play(url: string): Promise<number> {
@@ -400,6 +453,13 @@ export class VoiceBank {
 export const voices = new VoiceBank();
 export function unlockVoices(): void {
   voices.unlock();
+}
+
+export function playMovieClip(
+  clip: { url?: string; channel?: string },
+  queue = false,
+): Promise<() => void> {
+  return voices.playFx(clip.url ?? "", 0.85, false, clip.channel, queue);
 }
 
 function abortAfter(ms: number): AbortSignal {

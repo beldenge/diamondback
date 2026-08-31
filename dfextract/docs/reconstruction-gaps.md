@@ -157,6 +157,10 @@ Layout: [file-types.md](file-types.md) (MOV).
   General flag (75 reels here: dog1 recs 2 and 4, dog2 rec 5, day-change
   last stills, some intros). INTRO2 A2 retriggers do not set it. Play
   honors it; `movplay.py` / `--video` do not (linear `start_tick`).
+  Picture Show listing uses wall-clock (`moviePlaybackSec`), not the
+  still-table `duration_seconds` (d1nd2m table ~18 s, voice waits longer).
+  Type-2 A-slot is 1-based into `n_a`. SAFEBOX take-stone stores 65516;
+  dump empty channel (playhead jump), not `A65516`.
   A new scene that would overlap the previous scene’s still-playing A
   line is **held** until that line’s original end (INTRO 325 vs 423).
   In-game, DF.EXE also fires A-slots from the rec+0x24 command stream

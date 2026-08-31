@@ -57,6 +57,7 @@ BELLTOWN = DUST / "MOVIES" / "BELLTOWN.MOV"
 MARIEEND = DUST / "MOVIES" / "MARIEEND.MOV"
 KETTLE = DUST / "MOVIES" / "KETTLE.MOV"
 HARMON = DUST / "INVEN" / "HARMON.MOV"
+SAFEBOX = DUST / "MOVIES" / "SAFEBOX.MOV"
 MAIN = DUST / "INFO" / "MAIN.MOV"
 HWIN = DUST / "MOVIES" / "HWIN.MOV"
 SKIP = "Dust CD MOV not present"
@@ -164,6 +165,7 @@ class TestIntroTimeline(unittest.TestCase):
         self.assertEqual(by_cont[2], [(120, "A2")])
         self.assertEqual(by_cont[3], [(348, "A3")])
         self.assertEqual(by_cont[146], [(610, "A1")])
+        self.assertTrue(all(c.duration_ticks > 0 for c in self.tl.clip_starts if c.channel.startswith("A")))
 
     def test_group_b_playlist_starts_at_scene(self) -> None:
         assert self.tl is not None
@@ -247,6 +249,10 @@ class TestActionframeWait(unittest.TestCase):
             [f.wait_audio for f in dog.frames],
             [False, False, True, False, True, False],
         )
+        growl = [c for c in dog.clip_starts if c.container == 1]
+        self.assertEqual(len(growl), 2)
+        self.assertGreater(growl[0].duration_ticks, 0)
+        self.assertEqual(growl[0].duration_ticks, growl[1].duration_ticks)
 
     def test_dog2_waits_audio_on_rec_5(self) -> None:
         if not DOG2.is_file():
@@ -318,6 +324,18 @@ class TestSpotmovieCommandSfx(unittest.TestCase):
             clips,
             [(1, "A1", 18), (2, "A2", 78), (3, "A3", 141)],
         )
+
+    def test_safebox_take_stone_has_no_mixer_slot(self) -> None:
+        if not SAFEBOX.is_file():
+            self.skipTest("SAFEBOX.MOV not present")
+        tl = parse_reel_timeline(read_df_file(SAFEBOX))
+        self.assertIsNotNone(tl)
+        assert tl is not None
+        waits = [f for f in tl.frames if f.wait]
+        self.assertGreaterEqual(len(waits), 2)
+        take = waits[1].hotspots[0]
+        self.assertEqual(take.dest, 17)
+        self.assertEqual(take.channel, "")
 
     def test_nitebell_matches_bell_dest_frames(self) -> None:
         if not NITEBELL.is_file():

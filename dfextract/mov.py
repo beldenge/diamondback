@@ -203,6 +203,7 @@ class ClipStart:
     container: int
     start_tick: int
     channel: str
+    duration_ticks: int = 0
 
 
 @dataclass(frozen=True)
@@ -377,8 +378,9 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
                 seq = list(b_clips)
             bed = tick
             for index in seq:
-                clip_starts.append(ClipStart(index, bed, "B"))
-                bed += audio_duration_ticks(df.containers[index].data)
+                dur = audio_duration_ticks(df.containers[index].data)
+                clip_starts.append(ClipStart(index, bed, "B", dur))
+                bed += dur
         need = count * FRAME_REC_SIZE
         if FRAME_TABLE_OFF + need > len(data):
             return None
@@ -444,7 +446,13 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
                     )
                 if kind == 2 and rect is not None and last >= 2:
                     top, left, bottom, right = rect
-                    channel = f"A{cmd_slot}" if cmd_slot >= 1 else ""
+                    # Slot is 1-based into this scene's group A. SAFEBOX's
+                    # take-stone click stores 65516 here — not a mixer
+                    # channel. Naming that A65516 made play treat a
+                    # playhead jump as a bell ring (segment then wait).
+                    channel = (
+                        f"A{cmd_slot}" if 1 <= cmd_slot <= len(a_clips) else ""
+                    )
                     spots.append(
                         ClickHotspot(top, left, bottom, right, last, channel)
                     )
@@ -526,7 +534,7 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
             prev_end = prev_start + prev_dur
             if held < prev_end:
                 held = prev_end
-        clip_starts.append(ClipStart(cont, held, channel))
+        clip_starts.append(ClipStart(cont, held, channel, dur))
     if not frames:
         return None
     return ReelTimeline(
@@ -806,6 +814,11 @@ def _write_timeline(timeline: ReelTimeline, out_dir: Path) -> None:
                 "container": clip.container,
                 "start_tick": clip.start_tick,
                 "channel": clip.channel,
+                **(
+                    {"duration_ticks": clip.duration_ticks}
+                    if clip.duration_ticks > 0
+                    else {}
+                ),
             }
             for clip in timeline.clip_starts
         ],
