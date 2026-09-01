@@ -14,12 +14,17 @@ describe("clientMode", () => {
     expect(clientMode("?mode=resurrected&intro=1")).toBe("resurrected");
     expect(clientMode("?mode=movies")).toBe("movies");
     expect(clientMode("?mode=movies&reel=intro")).toBe("movies");
+    expect(clientMode("?mode=reimagined")).toBe("reimagined");
+    expect(clientMode("mode=REIMAGINED")).toBe("reimagined");
+    expect(clientMode("?mode=reimagined&tx=6&ty=6")).toBe("reimagined");
   });
 
   it("ignores unknown modes", () => {
     expect(clientMode("?mode=play")).toBe("landing");
     expect(clientMode("?mode=gallery&reel=intro")).toBe("landing");
     expect(clientMode("?mode=free")).toBe("landing");
+    expect(clientMode("?mode=renewed")).toBe("landing");
+    expect(clientMode("?mode=3d")).toBe("landing");
     expect(clientMode("?clock=2")).toBe("landing");
   });
 });

@@ -8,8 +8,10 @@ still or graph is wrong, fix `dfextract/` and re-extract, or this walker.
 
 Dust: Unlocked (`/?mode=unlocked`) and Dust: Resurrected share this
 stills walker inside `PlayGame`. Unlocked is a sandbox policy on that
-host, not a second implementation. There is no 3D free-roam mode yet.
-The title chooser lives at `/`.
+host, not a second implementation. The 3D free-roam, Dust: Reimagined
+(`/?mode=reimagined`, URL-only), is a separate build in
+[`src/reimagined/`](../../reimagined/README.md) — it shares nothing
+with this walker at runtime. The title chooser lives at `/`.
 
 ---
 
@@ -311,6 +313,8 @@ do not swap (except you entered court at night).
 
 - NPC knock-doors (Sophie, Mazie, Buick, Laurel, Blood) and sign movies
 - NPCs / CST overlays / Z-buffers
-- Free-roam later, on **this** SET graph (256 units/tile), not a second inferred map
+- Free-roam shipped as Dust: Reimagined on this SET graph's 52 camera
+  tiles (see [`src/reimagined/`](../../reimagined/README.md)); stills
+  playback here stays 2D
 - Exact original frame timing from `DF.EXE`
 - Right-edge codec stripe; Yunni-box MOV decode

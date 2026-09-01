@@ -12,7 +12,12 @@
     <script>
       (function () {
         var mode = (new URLSearchParams(location.search).get("mode") || "").toLowerCase();
-        if (mode === "movies" || mode === "resurrected" || mode === "unlocked") {
+        if (
+          mode === "movies" ||
+          mode === "resurrected" ||
+          mode === "unlocked" ||
+          mode === "reimagined"
+        ) {
           document.documentElement.classList.add("boot-hidden");
         }
       })();

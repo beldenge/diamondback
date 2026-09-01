@@ -9,6 +9,8 @@ const unlockedSpoilers = document.getElementById("unlocked-spoilers");
 let gallery: MovieGallery | null = null;
 let storyGame: PlayGame | null = null;
 let sandboxGame: PlayGame | null = null;
+let reimagined: import("./reimagined/game").ReimaginedGame | null = null;
+let reimaginedLoading = false;
 
 function spoilerDialog(): HTMLDialogElement | null {
   return unlockedSpoilers instanceof HTMLDialogElement ? unlockedSpoilers : null;
@@ -34,6 +36,7 @@ function showLanding(): void {
   storyGame?.hide();
   sandboxGame?.hide();
   gallery?.hide();
+  reimagined?.hide();
   document.body.classList.add("landing");
   document.body.classList.remove("gallery", "play");
   landing?.removeAttribute("hidden");
@@ -43,6 +46,7 @@ function showLanding(): void {
 function showMovies(): void {
   storyGame?.hide();
   sandboxGame?.hide();
+  reimagined?.hide();
   hideLanding();
   document.title = "The Picture Show — Diamondback";
   if (!gallery) {
@@ -66,6 +70,7 @@ function quitStoryToTitle(): void {
 function showResurrected(): void {
   sandboxGame?.hide();
   gallery?.hide();
+  reimagined?.hide();
   hideLanding();
   document.title = "Dust: Resurrected — Diamondback";
   if (!storyGame) {
@@ -80,6 +85,7 @@ function showResurrected(): void {
 function showUnlocked(): void {
   storyGame?.hide();
   gallery?.hide();
+  reimagined?.hide();
   hideLanding();
   document.title = "Dust: Unlocked — Diamondback";
   if (!sandboxGame) {
@@ -88,6 +94,42 @@ function showUnlocked(): void {
   } else {
     sandboxGame.show();
   }
+}
+
+function quitReimaginedToTitle(): void {
+  reimagined?.dispose();
+  reimagined = null;
+  const nextHref = `${window.location.pathname}`;
+  const here = `${window.location.pathname}${window.location.search}`;
+  if (nextHref !== here) {
+    history.pushState(null, "", nextHref);
+  }
+  applyRoute();
+}
+
+function showReimagined(): void {
+  storyGame?.hide();
+  sandboxGame?.hide();
+  gallery?.hide();
+  hideLanding();
+  document.title = "Dust: Reimagined — Diamondback";
+  if (reimagined) {
+    reimagined.show();
+    return;
+  }
+  if (reimaginedLoading) {
+    return;
+  }
+  reimaginedLoading = true;
+  void import("./reimagined/game").then(({ ReimaginedGame }) => {
+    reimaginedLoading = false;
+    if (clientMode(window.location.search) !== "reimagined" || reimagined) {
+      return;
+    }
+    reimagined = new ReimaginedGame(window.location.search);
+    reimagined.onQuit = quitReimaginedToTitle;
+    reimagined.start();
+  });
 }
 
 function refreshContinueLink(): void {
@@ -110,6 +152,9 @@ function applyRoute(): void {
       break;
     case "unlocked":
       showUnlocked();
+      break;
+    case "reimagined":
+      showReimagined();
       break;
     default:
       showLanding();
