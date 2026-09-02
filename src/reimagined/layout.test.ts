@@ -186,7 +186,9 @@ describe("lots never collide", () => {
       ["west lane", { minX: 24, minZ: 24, maxX: 32, maxZ: 88 }],
       ["Lee", { minX: 72, minZ: 24, maxX: 80, maxZ: 88 }],
       ["L3 spur", { minX: 16, minZ: 88, maxX: 24, maxZ: 96 }],
-      ["L5 spur", { minX: 34, minZ: 88, maxX: 40, maxZ: 96 }],
+      // the L5 E still is a close-up of the jail's west wall: the lane
+      // stops 2 m short of the tile edge there
+      ["L5 spur", { minX: 34, minZ: 88, maxX: 38, maxZ: 96 }],
       ["gate row", { minX: 40, minZ: 112, maxX: 64, maxZ: 120 }],
     ];
     const bad: string[] = [];
@@ -229,7 +231,9 @@ describe("windows", () => {
         expect(w.at - w.w / 2).toBeGreaterThanOrEqual(run[0]);
         expect(w.at + w.w / 2).toBeLessThanOrEqual(run[1]);
         expect(w.top).toBeGreaterThan(w.bottom);
-        if (door && door.side === w.side) {
+        // upper-storey panes may sit over the door; only windows in the
+        // door's own height band must clear it in plan
+        if (door && door.side === w.side && w.bottom < door.y + door.height) {
           const doorRun = w.side === "E" || w.side === "W" ? door.z : door.x;
           const clear = Math.abs(w.at - doorRun) - (w.w / 2 + 0.08) - (door.width / 2 + 0.12);
           expect(clear).toBeGreaterThanOrEqual(0);
@@ -253,7 +257,7 @@ describe("street-face decoration rule", () => {
 
 describe("interior doors", () => {
   it("upper-floor doors carry an elevated y", () => {
-    for (const id of ["salUp3", "salUp4", "hotRoom", "mayorBed"]) {
+    for (const id of ["salUp1", "salUp4", "hotRoom", "mayorBed"]) {
       const door = INTERIOR_DOORS.find((d) => d.id === id);
       expect(door?.y ?? 0).toBeGreaterThan(3);
     }

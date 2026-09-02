@@ -5,6 +5,7 @@ import {
   brickTex,
   dirtTex,
   floorPlanks,
+  latticeTex,
   palisadeTex,
   planksH,
   planksV,
@@ -80,9 +81,23 @@ export interface Mats {
   glassClear: THREE.MeshLambertMaterial;
   lampGlow: THREE.MeshBasicMaterial;
   mesa: THREE.MeshLambertMaterial;
+  caveRed: THREE.MeshLambertMaterial;
+  caveTeal: THREE.MeshLambertMaterial;
+  caveFloor: THREE.MeshLambertMaterial;
+  flame: THREE.MeshBasicMaterial;
+  tbirdGlow: THREE.MeshBasicMaterial;
 
   winCold: THREE.MeshLambertMaterial;
   winWarm: THREE.MeshLambertMaterial;
+  /** The jail cell's blue-lit barred window. */
+  winBlue: THREE.MeshLambertMaterial;
+
+  slate: THREE.MeshLambertMaterial;
+  granite: THREE.MeshLambertMaterial;
+  lattice: THREE.MeshLambertMaterial;
+  velvetGreen: THREE.MeshLambertMaterial;
+  linen: THREE.MeshLambertMaterial;
+  floorBrick: THREE.MeshLambertMaterial;
 
   wpSaloon: THREE.MeshLambertMaterial;
   wpHotel: THREE.MeshLambertMaterial;
@@ -167,9 +182,25 @@ export function getMats(): Mats {
     }),
     lampGlow: new THREE.MeshBasicMaterial({ color: "#ffd9a0" }),
     mesa: texMat(adobeTex(PAL.mesa, 58)),
+    caveRed: texMat(adobeTex("#5a2c20", 71, "#73402c", 8)),
+    caveTeal: texMat(adobeTex("#2c4a44", 72, "#1f352f", 6)),
+    caveFloor: texMat(adobeTex("#46241b", 73)),
+    flame: new THREE.MeshBasicMaterial({ color: "#ffb45a" }),
+    tbirdGlow: new THREE.MeshBasicMaterial({ color: "#66eaea" }),
 
     winCold: lam({ map: winColdTex }),
     winWarm: lam({ map: winWarmTex, emissive: "#c07828", emissiveIntensity: 0.75 }),
+    winBlue: lam({ color: "#7a9cf0", emissive: "#4a6ad0", emissiveIntensity: 0.9 }),
+
+    slate: lam({ color: "#2f2e2c" }),
+    granite: texMat(adobeTex("#9a9990", 57, "#7c7b74", 6)),
+    lattice: (() => {
+      const mat = lam({ map: latticeTex(), transparent: true, alphaTest: 0.4, side: THREE.DoubleSide });
+      return mat;
+    })(),
+    velvetGreen: lam({ color: "#2e5a3a" }),
+    linen: lam({ color: "#e4dccb" }),
+    floorBrick: texMat(brickTex("#a24e34", "#6e3322", 14)),
 
     wpSaloon: texMat(wallpaperTex(PAL.wpSaloon, "#6c7355", "damask", 61)),
     wpHotel: texMat(wallpaperTex(PAL.wpHotel, "#b7a98a", "crest", 62)),

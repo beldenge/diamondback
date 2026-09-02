@@ -19,7 +19,7 @@ export const PAL = {
   woodWatson: "#bfbcaa",
   woodDoctor: "#c9ba9b",
   woodGray: "#8a8478",
-  woodWhite: "#b9b6a9",
+  woodWhite: "#d6d1c1",
   woodMid: "#6d5136",
   woodDark: "#4a3826",
   woodFloor: "#5c452e",

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { mergeGeometries, mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import type { Facing } from "./coords";
 
 export interface Aabb {
@@ -213,6 +213,79 @@ export class Builder {
     this.push(mat, geom);
   }
 
+  /**
+   * Wall slab with a round-arched opening (mission arcades, the bank's
+   * teller window, backbar niches). The wall runs along `along` from
+   * `from` to `to` at `fixed` on the other axis; the opening is
+   * centred at `at`, `w` wide, with its crown at `top` (the arch
+   * springs at `top − w/2`). Built as one extruded shape so the
+   * curve is real, plus jamb + lintel colliders.
+   */
+  archWall(
+    mat: THREE.Material,
+    along: "x" | "z",
+    from: number,
+    to: number,
+    fixed: number,
+    y0: number,
+    y1: number,
+    at: number,
+    w: number,
+    top: number,
+    t = 0.3,
+    opts: { collide?: boolean; texWorld?: number } = {},
+  ): void {
+    const u0 = Math.min(from, to);
+    const u1 = Math.max(from, to);
+    const half = w / 2;
+    const spring = Math.min(top - half, y1 - 0.05);
+    const shape = new THREE.Shape();
+    shape.moveTo(u0, y0);
+    shape.lineTo(u1, y0);
+    shape.lineTo(u1, y1);
+    shape.lineTo(u0, y1);
+    shape.closePath();
+    const hole = new THREE.Path();
+    hole.moveTo(at - half, y0);
+    hole.lineTo(at - half, spring);
+    hole.absarc(at, spring, half, Math.PI, 0, true);
+    hole.lineTo(at + half, y0);
+    hole.closePath();
+    shape.holes.push(hole);
+    // Extrude output is non-indexed; every other primitive here is
+    // indexed and mergeGeometries refuses to mix them (it would drop
+    // the whole material group), so index it first.
+    const geom = mergeVertices(
+      new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false, curveSegments: 12 }),
+    );
+    const texWorld = opts.texWorld ?? (mat.userData?.texWorld as number | undefined) ?? 2.5;
+    const uv = geom.getAttribute("uv") as THREE.BufferAttribute;
+    for (let i = 0; i < uv.count; i += 1) {
+      uv.setXY(i, uv.getX(i) / texWorld, uv.getY(i) / texWorld);
+    }
+    uv.needsUpdate = true;
+    if (along === "x") {
+      geom.translate(0, 0, fixed - t / 2);
+    } else {
+      geom.rotateY(-Math.PI / 2);
+      geom.translate(fixed + t / 2, 0, 0);
+    }
+    this.push(mat, geom);
+    if (opts.collide !== false) {
+      const lo = fixed - t / 2;
+      const hi = fixed + t / 2;
+      if (along === "x") {
+        this.solid(aabb(u0, y0, lo, at - half, y1, hi));
+        this.solid(aabb(at + half, y0, lo, u1, y1, hi));
+        this.solid(aabb(at - half, top - 0.35, lo, at + half, y1, hi));
+      } else {
+        this.solid(aabb(lo, y0, u0, hi, y1, at - half));
+        this.solid(aabb(lo, y0, at + half, hi, y1, u1));
+        this.solid(aabb(lo, top - 0.35, at - half, hi, y1, at + half));
+      }
+    }
+  }
+
   /** Straight stair run along one axis, with collision per step. */
   stairs(
     mat: THREE.Material,
@@ -248,6 +321,13 @@ export class Builder {
     for (const [mat, geoms] of this.parts) {
       const merged = mergeGeometries(geoms, false);
       if (!merged) {
+        // never silently lose a whole material: fall back to one mesh each
+        for (const g of geoms) {
+          const mesh = new THREE.Mesh(g, mat);
+          mesh.castShadow = opts.shadows !== false;
+          mesh.receiveShadow = true;
+          parent.add(mesh);
+        }
         continue;
       }
       for (const g of geoms) {

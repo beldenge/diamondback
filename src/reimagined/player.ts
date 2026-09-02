@@ -112,7 +112,7 @@ export class Player {
     this.z = nz;
   }
 
-  update(dt: number, input: MoveInput, boxes: Aabb[]): void {
+  update(dt: number, input: MoveInput, boxes: Aabb[], baseY = 0): void {
     const speed = input.sprint ? SPRINT_SPEED : WALK_SPEED;
     const mag = Math.hypot(input.forward, input.right);
     if (mag > 0.001) {
@@ -130,8 +130,9 @@ export class Player {
     let ny = this.y + this.vy * dt;
 
     if (this.vy <= 0) {
-      // find the highest support below
-      let ground = 0;
+      // find the highest support below (baseY is the terrain plane;
+      // over the underground shaft it drops away and boxes rule)
+      let ground = baseY;
       for (const box of boxes) {
         if (overlapsXZ(box, this.x, this.z) && box.maxY <= this.y + 0.05 && box.maxY > ground) {
           ground = box.maxY;
@@ -158,8 +159,8 @@ export class Player {
     }
     this.y = ny;
 
-    // never fall through the world
-    if (this.y < -5) {
+    // never fall through the world (the underground floor is at −7)
+    if (this.y < -12) {
       this.y = 0;
       this.vy = 0;
     }

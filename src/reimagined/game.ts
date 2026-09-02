@@ -5,16 +5,18 @@
  * chooser. Isolated from the stills walker: no VM, no SET playback.
  */
 import * as THREE from "three";
-import { SwingDoor, cafeDoors } from "./doorsim";
+import { Ambient } from "./ambient";
+import { CafeDoors, SwingDoor, type Clickable } from "./doorsim";
 import type { Aabb } from "./geometry";
 import { INTERIOR_DOORS, buildInteriors } from "./interiors";
-import { STREET_DOORS, placeLabel } from "./layout";
+import { CAFE_DOORS, SHAFT, STREET_DOORS, placeLabel } from "./layout";
 import { getMats } from "./materials";
 import { Hud } from "./hud";
 import { Player } from "./player";
 import { Sky } from "./sky";
 import { parseSpawn } from "./spawn";
 import { buildTown } from "./town";
+import { FountainSecret, buildUnderground } from "./underground";
 
 const REACH = 4.2;
 
@@ -35,7 +37,11 @@ export class ReimaginedGame {
 
   private hud: Hud;
 
-  private doors: SwingDoor[] = [];
+  private doors: Clickable[] = [];
+
+  private cafe: CafeDoors;
+
+  private ambient: Ambient;
 
   private staticBoxes: Aabb[] = [];
 
@@ -69,7 +75,10 @@ export class ReimaginedGame {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    this.camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 900);
+    // The film projects with focal 310 on a 512-wide still: 79° across,
+    // 46° tall. A 58° vertical field keeps that feel at 16:9 without
+    // the fisheye stretch a wider lens gives the porches.
+    this.camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.1, 900);
     this.camera.rotation.order = "YXZ";
 
     const mats = getMats();
@@ -83,17 +92,29 @@ export class ReimaginedGame {
     const interiors = buildInteriors(mats);
     this.scene.add(interiors.group);
 
-    this.staticBoxes = [...town.builder.colliders, ...interiors.builder.colliders];
+    const under = buildUnderground(mats);
+    this.scene.add(under.group);
+
+    this.staticBoxes = [
+      ...town.builder.colliders,
+      ...interiors.builder.colliders,
+      ...under.builder.colliders,
+    ];
 
     for (const spec of [...STREET_DOORS, ...INTERIOR_DOORS]) {
       const door = new SwingDoor(spec, mats);
       this.doors.push(door);
       this.scene.add(door.group);
     }
-    // café half-doors just inside the saloon street door
-    this.scene.add(cafeDoors(mats, 47.55, 59.6, 1.6, "E"));
+    // café half-doors in the saloon vestibule; they swing as you pass
+    this.cafe = new CafeDoors(mats, CAFE_DOORS.x, CAFE_DOORS.z, CAFE_DOORS.width, CAFE_DOORS.side);
+    this.scene.add(this.cafe.group);
+    // the courtyard fountain hides the way down
+    const fountain = new FountainSecret(mats);
+    this.doors.push(fountain);
+    this.scene.add(fountain.group);
 
-    for (const l of interiors.lights) {
+    for (const l of [...interiors.lights, ...under.lights]) {
       const light = new THREE.PointLight(l.color, l.intensity, l.distance, 2);
       light.position.set(l.x, l.y, l.z);
       this.scene.add(light);
@@ -101,6 +122,9 @@ export class ReimaginedGame {
 
     this.sky = new Sky(this.scene, nightGroup);
     this.scene.add(this.sky.group);
+    // meteors at night, the odd tumbleweed down the streets
+    this.ambient = new Ambient();
+    this.scene.add(this.ambient.group);
 
     this.hud = new Hud();
     // Debug `still=1`: start without the click-to-enter shade so pose
@@ -180,7 +204,7 @@ export class ReimaginedGame {
     });
   }
 
-  private aimedDoor(): SwingDoor | null {
+  private aimedDoor(): Clickable | null {
     this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
     this.raycaster.far = REACH;
     const meshes: THREE.Mesh[] = [];
@@ -194,7 +218,7 @@ export class ReimaginedGame {
       return null;
     }
     const first = hits[0].object as THREE.Mesh;
-    return (first.userData.door as SwingDoor) ?? null;
+    return (first.userData.door as Clickable) ?? null;
   }
 
   private tryToggleDoor(): void {
@@ -220,15 +244,16 @@ export class ReimaginedGame {
     for (const door of this.doors) {
       door.update(dt);
     }
+    this.cafe.update(this.player.x, this.player.z, dt);
+    this.ambient.update(dt, this.sky.night, this.player.yaw, this.player.pitch);
 
-    // collision set: statics + closed doors
+    // collision set: statics + closed doors + the animated fountain
     this.frameBoxes.length = 0;
     for (const box of this.staticBoxes) {
       this.frameBoxes.push(box);
     }
     for (const door of this.doors) {
-      const c = door.collider;
-      if (c) {
+      for (const c of door.colliders()) {
         this.frameBoxes.push(c);
       }
     }
@@ -240,6 +265,11 @@ export class ReimaginedGame {
     const right =
       (this.keys.has("KeyD") || this.keys.has("ArrowRight") ? 1 : 0) -
       (this.keys.has("KeyA") || this.keys.has("ArrowLeft") ? 1 : 0);
+    // the terrain plane falls away over the fountain hole and underground
+    const dx = this.player.x - SHAFT.x;
+    const dz = this.player.z - SHAFT.z;
+    const overHole = dx * dx + dz * dz < SHAFT.r * SHAFT.r;
+    const baseY = overHole || this.player.y < -0.5 ? -60 : 0;
     this.player.update(
       dt,
       {
@@ -249,6 +279,7 @@ export class ReimaginedGame {
         jump: active && this.keys.has("Space"),
       },
       this.frameBoxes,
+      baseY,
     );
 
     this.camera.position.set(this.player.x, this.player.eyeY, this.player.z);
