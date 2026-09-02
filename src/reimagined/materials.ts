@@ -67,6 +67,7 @@ export interface Mats {
   rattlerGreen: THREE.MeshLambertMaterial;
   oliveHotel: THREE.MeshLambertMaterial;
   fenceGray: THREE.MeshLambertMaterial;
+  fenceBrown: THREE.MeshLambertMaterial;
   palisade: THREE.MeshLambertMaterial;
 
   adobeJail: THREE.MeshLambertMaterial;
@@ -78,6 +79,8 @@ export interface Mats {
 
   roofDark: THREE.MeshLambertMaterial;
   roofRed: THREE.MeshLambertMaterial;
+  roofBrown: THREE.MeshLambertMaterial;
+  terracotta: THREE.MeshLambertMaterial;
   tileRed: THREE.MeshLambertMaterial;
 
   curioRed: THREE.MeshLambertMaterial;
@@ -178,17 +181,20 @@ export function getMats(): Mats {
     rattlerGreen: texMat(planksV(PAL.rattlerGreen, 30)),
     oliveHotel: texMat(planksH(PAL.oliveHotel, 31, 20)),
     fenceGray: texMat(planksV(PAL.fenceGray, 32, 20, 0.8)),
+    fenceBrown: texMat(planksV("#4a3c32", 35, 20, 0.8)),
     palisade: texMat(palisadeTex(PAL.palisade, 33)),
 
     adobeJail: texMat(adobeTex(PAL.adobeJail, 41, "#7a4e3e", 4)),
     adobeMission: texMat(adobeTex(PAL.adobeMission, 42, "#9a6a4a", 4)),
-    brickBank: texMat(brickTex(PAL.brickBank, "#3a2a1e", 43)),
+    brickBank: texMat(brickTex(PAL.brickBank, "#2e2018", 43)),
     brickCream: texMat(brickTex(PAL.brickCream, "#b7ab8c", 44)),
     brickMayor: texMat(brickTex(PAL.brickMayor, "#5d3d30", 45)),
     wellStone: texMat(adobeTex(PAL.wellStone, 46)),
 
     roofDark: texMat(shingleTex(PAL.roofDark, 51)),
     roofRed: texMat(shingleTex(PAL.roofRed, 52)),
+    roofBrown: texMat(shingleTex(PAL.roofBrown, 54)),
+    terracotta: lam({ color: "#a05a40" }),
     tileRed: texMat(tileRoofTex(PAL.tileRed, 53)),
 
     curioRed: lam({ color: PAL.curioRed }),
@@ -222,11 +228,11 @@ export function getMats(): Mats {
     glassLit: registerNight(
       lam({ color: "#c3d6e2", transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide, emissive: "#ff9a30", emissiveIntensity: 0 }),
       0,
-      2.2,
+      0.85,
     ),
     mesa: texMat(adobeTex(PAL.mesa, 58)),
     caveRed: texMat(adobeTex("#5a2c20", 71, "#73402c", 8)),
-    caveTeal: texMat(adobeTex("#2c4a44", 72, "#1f352f", 6)),
+    caveTeal: texMat(adobeTex("#1e3430", 72, "#152622", 6)),
     caveFloor: texMat(adobeTex("#46241b", 73)),
     flame: new THREE.MeshBasicMaterial({ color: "#ffb45a" }),
     tbirdGlow: new THREE.MeshBasicMaterial({ color: "#66eaea" }),
@@ -257,20 +263,20 @@ export function getMats(): Mats {
     redCeiling: lam({ color: PAL.redCeiling }),
 
     sunFace: lam({ map: sunFaceTex(), alphaTest: 0.3 }),
-    sunFanN: lam({ map: sunFanTex(true), alphaTest: 0.3, emissive: "#dfd4ac", emissiveIntensity: 0.3 }),
-    sunFanS: lam({ map: sunFanTex(false), alphaTest: 0.3, emissive: "#dfd4ac", emissiveIntensity: 0.3 }),
+    sunFanN: registerNight(lam({ map: sunFanTex(true), alphaTest: 0.3, emissive: "#dfd4ac", emissiveIntensity: 0.3 }), 0.3, 0.02),
+    sunFanS: registerNight(lam({ map: sunFanTex(false), alphaTest: 0.3, emissive: "#dfd4ac", emissiveIntensity: 0.3 }), 0.3, 0.02),
     pumpkin: lam({ color: "#c8641e" }),
     crateLight: texMat(planksH("#b89a70", 21)),
     hide: lam({ map: hideTex(), alphaTest: 0.3 }),
     antler: lam({ map: antlerTex(), alphaTest: 0.3 }),
     bronze: lam({ color: "#6a4e34" }),
-    lanternGlass: registerNight(lam({ color: "#4a3c28", emissive: "#ffb040", emissiveIntensity: 0.12 }), 0.12, 0.45),
-    sunStone: lam({ color: "#a89c8c" }),
+    lanternGlass: registerNight(lam({ color: "#2a2018", emissive: "#ffb040", emissiveIntensity: 0.1 }), 0.1, 0.6),
+    sunStone: lam({ color: "#c4b8a8" }),
     curtainBlue: lam({ color: "#2a3660" }),
-    caveDark: texMat(adobeTex("#2a1410", 71, "#3a1c14", 8)),
-    ember: new THREE.MeshBasicMaterial({ color: "#e0601c" }),
+    caveDark: texMat(adobeTex("#1c1418", 71, "#28181c", 8)),
+    ember: new THREE.MeshBasicMaterial({ color: "#a8481a" }),
     black: new THREE.MeshBasicMaterial({ color: "#060403" }),
-    lampGlass: registerNight(lam({ color: "#5a4a30", emissive: "#ffc860", emissiveIntensity: 0.05 }), 0.05, 1.2),
+    lampGlass: registerNight(lam({ color: "#3a3226", emissive: "#ffc860", emissiveIntensity: 0.05 }), 0.05, 1.2),
   };
   return cached;
 }

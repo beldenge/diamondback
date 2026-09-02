@@ -104,7 +104,7 @@ export const LOTS = {
 
   // --- East: Lee street (col 10, world 72..80) stays open D10..K10 ---
   /** `_LIVERY` 1×2 @3.1 office at the street door; stalls behind. */
-  livery: rect(80, 38, 92, 48),
+  livery: rect(80, 33.6, 92, 48),
   mayorFence: rect(80, 56, 101, 80),
   /** `_MAYHALL` hall between `_MAYSTUDY` (north) and `_MAYDINE` (south). Film I10 E / J10 E: the door bay at z 67.9. */
   mansion: rect(86, 60, 100, 75.5),
@@ -117,7 +117,7 @@ export const LOTS = {
   rockCityShed: rect(11.2, 64, 16, 68),
 
   // --- North-east farm (clear of the mission footprint + Mission St) ---
-  neBarn: rect(80, 20, 90, 34),
+  neBarn: rect(80, 22.8, 90, 33.2),
   redStable: rect(66.3, 8, 72.5, 15),
 } as const;
 
@@ -133,8 +133,8 @@ export const GATE = {
   westPostX: 48.1,
   eastPostX: 56.1,
   beamY: 5.4,
-  signTop: 4.85,
-  signBottom: 4.2,
+  signTop: 5.05,
+  signBottom: 4.3,
 };
 
 /**
@@ -160,9 +160,9 @@ export const PATIO = rect(41.5, 2.5, 62.5, 22.2);
  */
 export const FENCE = {
   x: 56.3,
-  zNorth: 99.5,
+  zNorth: 96.8,
   zSouth: GATE.z,
-  height: 2.6,
+  height: 2.35,
   eastEndX: 72.5,
 };
 
@@ -224,16 +224,16 @@ export const STREET_DOORS: readonly DoorSpec[] = [
   door("bolivar", "J7 E", "W", LOTS.bolivar.minX, 75.9, 1.35, 2.7, "Bolivar's Dry Goods", { swing: -1 }),
   door("saloon", "H7 W", "E", LOTS.saloon.maxX, 59.55, 1.5, 3.05, "Hard Drive Saloon"),
   door("saloonBack", "J4 E", "W", LOTS.saloonBackshed.minX, 72.0, 1.85, 2.9, "Saloon back door", { swing: -1 }),
-  door("stage", "H7 E", "W", LOTS.stage.minX, 59.95, 1.3, 2.75, "Stagecoach office", { swing: -1 }),
-  door("hotel", "E7 E", "W", LOTS.hotel.minX, 35.9, 2.5, 2.75, "Cactus Bed Hotel", { swing: -1, double: true }),
+  door("stage", "H7 E", "W", LOTS.stage.minX, 59.95, 1.15, 2.8, "Stagecoach office", { swing: -1 }),
+  door("hotel", "E7 E", "W", LOTS.hotel.minX, 35.9, 2.35, 2.75, "Cactus Bed Hotel", { swing: -1, double: true }),
   door("doctor", "E7 W", "E", LOTS.doctor.maxX, 36.0, 1.45, 2.85, "Dr. Rodham"),
   door("bank", "F7 W", "E", LOTS.bank.maxX, 44.1, 1.8, 3.0, "Bank"),
   door("jail", "L7 W", "E", LOTS.jail.maxX, 93.65, 1.75, 2.95, "Sheriff", { swing: -1 }),
-  door("curio", "L7 E", "W", LOTS.curio.minX, 91.85, 1.55, 2.75, "Curiosities", { double: true }),
-  door("mission", "D7 N", "S", 52, LOTS.mission.maxZ, 4.0, 4.6, "Mission", { double: true }),
+  door("curio", "L7 E", "W", LOTS.curio.minX, 91.85, 1.9, 3.2, "Curiosities", { double: true }),
+  door("mission", "D7 N", "S", 52, LOTS.mission.maxZ, 4.0, 4.4, "Mission", { double: true }),
   door("rattler", "H4 W", "E", LOTS.rattler.maxX, 60.27, 1.3, 2.45, "The Rattler"),
-  door("sidewinder", "G1 S", "N", 4.1, LOTS.sidewinder.minZ, 1.5, 3.0, "Sidewinder Undertaking", { swing: -1, glazed: true }),
-  door("livery", "F10 E", "W", LOTS.livery.minX, 44.2, 1.4, 2.9, "Livery", { swing: -1 }),
+  door("sidewinder", "G1 S", "N", 4.1, LOTS.sidewinder.minZ, 1.55, 2.9, "Sidewinder Undertaking", { swing: -1, glazed: true, double: true }),
+  door("livery", "F10 E", "W", LOTS.livery.minX, 43.9, 1.65, 2.9, "Livery", { swing: -1 }),
   door("mayor", "I10 E", "W", 80, 67.9, 3.1, 3.0, "Mayor's gate", { double: true, gate: true }),
 ];
 
@@ -262,6 +262,8 @@ export interface WindowSpec {
   arched?: boolean;
   /** Pane grid: columns × rows of muntins (default 2×2). */
   panes?: [number, number];
+  /** Glows at night (the saloon's and hotel's ground-floor street panes, _NITE). */
+  lit?: boolean;
 }
 
 function win(
@@ -279,39 +281,40 @@ export const WINDOWS: Partial<Record<LotName, readonly WindowSpec[]>> = {
   // saloon (film H7 W / I7 W): two big 3×3 panes south of the door on
   // the ground floor, small panes on the upper storey, Ruby's on Neely
   saloon: [
-    win("E", 64.05, 3.4, 0.9, 3.05, { panes: [3, 3] }),
-    win("E", 71.5, 3.4, 0.9, 3.05, { panes: [3, 3] }),
+    win("E", 63.9, 3.7, 0.8, 2.95, { panes: [3, 3], lit: true }),
+    win("E", 71.3, 3.9, 0.8, 2.95, { panes: [3, 3], lit: true }),
     ...[58.6, 63.3, 67.5, 71.6, 75.3].map((z) => win("E", z, 0.9, 5.9, 7.2, { panes: [2, 3] })),
     win("N", 38.2, 1.0, 5.1, 6.4, { panes: [2, 3] }), // Ruby's room, on Neely
     win("W", 63.8, 0.9, 5.1, 6.3, { panes: [2, 2] }),
   ],
   // hotel (film E7 E / F7 E): tall arched panes each side of the door
   hotel: [
-    win("W", 39.1, 1.3, 1.05, 3.2, { arched: true, panes: [2, 3] }),
-    win("W", 43.2, 1.3, 1.05, 3.2, { arched: true, panes: [2, 3] }),
+    win("W", 33.5, 1.3, 0.65, 3.0, { arched: true, panes: [2, 3] }), // dark in _NITE E7 E
+    win("W", 39.1, 1.3, 0.65, 3.0, { arched: true, panes: [2, 3], lit: true }),
+    win("W", 43.2, 1.3, 0.65, 3.0, { arched: true, panes: [2, 3], lit: true }),
     ...[34.0, 38.2, 42.0, 45.8].map((z) => win("W", z, 0.95, 5.4, 7.2, { panes: [2, 3] })),
-    win("S", 60.1, 1.0, 1.1, 2.85, { arched: true, panes: [2, 3] }),
+    ...[60.1, 68.9].map((x) => win("S", x, 1.2, 0.7, 3.0, { arched: true, panes: [2, 3] })),
     ...[64.6, 68.9].map((x) => win("S", x, 1.0, 5.9, 8.0, { arched: true, panes: [2, 3] })),
   ],
   // jail (film L7 W): one tall barred pane north of the sign
   jail: [
-    win("E", 89.8, 1.0, 1.0, 2.83, { bars: true, panes: [2, 3] }),
+    win("E", 89.8, 0.9, 0.85, 2.7, { bars: true, panes: [2, 3] }),
     win("W", 92.8, 0.9, 1.7, 2.6, { bars: true }), // the cell's blue window on the well yard
   ],
   // bank (film F7 W): two barred panes flanking the door
-  bank: [win("E", 46.5, 1.0, 1.0, 2.85, { bars: true, panes: [1, 3] }), win("E", 41.7, 1.0, 1.0, 2.85, { bars: true, panes: [1, 3] })],
+  bank: [win("E", 46.5, 1.0, 0.8, 2.7, { bars: true, panes: [1, 3] }), win("E", 41.7, 1.0, 0.8, 2.7, { bars: true, panes: [1, 3] })],
   // Watson's (film I7 E): tall 2×3 panes either side of the door
-  watson: [win("W", 65.5, 1.1, 1.0, 2.9, { panes: [2, 3] }), win("W", 70.3, 1.1, 1.0, 2.9, { panes: [2, 3] })],
+  watson: [win("W", 65.5, 1.15, 0.45, 2.72, { panes: [2, 3] }), win("W", 71.0, 1.15, 0.45, 2.72, { panes: [2, 3] })],
   // doctor (film E7 W): 2×3 panes, the north one a shade wider
   doctor: [win("E", 38.27, 1.2, 1.08, 2.87, { panes: [2, 3] }), win("E", 33.6, 1.1, 1.08, 2.87, { panes: [2, 3] })],
   // Curiosities (film L7 E): narrow red-framed lattices
-  curio: [win("W", 89.25, 0.55, 1.0, 2.6, { panes: [2, 4] }), win("W", 94.35, 0.55, 1.0, 2.6, { panes: [2, 4] })],
+  curio: [win("W", 89.2, 0.55, 0.7, 2.8, { panes: [2, 4] }), win("W", 94.4, 0.55, 0.7, 2.8, { panes: [2, 4] })],
   // stage office (film H7 E)
-  stage: [win("W", 57.6, 0.8, 1.1, 2.75, { panes: [2, 3] }), win("W", 62.4, 0.95, 1.1, 2.75, { panes: [2, 3] })],
+  stage: [win("W", 58.2, 1.0, 1.15, 2.78, { panes: [2, 3] }), win("W", 62.0, 1.0, 1.15, 2.78, { panes: [2, 3] })],
   rattler: [win("E", 58.3, 2.2, 0.69, 3.56, { panes: [2, 3] }), win("E", 62.06, 1.86, 0.69, 3.56, { panes: [2, 3] })],
   // Sidewinder (film G1 S): two 2×2 panes flanking a glazed double door
-  sidewinder: [win("N", 6.4, 1.35, 1.1, 2.85, { panes: [2, 2] }), win("N", 1.6, 1.35, 1.1, 2.85, { panes: [2, 2] })],
-  livery: [win("W", 41.0, 1.05, 1.4, 2.9), win("W", 46.4, 1.05, 1.4, 2.9)],
+  sidewinder: [win("N", 6.4, 1.35, 0.65, 2.9, { panes: [2, 2] }), win("N", 1.7, 1.35, 0.65, 2.9, { panes: [2, 2] })],
+  livery: [win("W", 41.4, 1.05, 1.3, 2.75), win("W", 46.3, 1.05, 1.3, 2.75)],
   // mansion (film I10 E / J10 E): shuttered sashes flanking the door bay
   mansion: [
     ...[65.6, 70.3].map((z) => win("W", z, 0.95, 0.8, 2.4, { panes: [2, 3] })),

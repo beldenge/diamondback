@@ -555,7 +555,7 @@ function buildDoctor(c: Ctx): void {
   const ceilY = 3.2;
   c.partZ(m.woodDoctor, z0, z1, partX, 0, ceilY, [c.gapOf(inner, 0.08)]);
   // waiting room
-  c.lining(m.woodDoctor, partX + 0.1, z0, x1, z1, {
+  c.lining(m.woodWhite, partX + 0.1, z0, x1, z1, {
     ceilY,
     gaps: { E: [c.gapOf(d, 0.12), ...winGaps("doctor", "E")], W: [c.gapOf(inner, 0.08)] },
   });

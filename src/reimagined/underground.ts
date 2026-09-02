@@ -434,7 +434,7 @@ export function buildUnderground(m: Mats): UndergroundResult {
       [54.6, 49.5],
     ] as const) {
       b.cyl(m.iron, px, pz, FLOOR, FLOOR + 3.3, 0.38, { seg: 10, collide: true });
-      b.sphere(m.bone, px, FLOOR + 3.5, pz, 0.45, 8);
+      b.sphere(m.sunStone, px, FLOOR + 3.5, pz, 0.45, 8);
     }
     for (const [bx, bz] of [
       [50.4, 54.6],

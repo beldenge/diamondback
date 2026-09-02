@@ -204,10 +204,12 @@ export class CafeDoors {
     this.group.position.set(x, 0, z);
     this.group.rotation.y = FACING_YAW[side];
     for (const dir of [1, -1]) {
+      // hinged on the turned posts that flank the opening (the posts'
+      // faces sit 0.16 outside the nominal width), the leaves all but meet
       const pivot = new THREE.Group();
-      pivot.position.set((-width / 2) * dir, 0, 0);
+      pivot.position.set((-(width / 2 + 0.15)) * dir, 0, 0);
       const leaf = new THREE.Group();
-      const leafW = width / 2 - 0.03;
+      const leafW = width / 2 + 0.12;
       const panel = new THREE.Mesh(new THREE.BoxGeometry(leafW, 1.15, 0.05), mats.woodMid);
       panel.position.set((leafW / 2) * dir, 1.55, 0);
       leaf.add(panel);

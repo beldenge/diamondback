@@ -48,7 +48,7 @@ export class Sky {
     this.nightGroup = nightGroup;
     // the film's sky is a nearly flat (102,127,193) down to the horizon
     this.dayTex = gradientTex("#5f78be", PAL.skyDay, PAL.skyHorizonDay);
-    this.nightTex = gradientTex("#080d1d", PAL.skyNight, PAL.skyHorizonNight);
+    this.nightTex = gradientTex("#04060e", PAL.skyNight, PAL.skyHorizonNight);
     const domeMat = new THREE.MeshBasicMaterial({
       map: this.dayTex,
       side: THREE.BackSide,
@@ -83,9 +83,12 @@ export class Sky {
 
     // the stills are lit mostly by ambient with a high southern sun:
     // faces differ little in tone
-    this.hemi = new THREE.HemisphereLight(0xc4d0e6, 0x6e6052, 1.0);
+    // (the film's north faces read only a little darker than its south
+    // faces: G10 S / K4 S / F4 E put them at half the sunlit tone, so the
+    // hemisphere carries most of the light and the sun a modest key)
+    this.hemi = new THREE.HemisphereLight(0xc8d2e4, 0x8a7a68, 1.35);
     this.group.add(this.hemi);
-    this.sun = new THREE.DirectionalLight(0xfff0d8, 1.3);
+    this.sun = new THREE.DirectionalLight(0xfff0d8, 1.0);
     this.sun.position.set(80, 150, 130);
     this.sun.target.position.set(52, 0, 60);
     this.sun.castShadow = true;
@@ -115,10 +118,12 @@ export class Sky {
     if (this.night) {
       mat.map = this.nightTex;
       this.stars.visible = true;
-      this.hemi.intensity = 0.65;
+      // the _NITE stills are near-black: the ground sits at (22,21,20), a
+      // mission wall at (16,13,11) — a third of what the first pass gave
+      this.hemi.intensity = 0.35;
       this.hemi.color.set(0x5a6a94);
       this.hemi.groundColor.set(0x2a2630);
-      this.sun.intensity = 0.85;
+      this.sun.intensity = 0.45;
       this.sun.color.set(0x9fb4e8);
       this.sun.position.set(-60, 120, -80);
       scene.fog = new THREE.Fog(0x141c33, 40, 260);
@@ -126,10 +131,10 @@ export class Sky {
     } else {
       mat.map = this.dayTex;
       this.stars.visible = false;
-      this.hemi.intensity = 1.0;
-      this.hemi.color.set(0xc4d0e6);
-      this.hemi.groundColor.set(0x6e6052);
-      this.sun.intensity = 1.3;
+      this.hemi.intensity = 1.35;
+      this.hemi.color.set(0xc8d2e4);
+      this.hemi.groundColor.set(0x8a7a68);
+      this.sun.intensity = 1.0;
       this.sun.color.set(0xfff0d8);
       this.sun.position.set(80, 150, 130);
       scene.fog = new THREE.Fog(0x667fc1, 60, 260);

@@ -223,10 +223,10 @@ function buildMission(c: Ctx): void {
   P.bench(b, m, p.maxX - 0.62, 16.0, 1.9, "W");
   P.bench(b, m, 45.5, outerS - 0.6, 1.9, "N");
   P.bench(b, m, 58.5, outerS - 0.6, 1.9, "N");
+  P.bench(b, m, 45.0, p.minZ + 0.6, 1.9, "S");
+  P.bench(b, m, 59.0, p.minZ + 0.6, 1.9, "S");
   P.wagonWheel(b, m, 45.4, 0, 19.1, 0.75, 0.2);
   for (const [px, pz] of [
-    [43.0, 3.6],
-    [61.0, 3.6],
     [43.0, 21.6],
     [61.2, 21.4],
   ] as const) {
@@ -285,7 +285,8 @@ function buildMission(c: Ctx): void {
   const qz0 = q.minZ + IN;
   const qz1 = q.maxZ - 0.25;
   c.partX(m.adobeMission, q.minX, q.maxX, q.maxZ, 0, wallTop, [], 0.5);
-  c.lining(m.adobeMission, qx0, qz0, qx1, qz1, {
+  // the cell is dark grey stone inside (_PADRE A2 W / A3 S), not the patio's cream
+  c.lining(m.adobeJail, qx0, qz0, qx1, qz1, {
     floor: m.dirt,
     ceilY: 3.2,
     ceil: m.woodDark,
@@ -294,8 +295,8 @@ function buildMission(c: Ctx): void {
   // the cell is walled off from the tower alcove west of it (_PADRE A3 W:
   // two madonnas and a blue pane), and an arch across the cell divides
   // the ladder end from the altar end (A2 S / A3 N)
-  c.partZ(m.adobeMission, qz0, qz1, 38, 0, 3.2, [], 0.4);
-  b.archWall(m.adobeMission, "x", 38.2, qx1, -1.85, 0, 3.2, 41.2, 2.4, 3.05, 0.4);
+  c.partZ(m.adobeJail, qz0, qz1, 38, 0, 3.2, [], 0.4);
+  b.archWall(m.adobeJail, "x", 38.2, qx1, -1.85, 0, 3.2, 41.2, 2.4, 3.05, 0.4);
   b.decal(m.winBlue, 38.212, 2.2, -1.2, 0.7, 0.9, "E");
   P.ladder(b, m, 41.5, qz0, 0.1, 3.0, "S", 0.75);
   b.archWall(m.adobeMission, "x", 40.6, 42.4, qz0 + 0.2, 0, 3.2, 41.5, 1.3, 3.1, 0.15, { collide: false });

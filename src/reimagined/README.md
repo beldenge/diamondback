@@ -71,6 +71,50 @@ guide only. `dfextract/out/**` is never edited.
   emissive swap on the clear glass — no opaque decals over the
   windows), and the stars stay on at night by the user’s request even
   though the `_NITE` stills show none.
+- **Second accuracy pass (2026-09-02).** Every street pose, the night
+  set and every interior SET were re-captured and compared at 2× with
+  pixel-column profiles (thumbnail reads were off by up to a metre, so
+  nothing was moved on a sheet read alone). What that fixed: windows on
+  the hotel, Watson's, Curiosities, the bank, jail, stage office,
+  Sidewinder's and the saloon sit lower and taller (sills at 0.4–0.8 m
+  where the stills put them); the hotel has its third arched pane north
+  of the door and two tall arched panes on its south porch (G8 N / G9 N —
+  the lobby's curtained windows, not doors); the jail's cell gate hangs
+  in the bar wall and the café leaves hinge on their posts; the
+  bank is a 4.6 m box behind a 5.6 m Main-street parapet (F4 E) with
+  wide-tracked painted letters front, back and side; Curiosities is a
+  4.6 m shop under a red hip roof behind a 6.1 m black false front
+  (N7 N), its door 1.9 m wide, its porch fascia black with the small red
+  name and the red pagoda slope above; the Rattler's porch is 2.9 m
+  high with a green panel across its front carrying all the lettering
+  (H4 W / G4 S); the saloon's name board stands on the balcony floor
+  (H7 W / I7 W); the mission front is 6.55 m with a coping, its lintel on
+  4.4 m doors, sun discs at 2.75 m, the MISSION board and the santa marta
+  arm on one post at (56.7, 24) (D7 E / D8 N / E7 N); the gate sign hangs
+  tilted on chains under the 5.4 m beam; the "Firearms Strickly
+  Prohibited" board faces south across the lane's east edge (N7 N /
+  N7 E; it is invisible from M7 E); the gate-yard fence is grey boards
+  to Curiosities' corner with its rails street-side; the NE barn is pale
+  boards under red-brown shingles with an X door and loft door on its
+  gable end, the livery runs north to meet it with a dark LIVERY board
+  (F10 E / D9 E), the corral rails are 1.75 m; the farm's grey barn and
+  farmhouse have dark shingles (K4 S / K4 W); lamp posts are thin dark
+  poles with square lanterns and a lamp stands at the Lee/Neely corner
+  (F10 S / E10 S); the Shady Acres gate is 4.8 m with a 5.2 m board at
+  4 m, its pickets thin and half a metre apart, its slabs 1.3 m; the
+  Neely wagon has dark wheels and the coffins by Sidewinder's are the
+  film's big tan crates (one stood on end); the mansion grounds lost
+  their trees; the pump and trough in the lane north of Neely went
+  (E4 S / G4 N film the lane empty); the range booth is a 1.4 m stand.
+  Lighting: the day
+  hemisphere carries most of the light (north faces read half the sunlit
+  tone, not a fifth), the night sits at the stills' near-black levels
+  with only the ground-floor saloon and hotel panes lit, and lantern
+  glass is dark by day. Interiors: the stage office keeps its shades
+  down, the livery office is dark boards, the surgery pale ones, the
+  padre's cell grey stone, the saloon's upper corridor grey damask, the
+  patio has benches on its north arcade, and the fire bowls underground
+  are embers, not lamps.
 - Later fixes from walking the town: the saloon stair turns at the
   bottom (three steps south from the room to a low landing in the
   south-east corner, then the long flight west along the south wall,

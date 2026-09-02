@@ -40,6 +40,9 @@ function buildStage(c: Ctx): void {
     wainscotH: 0.9,
     gaps: { W: [c.gapOf(d, 0.12), ...winGaps("stage", "W")] },
   });
+  // shades down over both street panes (A1 W / A3 W read as plain wall)
+  P.blind(b, m, x0, 1.97, 58.2, 1.25, 1.8, "E");
+  P.blind(b, m, x0, 1.97, 62.0, 1.25, 1.8, "E");
   // ticket bay (A2 E): a 3.2 m recess under a wooden arch, turned
   // columns carrying the oil lamps, the company sign on its back wall,
   // a door in its north cheek and a framed bill on the south
@@ -94,14 +97,14 @@ function buildStage(c: Ctx): void {
   b.decal(c.signMat(["ASBESTOS, DETROIT", "AND SANTA FE", "— COACHES —", "The Great Southwestern", "STAGECOACH Co."], 0.85, 1.25, { bg: "#d8cba6", fg: "#33261a", border: "#8a7a52" }), 60.0, 2.1, z0 + 0.012, 0.85, 1.25, "S");
   P.pictureFrame(b, m, 61.9, 2.2, z0, 0.8, 0.6, "S", "map", { frame: m.woodDark });
   // the street windows are shuttered from inside (A1 W / A3 W)
-  for (const wz of [57.6, 62.4]) {
-    b.box(m.woodBlack, x0, 1.05, wz - 0.5, x0 + 0.1, 2.8, wz + 0.5, { collide: false });
+  for (const wz of [58.2, 62.0]) {
+    b.box(m.woodBlack, x0, 1.05, wz - 0.6, x0 + 0.1, 2.8, wz + 0.6, { collide: false });
     b.box(m.woodDark, x0, 1.05, wz - 0.03, x0 + 0.12, 2.8, wz + 0.03, { collide: false });
   }
   P.pictureFrame(b, m, 59.0, 2.2, z1, 1.1, 0.8, "N", "flowers", { frame: m.brass });
   P.bench(b, m, 60.0, z0 + 0.4, 1.6, "S");
-  b.box(m.woodSaloon, x0 + 0.3, 0, 59.2, x0 + 1.3, 0.55, 59.9);
-  b.box(m.brass, x0 + 0.3, 0.24, 59.18, x0 + 1.3, 0.32, 59.92, { collide: false });
+  b.box(m.woodSaloon, x0 + 0.3, 0, 57.4, x0 + 1.3, 0.55, 58.1);
+  b.box(m.brass, x0 + 0.3, 0.24, 57.38, x0 + 1.3, 0.32, 58.12, { collide: false });
   b.rotBox(m.leatherRed, x0 + 1.1, 0.24, 57.0, 0.62, 0.44, 0.34, 0.4, { collide: false });
   P.spittoon(b, m, x0 + 0.55, 61.4);
   P.barrel(b, m, 60.9, 62.7, 0.42, 0.9);
@@ -506,7 +509,7 @@ function buildHotel(c: Ctx): void {
     b.box(m.glassWarm, tx - 0.29, 0.92, tz + 0.11, tx - 0.21, 1.06, tz + 0.19, { collide: false });
   }
   P.hutch(b, m, 62.5, z1, 2.4, "N");
-  for (const cx of [58.2, 59.8, 65.2, 66.8]) {
+  for (const cx of [59.2, 61.0, 68.0, 69.8]) {
     P.curtain(b, m, cx, 0.3, z1, 0.5, 2.9, "N");
   }
   P.fireplace(b, m, x1, 44.6, "W", 2.0);
@@ -521,9 +524,9 @@ function buildHotel(c: Ctx): void {
   P.candleWheel(b, m, 61.5, 44.0, 2.9, 0.75, 6, slabY);
   P.candleWheel(b, m, 67.5, 44.6, 2.9, 0.75, 6, slabY);
   P.pictureFrame(b, m, x0, 2.2, 42.3, 1.2, 0.85, "E", "landscape");
-  P.pictureFrame(b, m, 69.6, 2.25, z1, 0.6, 0.8, "N", "portrait", { frame: m.brass, px: 96, py: 128 });
-  P.pictureFrame(b, m, 70.6, 2.25, z1, 0.6, 0.8, "N", "lady", { frame: m.brass, px: 96, py: 128 });
-  P.sconce(b, m, 68.3, 2.3, z1 - 0.06, "N");
+  P.pictureFrame(b, m, 70.6, 2.25, z1, 0.6, 0.8, "N", "portrait", { frame: m.brass, px: 96, py: 128 });
+  P.pictureFrame(b, m, 65.6, 2.25, z1, 0.6, 0.8, "N", "lady", { frame: m.brass, px: 96, py: 128 });
+  P.sconce(b, m, 66.6, 2.3, z1 - 0.06, "N");
   c.warm(61.5, 2.9, 44.0, 14, 9);
   c.warm(67.5, 2.9, 44.6, 12, 8);
 
@@ -635,10 +638,10 @@ function buildLivery(c: Ctx): void {
   const partZ = 40;
   const d = streetDoor("livery");
   const ceilY = 3.2;
-  c.partZ(m.woodStage, partZ, z1, partX, 0, ceilY);
-  c.partX(m.woodStage, x0, partX, partZ, 0, ceilY);
-  c.partX(m.woodStage, x0, partX, z1 + 0.1, 0, ceilY);
-  c.lining(m.woodStage, x0, partZ + 0.1, partX - 0.1, z1, {
+  c.partZ(m.woodMid, partZ, z1, partX, 0, ceilY);
+  c.partX(m.woodMid, x0, partX, partZ, 0, ceilY);
+  c.partX(m.woodMid, x0, partX, z1 + 0.1, 0, ceilY);
+  c.lining(m.woodMid, x0, partZ + 0.1, partX - 0.1, z1, {
     ceilY,
     gaps: { W: [c.gapOf(d, 0.12), ...winGaps("livery", "W")] },
   });

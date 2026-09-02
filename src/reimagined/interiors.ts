@@ -42,7 +42,7 @@ export interface InteriorsResult {
  */
 export const INTERIOR_DOORS: readonly DoorSpec[] = [
   { id: "doctorInner", pose: "doctor1 B1 W", side: "E", x: 43, y: 0, z: 35.3, width: 1.2, height: 2.45, swing: 1, label: "Dr. Rodham — office" },
-  { id: "jailCell", pose: "jail A1 E", side: "E", x: 41.2, y: 0, z: 90.2, width: 0.9, height: 2.5, swing: 1, label: "Cell", gate: true },
+  { id: "jailCell", pose: "jail A1 E", side: "E", x: 42.9, y: 0, z: 90.2, width: 0.9, height: 2.5, swing: 1, label: "Cell", gate: true },
   { id: "school", pose: "court C3 N", side: "S", x: 52, y: 0, z: 2.5, width: 2.5, height: 2.9, swing: -1, label: "Schoolhouse", double: true },
   { id: "padre", pose: "school A2 W", side: "E", x: 44.5, y: 0, z: -1, width: 1.2, height: 2.4, swing: 1, label: "Padre's room" },
   { id: "salUp4", pose: "salupper A1 N", side: "S", x: 36.7, y: STOREY, z: 62.5, width: 1.1, height: 2.3, swing: 1, label: "Room 4 — Ruby" },
@@ -116,7 +116,7 @@ export function buildInteriors(m: Mats): InteriorsResult {
     m,
     lights,
     warm: (x, y, z, intensity = 16, distance = 9) => {
-      lights.push({ x, y, z, color: 0xffc98a, intensity, distance });
+      lights.push({ x, y, z, color: 0xffd2a0, intensity, distance });
     },
     light: (x, y, z, color, intensity = 10, distance = 7) => {
       lights.push({ x, y, z, color, intensity, distance });

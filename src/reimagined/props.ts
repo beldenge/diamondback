@@ -102,21 +102,22 @@ export function lampPost(
   z: number,
   h = 3.5,
 ): void {
-  const colH = h - 0.7;
-  b.box(m.wellStone, x - 0.24, 0, z - 0.24, x + 0.24, 0.35, z + 0.24);
-  b.cyl(m.wellStone, x, z, 0.35, colH, 0.2, { rTop: 0.15, seg: 4, collide: true });
-  b.box(m.wellStone, x - 0.19, colH - 0.08, z - 0.19, x + 0.19, colH, z + 0.19, { collide: false });
-  b.box(m.iron, x - 0.3, colH, z - 0.3, x + 0.3, colH + 0.08, z + 0.3, { collide: false });
-  b.box(m.lampGlass, x - 0.26, colH + 0.08, z - 0.26, x + 0.26, colH + 0.72, z + 0.26, { collide: false });
+  // a thin dark post on a small plinth, a square glass lantern with a
+  // pointed cap on top (K8 W / G7 N: the post reads 0.18 m, the lantern 0.4)
+  const colH = h - 0.62;
+  b.box(m.wellStone, x - 0.2, 0, z - 0.2, x + 0.2, 0.3, z + 0.2);
+  b.box(m.iron, x - 0.08, 0.3, z - 0.08, x + 0.08, colH, z + 0.08, { collide: true });
+  b.box(m.iron, x - 0.22, colH - 0.05, z - 0.22, x + 0.22, colH, z + 0.22, { collide: false });
+  b.box(m.lampGlass, x - 0.19, colH, z - 0.19, x + 0.19, colH + 0.55, z + 0.19, { collide: false });
   for (const [dx, dz] of [
-    [-0.27, -0.27],
-    [0.27, -0.27],
-    [-0.27, 0.27],
-    [0.27, 0.27],
+    [-0.2, -0.2],
+    [0.2, -0.2],
+    [-0.2, 0.2],
+    [0.2, 0.2],
   ] as const) {
-    b.box(m.iron, x + dx - 0.02, colH + 0.08, z + dz - 0.02, x + dx + 0.02, colH + 0.72, z + dz + 0.02, { collide: false });
+    b.box(m.iron, x + dx - 0.02, colH, z + dz - 0.02, x + dx + 0.02, colH + 0.55, z + dz + 0.02, { collide: false });
   }
-  b.cone(m.iron, x, z, colH + 0.72, colH + 1.0, 0.4, 4, Math.PI / 4);
+  b.cone(m.iron, x, z, colH + 0.55, colH + 0.85, 0.32, 4, Math.PI / 4);
 }
 
 /**
@@ -140,15 +141,15 @@ export function streetSign(
   const sz = facing === "SE" || facing === "SW" ? 1 : -1;
   const plate = (name: string): THREE.MeshLambertMaterial =>
     new THREE.MeshLambertMaterial({
-      map: boardTex([name], 1.3, 0.3, { bg: "#3a2814", fg: "#e8dcb8", font: "Rockwell, 'Arial Black', Georgia, serif" }),
+      map: boardTex([name], 1.3, 0.42, { bg: "#3a2814", fg: "#e8dcb8", font: "Rockwell, 'Arial Black', Georgia, serif" }),
     });
   const bar = (name: string, alongX: boolean, by: number, dir: number): void => {
     const len = 1.5;
     const cx = alongX ? x + dir * (0.12 + len / 2) : x;
     const cz = alongX ? z : z + dir * (0.12 + len / 2);
-    b.rotBox(_m.woodDark, cx, by, cz, alongX ? len : 0.07, 0.3, alongX ? 0.07 : len, 0, { collide: false });
+    b.rotBox(_m.woodDark, cx, by, cz, alongX ? len : 0.07, 0.42, alongX ? 0.07 : len, 0, { collide: false });
     for (const side of [-1, 1]) {
-      const g = new THREE.PlaneGeometry(1.3, 0.3);
+      const g = new THREE.PlaneGeometry(1.3, 0.42);
       g.rotateY(alongX ? (side < 0 ? Math.PI : 0) : side < 0 ? -Math.PI / 2 : Math.PI / 2);
       if (alongX) {
         g.translate(cx, by, z + side * 0.037);
@@ -158,8 +159,8 @@ export function streetSign(
       b.mesh(plate(name), g);
     }
   };
-  bar(names[0], true, y + 0.17, sx);
-  bar(names[1], false, y - 0.17, sz);
+  bar(names[0], true, y, sx);
+  bar(names[1], false, y, sz);
 }
 
 export function hitchRail(
@@ -207,7 +208,7 @@ export function boardWall(
   const a1 = alongX ? Math.max(x0, x1) : Math.max(z0, z1);
   const fixed = alongX ? z0 : x0;
   const board = 0.3;
-  const gap = 0.06;
+  const gap = 0.035;
   for (let u = a0; u < a1 - 0.03; u += board + gap) {
     const t = Math.sin((u + fixed) * 12.9898) * 43758.5453;
     const fr = t - Math.floor(t);
@@ -470,13 +471,14 @@ export function wagonWheel(b: Builder, m: Mats, x: number, y: number, z: number,
  * seat, red spoked wheels, tongue. The running gear is what keeps the
  * bed from floating over the wheels.
  */
-export function wagon(b: Builder, m: Mats, x: number, z: number, rotY = 0): void {
+export function wagon(b: Builder, m: Mats, x: number, z: number, rotY = 0, wheelMat?: THREE.Material): void {
   const c = Math.cos(rotY);
   const s = Math.sin(rotY);
   const off = (dx: number, dz: number): [number, number] => [x + dx * c - dz * s, z + dx * s + dz * c];
   const rearR = 0.75;
   const frontR = 0.58;
   const bedY = 0.92; // underside of the bed
+  const body = m.woodMid;
   // axles on the wheel centres, bolsters carrying the bed
   for (const [dx, r] of [
     [-1.5, rearR],
@@ -492,14 +494,14 @@ export function wagon(b: Builder, m: Mats, x: number, z: number, rotY = 0): void
     const slope = Math.atan2(frontR - rearR, 3.05);
     b.rotBox(m.woodDark, rx, (rearR + frontR) / 2, rz, 3.1, 0.1, 0.12, rotY, { rotZ: slope, collide: false });
   }
-  b.rotBox(m.woodSaloon, x, bedY + 0.1, z, 4.2, 0.2, 1.9, rotY, { collide: true });
+  b.rotBox(body, x, bedY + 0.1, z, 4.2, 0.2, 1.9, rotY, { collide: true });
   // side boards + tail board
   const [n1x, n1z] = off(0, -0.88);
   const [n2x, n2z] = off(0, 0.88);
   const [tbx, tbz] = off(-2.03, 0);
-  b.rotBox(m.woodSaloon, n1x, bedY + 0.45, n1z, 4.2, 0.5, 0.14, rotY, { collide: false });
-  b.rotBox(m.woodSaloon, n2x, bedY + 0.45, n2z, 4.2, 0.5, 0.14, rotY, { collide: false });
-  b.rotBox(m.woodSaloon, tbx, bedY + 0.45, tbz, 0.14, 0.5, 1.9, rotY, { collide: false });
+  b.rotBox(body, n1x, bedY + 0.45, n1z, 4.2, 0.5, 0.14, rotY, { collide: false });
+  b.rotBox(body, n2x, bedY + 0.45, n2z, 4.2, 0.5, 0.14, rotY, { collide: false });
+  b.rotBox(body, tbx, bedY + 0.45, tbz, 0.14, 0.5, 1.9, rotY, { collide: false });
   // seat up front on two brackets
   const [sx2, sz2] = off(1.7, 0);
   b.rotBox(m.woodDark, sx2, bedY + 0.68, sz2, 0.8, 0.1, 1.5, rotY, { collide: false });
@@ -520,7 +522,7 @@ export function wagon(b: Builder, m: Mats, x: number, z: number, rotY = 0): void
     [1.55, 1.03, frontR],
   ] as const) {
     const [wx, wz] = off(dx, dz);
-    spokedWheel(b, m, wx, wz, r, { rotY, mat: m.curioRed });
+    spokedWheel(b, m, wx, wz, r, { rotY, mat: wheelMat ?? m.curioRed });
   }
   // tongue: pinned to the front axle, its tip resting on the ground ahead
   {
@@ -821,10 +823,18 @@ export function skullPole(b: Builder, m: Mats, x: number, z: number, h = 4.4): v
   b.rotBox(m.bone, x, h + 0.14, z + 0.42, 0.08, 0.08, 0.55, 0, { rotX: -0.5, collide: false });
 }
 
-export function oxSkull(b: Builder, m: Mats, x: number, z: number, y = 0.12): void {
-  b.rotBox(m.bone, x, y, z, 0.42, 0.18, 0.5, 0.4, { collide: false });
-  b.rotBox(m.bone, x - 0.45, y + 0.05, z, 0.6, 0.09, 0.09, 0.15, { rotZ: 0.35, collide: false });
-  b.rotBox(m.bone, x + 0.45, y + 0.05, z, 0.6, 0.09, 0.09, -0.15, { rotZ: -0.35, collide: false });
+export function oxSkull(b: Builder, m: Mats, x: number, z: number, y = 0.16, rotY = 0.4): void {
+  const c = Math.cos(rotY);
+  const s = Math.sin(rotY);
+  const at = (dx: number, dz: number): [number, number] => [x + dx * c + dz * s, z - dx * s + dz * c];
+  b.rotBox(m.bone, x, y, z, 0.48, 0.3, 0.62, rotY, { collide: false });
+  b.rotBox(m.bone, x, y - 0.02, z - 0.1 * c, 0.3, 0.2, 0.3, rotY, { collide: false });
+  for (const side of [-1, 1]) {
+    const [hx, hz] = at(side * 0.55, -0.05);
+    b.rotBox(m.bone, hx, y + 0.14, hz, 0.8, 0.1, 0.1, rotY + side * 0.2, { rotZ: side * 0.5, collide: false });
+    const [tx, tz] = at(side * 0.95, -0.12);
+    b.rotBox(m.bone, tx, y + 0.42, tz, 0.36, 0.08, 0.08, rotY + side * 0.2, { rotZ: side * 1.15, collide: false });
+  }
 }
 
 export type StoneKind = "slate" | "granite" | "cross" | "wood";
@@ -854,8 +864,8 @@ export function gravestone(
     b.solid({ minX: x - 0.1, minY: 0, minZ: z - 0.1, maxX: x + 0.1, maxY: 1.1, maxZ: z + 0.1 });
     return;
   }
-  const w = opts.w ?? (kind === "granite" ? 0.62 : kind === "wood" ? 0.5 : 0.74);
-  const h = opts.h ?? (kind === "granite" ? 0.78 : kind === "wood" ? 0.9 : 1.05);
+  const w = opts.w ?? (kind === "granite" ? 0.8 : kind === "wood" ? 0.5 : 0.95);
+  const h = opts.h ?? (kind === "granite" ? 0.95 : kind === "wood" ? 0.9 : 1.3);
   const t = kind === "granite" ? 0.2 : kind === "wood" ? 0.06 : 0.1;
   const mat = kind === "granite" ? m.granite : kind === "wood" ? m.woodGray : m.slate;
   const bodyTop = kind === "wood" ? h : h - w / 2;
@@ -892,12 +902,13 @@ export function gravestone(
 
 export function deadTree(b: Builder, m: Mats, x: number, z: number, h = 4.6): void {
   const k = Math.max(1, h / 5);
-  b.cyl(m.woodBlack, x, z, 0, h, 0.3 * k, { rTop: 0.12 * k, seg: 8, collide: true });
-  b.rotBox(m.woodBlack, x + 0.5 * k, h * 0.62, z, 1.2 * k, 0.16 * k, 0.16 * k, 0.3, { rotZ: 0.6, collide: false });
-  b.rotBox(m.woodBlack, x - 0.35 * k, h * 0.5, z + 0.1, 0.9 * k, 0.13 * k, 0.13 * k, -0.4, { rotZ: -0.8, collide: false });
-  b.rotBox(m.woodBlack, x + 0.25 * k, h * 0.8, z - 0.1, 0.7 * k, 0.1 * k, 0.1 * k, 0.2, { rotZ: 0.9, collide: false });
-  b.rotBox(m.woodBlack, x - 0.2 * k, h * 0.72, z - 0.45 * k, 1.3 * k, 0.14 * k, 0.14 * k, 1.4, { rotZ: -0.7, collide: false });
-  b.rotBox(m.woodBlack, x + 0.3 * k, h * 0.58, z + 0.5 * k, 1.1 * k, 0.13 * k, 0.13 * k, -1.2, { rotZ: 0.75, collide: false });
+  const bark = m.fenceGray;
+  b.cyl(bark, x, z, 0, h, 0.3 * k, { rTop: 0.12 * k, seg: 8, collide: true });
+  b.rotBox(bark, x + 0.5 * k, h * 0.62, z, 1.2 * k, 0.16 * k, 0.16 * k, 0.3, { rotZ: 0.6, collide: false });
+  b.rotBox(bark, x - 0.35 * k, h * 0.5, z + 0.1, 0.9 * k, 0.13 * k, 0.13 * k, -0.4, { rotZ: -0.8, collide: false });
+  b.rotBox(bark, x + 0.25 * k, h * 0.8, z - 0.1, 0.7 * k, 0.1 * k, 0.1 * k, 0.2, { rotZ: 0.9, collide: false });
+  b.rotBox(bark, x - 0.2 * k, h * 0.72, z - 0.45 * k, 1.3 * k, 0.14 * k, 0.14 * k, 1.4, { rotZ: -0.7, collide: false });
+  b.rotBox(bark, x + 0.3 * k, h * 0.58, z + 0.5 * k, 1.1 * k, 0.13 * k, 0.13 * k, -1.2, { rotZ: 0.75, collide: false });
   return;
   // (the original thin tree follows, kept for reference)
   b.cyl(m.woodSaloon, x, z, 0, h, 0.22, { rTop: 0.1, seg: 7, collide: true });
@@ -907,14 +918,14 @@ export function deadTree(b: Builder, m: Mats, x: number, z: number, h = 4.6): vo
 }
 
 export function well(b: Builder, m: Mats, x: number, z: number): void {
-  b.cyl(m.wellStone, x, z, 0, 1.2, 1.05, { seg: 14, collide: true });
-  b.cyl(m.iron, x, z, 1.18, 1.22, 0.9, { seg: 14, collide: false });
-  // two posts either side carrying a shingled gable roof, the windlass between
-  for (const px of [x - 1.0, x + 1.0]) {
+  b.cyl(m.wellStone, x, z, 0, 1.2, 0.85, { seg: 14, collide: true });
+  b.cyl(m.iron, x, z, 1.18, 1.22, 0.72, { seg: 14, collide: false });
+  // two posts either side carrying a shingled gable hood, the windlass between (L5 S)
+  for (const px of [x - 0.85, x + 0.85]) {
     b.box(m.woodDark, px - 0.1, 0, z - 0.1, px + 0.1, 2.6, z + 0.1, { collide: false });
   }
-  b.box(m.woodDark, x - 1.1, 2.5, z - 0.05, x + 1.1, 2.62, z + 0.05, { collide: false });
-  gableRoof(b, m, x - 1.4, z - 0.95, x + 1.4, z + 0.95, 2.6, 3.5, "x", m.roofDark);
+  b.box(m.woodDark, x - 0.95, 2.5, z - 0.05, x + 0.95, 2.62, z + 0.05, { collide: false });
+  gableRoof(b, m, x - 1.05, z - 0.8, x + 1.05, z + 0.8, 2.65, 3.4, "x", m.roofDark);
   b.cyl(m.woodMid, x, z, 1.9, 2.02, 0.09);
   const drum = new THREE.CylinderGeometry(0.12, 0.12, 1.6, 8);
   drum.rotateZ(Math.PI / 2);
@@ -1002,9 +1013,9 @@ export function sack(b: Builder, m: Mats, x: number, z: number, y = 0): void {
 
 export function coffin(b: Builder, m: Mats, x: number, z: number, rotY = 0, standing = false): void {
   if (standing) {
-    b.rotBox(m.woodStage, x, 1.05, z, 0.66, 2.1, 0.3, rotY, { rotX: -0.12, collide: true });
+    b.rotBox(m.woodStage, x, 1.25, z, 0.8, 2.5, 0.32, rotY, { rotX: -0.12, collide: true });
   } else {
-    b.rotBox(m.woodStage, x, 0.25, z, 2.0, 0.5, 0.7, rotY, { collide: true });
+    b.rotBox(m.woodStage, x, 0.42, z, 2.3, 0.84, 0.75, rotY, { collide: true });
   }
 }
 
@@ -1343,6 +1354,24 @@ export function gableRoof(
       collide: false,
     });
   }
+}
+
+/** Four-sided hip roof (a squat pyramid) over a rectangle, in one material. */
+export function hipRoof(
+  b: Builder,
+  minX: number,
+  minZ: number,
+  maxX: number,
+  maxZ: number,
+  yEave: number,
+  yApex: number,
+  mat: THREE.Material,
+): void {
+  const geom = new THREE.ConeGeometry(1, yApex - yEave, 4, 1);
+  geom.rotateY(Math.PI / 4);
+  geom.scale(((maxX - minX) / 2 + 0.25) * Math.SQRT2, 1, ((maxZ - minZ) / 2 + 0.25) * Math.SQRT2);
+  geom.translate((minX + maxX) / 2, (yEave + yApex) / 2, (minZ + maxZ) / 2);
+  b.mesh(mat, geom);
 }
 
 /**

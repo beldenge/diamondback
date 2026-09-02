@@ -8,35 +8,35 @@ export const PAL = {
   dirtDark: "#8a6042",
   skyDay: "#667fc1",
   skyHorizonDay: "#667fc1",
-  skyNight: "#141c33",
-  skyHorizonNight: "#232c4e",
+  skyNight: "#0b1022",
+  skyHorizonNight: "#161c36",
   mesa: "#6a5a48",
 
   // wood
   woodSaloon: "#2e2620",
   woodBlack: "#080605",
-  woodStage: "#a98e66",
-  woodWatson: "#8d857a",
+  woodStage: "#b49a72",
+  woodWatson: "#8f8072",
   woodDoctor: "#8c7250",
   woodGray: "#9c948a",
   woodWhite: "#d6d1c1",
   woodMid: "#6d5136",
   /** The stagecoach office's near-black boards (H7 E). */
-  woodOffice: "#221b14",
+  woodOffice: "#150e08",
   woodDark: "#4a3826",
   woodFloor: "#5c452e",
   boardwalk: "#a07e5c",
   rattlerGreen: "#7a8070",
-  oliveHotel: "#a09a74",
+  oliveHotel: "#b09c70",
   fenceGray: "#7a7160",
   palisade: "#26211a",
   barnDark: "#4c443a",
 
   // masonry
-  adobeJail: "#7a7168",
-  adobeMission: "#c6b69c",
+  adobeJail: "#6e6058",
+  adobeMission: "#d2c2a8",
   adobePink: "#d7a284",
-  brickBank: "#2a1b12",
+  brickBank: "#1e130c",
   brickCream: "#d9cfb2",
   brickMayor: "#5e3c30",
   wellStone: "#5d5a52",
@@ -44,6 +44,8 @@ export const PAL = {
   // roofs
   roofDark: "#3e372f",
   roofRed: "#96422e",
+  /** The NE barn's and range barn's dark red-brown shingles (D9 E / F10 N / J10 S). */
+  roofBrown: "#5e3830",
   tileRed: "#9c4a30",
 
   // accents
@@ -66,7 +68,7 @@ export const PAL = {
   wpHotel: "#ded5c0",
   wpMayHall: "#d8cfba",
   wpMayRoom: "#7e957f",
-  wpSalUpper: "#c9bd9f",
+  wpSalUpper: "#a8a08a",
   wpSalRoom: "#a02620",
   wpApoth: "#8a6f52",
   plasterJail: "#d8cbb1",
