@@ -4,39 +4,41 @@
  */
 export const PAL = {
   // ground + sky
-  dirt: "#b06f3e",
-  dirtDark: "#96582f",
-  skyDay: "#7f9fd6",
-  skyHorizonDay: "#cfae83",
+  dirt: "#a87a55",
+  dirtDark: "#8a6042",
+  skyDay: "#667fc1",
+  skyHorizonDay: "#667fc1",
   skyNight: "#141c33",
   skyHorizonNight: "#232c4e",
-  mesa: "#a67247",
+  mesa: "#6a5a48",
 
   // wood
-  woodSaloon: "#3a2b1f",
-  woodBlack: "#241d16",
+  woodSaloon: "#2e2620",
+  woodBlack: "#080605",
   woodStage: "#a98e66",
-  woodWatson: "#bfbcaa",
-  woodDoctor: "#c9ba9b",
-  woodGray: "#8a8478",
+  woodWatson: "#8d857a",
+  woodDoctor: "#8c7250",
+  woodGray: "#9c948a",
   woodWhite: "#d6d1c1",
   woodMid: "#6d5136",
+  /** The stagecoach office's near-black boards (H7 E). */
+  woodOffice: "#221b14",
   woodDark: "#4a3826",
   woodFloor: "#5c452e",
-  boardwalk: "#7c6547",
-  rattlerGreen: "#49513a",
-  oliveHotel: "#6e7155",
-  fenceGray: "#6b6356",
+  boardwalk: "#a07e5c",
+  rattlerGreen: "#7a8070",
+  oliveHotel: "#a09a74",
+  fenceGray: "#7a7160",
   palisade: "#26211a",
   barnDark: "#4c443a",
 
   // masonry
-  adobeJail: "#b3a288",
-  adobeMission: "#e6dabf",
+  adobeJail: "#7a7168",
+  adobeMission: "#c6b69c",
   adobePink: "#d7a284",
-  brickBank: "#6b4732",
+  brickBank: "#2a1b12",
   brickCream: "#d9cfb2",
-  brickMayor: "#77503f",
+  brickMayor: "#5e3c30",
   wellStone: "#5d5a52",
 
   // roofs
@@ -45,7 +47,7 @@ export const PAL = {
   tileRed: "#9c4a30",
 
   // accents
-  curioRed: "#a3261d",
+  curioRed: "#8e1e17",
   gold: "#dfb44e",
   cream: "#e6dcba",
   white: "#efeadb",
@@ -54,7 +56,7 @@ export const PAL = {
   brass: "#b08d3f",
   glassCold: "#2c3138",
   glassWarm: "#ffb45a",
-  curtainRed: "#7e1f1c",
+  curtainRed: "#661a18",
   teal: "#3f7770",
   marble: "#d9d5cc",
   paper: "#ddd2b0",

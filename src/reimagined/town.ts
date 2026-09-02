@@ -9,9 +9,9 @@ import * as THREE from "three";
 import { Builder } from "./geometry";
 import {
   DECOR_GAP,
+  FENCE,
   GATE,
   LOTS,
-  PALISADE,
   SHAFT_HOLE,
   STREET_DOORS,
   WALL_T,
@@ -22,7 +22,7 @@ import {
   type LotName,
   type Rect,
 } from "./layout";
-import type { Mats } from "./materials";
+import { registerNight, type Mats } from "./materials";
 import * as P from "./props";
 import { boardTex, posterTex, teepeeBandTex, type BoardOpts, type PosterKind } from "./textures";
 
@@ -46,6 +46,20 @@ function matOf(tex: THREE.Texture): THREE.MeshLambertMaterial {
 
 function signMat(lines: string[], w: number, h: number, opts?: BoardOpts): THREE.MeshLambertMaterial {
   return matOf(boardTex(lines, w, h, opts));
+}
+
+/** Letters painted straight onto a wall (no board): a cut-out decal. */
+function letters(lines: string[], w: number, h: number, fg: string, font?: string, spread = false): THREE.MeshLambertMaterial {
+  return registerNight(
+    new THREE.MeshLambertMaterial({
+      map: boardTex(lines, w, h, { bg: "transparent", fg, font, tight: true, spread }),
+      alphaTest: 0.2,
+      emissive: new THREE.Color(fg),
+      emissiveIntensity: 0.3,
+    }),
+    0.3,
+    0.04,
+  );
 }
 
 const posterMats = new Map<PosterKind, THREE.MeshLambertMaterial>();
@@ -196,8 +210,9 @@ export function shell(
   wallZ(b, mats.E ?? mat, r.minZ, r.maxZ, r.maxX - h, y0, y1, gaps.E ?? []);
 }
 
+/** Flat roof slab kept inside the shell, so a false front's lettering is never clipped by an overhang. */
 function flatRoof(b: Builder, m: Mats, r: Rect, y: number, mat?: THREE.Material): void {
-  b.box(mat ?? m.roofDark, r.minX - 0.1, y, r.minZ - 0.1, r.maxX + 0.1, y + 0.18, r.maxZ + 0.1);
+  b.box(mat ?? m.roofDark, r.minX, y, r.minZ, r.maxX, y + 0.18, r.maxZ);
 }
 
 /** Simple non-enterable building: solid box + trims. */
@@ -246,32 +261,13 @@ function falseFrontBraces(b: Builder, m: Mats, r: Rect, side: "E" | "W" | "N" | 
   }
 }
 
-function windowRow(
-  b: Builder,
-  mCold: THREE.Material,
-  face: "N" | "S" | "E" | "W",
-  fixed: number,
-  positions: number[],
-  y: number,
-  w = 0.9,
-  h = 1.3,
-): void {
-  for (const p of positions) {
-    if (face === "E" || face === "W") {
-      b.decal(mCold, fixed, y, p, w, h, face);
-    } else {
-      b.decal(mCold, p, y, fixed, w, h, face);
-    }
-  }
-}
-
 /**
  * Real windows for a lot: clear glass mid-wall, a wood frame with a
  * muntin grid, an arched head where the film shows one, and iron bars
  * on the jail and bank. The matching wall holes come from `winGaps`
  * fed into the shell + interior linings.
  */
-export function buildWindows(b: Builder, m: Mats, key: LotName, wallMat: THREE.Material): void {
+export function buildWindows(b: Builder, m: Mats, key: LotName, wallMat: THREE.Material, glass: THREE.Material = m.glassClear): void {
   const r = LOTS[key];
   for (const w of WINDOWS[key] ?? []) {
     const hw = w.w / 2;
@@ -289,7 +285,7 @@ export function buildWindows(b: Builder, m: Mats, key: LotName, wallMat: THREE.M
           collide: false,
         });
       }
-      b.box(m.glassClear, gx - 0.02, w.bottom, w.at - hw, gx + 0.02, glassTop, w.at + hw, { collide: true });
+      b.box(glass, gx - 0.02, w.bottom, w.at - hw, gx + 0.02, glassTop, w.at + hw, { collide: true });
       b.box(m.woodDark, f0, w.bottom - 0.1, w.at - hw - 0.07, f1, w.bottom, w.at + hw + 0.07, { collide: false });
       if (!w.arched) {
         b.box(m.woodDark, f0, w.top, w.at - hw - 0.07, f1, w.top + 0.1, w.at + hw + 0.07, { collide: false });
@@ -323,7 +319,7 @@ export function buildWindows(b: Builder, m: Mats, key: LotName, wallMat: THREE.M
           collide: false,
         });
       }
-      b.box(m.glassClear, w.at - hw, w.bottom, gz - 0.02, w.at + hw, glassTop, gz + 0.02, { collide: true });
+      b.box(glass, w.at - hw, w.bottom, gz - 0.02, w.at + hw, glassTop, gz + 0.02, { collide: true });
       b.box(m.woodDark, w.at - hw - 0.07, w.bottom - 0.1, f0, w.at + hw + 0.07, w.bottom, f1, { collide: false });
       if (!w.arched) {
         b.box(m.woodDark, w.at - hw - 0.07, w.top, f0, w.at + hw + 0.07, w.top + 0.1, f1, { collide: false });
@@ -395,192 +391,189 @@ export function buildTown(m: Mats, nightGroup: THREE.Group): TownResult {
     const mx = 52 + (hx - 52) * 1.9;
     const mz = 60 + (hz - 60) * 1.9;
     const mr = hr * 1.8;
-    const mh = hh * 1.7;
-    if (kind === 1) {
-      butte(mx, mz, mr, mh);
-    } else {
-      dome(mx, mz, mr, mh);
-      dome(mx + mr * 0.7, mz + 4, mr * 0.5, mh * 0.6);
-      dome(mx - mr * 0.65, mz - 3, mr * 0.45, mh * 0.5);
+    const mh = hh * 0.32;
+    butte(mx, mz, mr, mh);
+    if (kind === 0) {
+      butte(mx + mr * 0.9, mz + 4, mr * 0.5, mh * 0.7);
     }
     b.solid({ minX: mx - mr, minY: 0, minZ: mz - mr, maxX: mx + mr, maxY: mh, maxZ: mz + mr });
   }
 
   /* ---------- south gate ---------- */
   {
-    // A-frame posts + crossbeam + hanging DIAMONDBACK board (letters south only)
+    // Film O7 N / N7 S / N7 W: each side is a rough post with a brace
+    // fore and aft (three poles a side), a crossbeam over the street
+    // at 5.4 m and a small DIAMONDBACK board hung on chains under it.
     for (const px of [GATE.westPostX, GATE.eastPostX]) {
-      b.rotBox(m.woodSaloon, px, GATE.beamY / 2, GATE.z, 0.28, GATE.beamY, 0.28, 0, { collide: true });
-      b.rotBox(m.woodSaloon, px - 0.5, GATE.beamY / 2 - 0.2, GATE.z, 0.2, GATE.beamY - 0.4, 0.2, 0, {
-        rotZ: 0.12,
-        collide: false,
-      });
-      b.rotBox(m.woodSaloon, px + 0.5, GATE.beamY / 2 - 0.2, GATE.z, 0.2, GATE.beamY - 0.4, 0.2, 0, {
-        rotZ: -0.12,
-        collide: false,
-      });
+      b.rotBox(m.woodSaloon, px, GATE.beamY / 2, GATE.z, 0.32, GATE.beamY, 0.32, 0, { collide: true });
+      for (const dz of [-1.1, 1.1]) {
+        const rise = GATE.beamY - 0.4;
+        b.rotBox(m.woodSaloon, px, rise / 2, GATE.z + dz / 2, 0.18, Math.hypot(dz, rise), 0.18, 0, {
+          rotX: -Math.atan2(dz, rise),
+          collide: false,
+        });
+      }
     }
-    b.box(m.woodSaloon, GATE.westPostX - 0.8, GATE.beamY - 0.34, GATE.z - 0.2, GATE.eastPostX + 0.8, GATE.beamY, GATE.z + 0.2, {
+    b.box(m.woodSaloon, GATE.westPostX - 0.6, GATE.beamY, GATE.z - 0.16, GATE.eastPostX + 0.6, GATE.beamY + 0.3, GATE.z + 0.16, {
       collide: false,
     });
-    // chains
-    b.box(m.iron, 50.1, GATE.signTop, GATE.z - 0.03, 50.16, GATE.beamY - 0.3, GATE.z + 0.03, { collide: false });
-    b.box(m.iron, 53.84, GATE.signTop, GATE.z - 0.03, 53.9, GATE.beamY - 0.3, GATE.z + 0.03, { collide: false });
-    const signW = 4.6;
-    b.box(m.woodSaloon, 52 - signW / 2, GATE.signBottom, GATE.z - 0.08, 52 + signW / 2, GATE.signTop, GATE.z + 0.08, {
-      collide: false,
-    });
-    b.decal(
-      signMat(["DIAMONDBACK"], signW, GATE.signTop - GATE.signBottom, { bg: "#3b2b1c", fg: "#e0cf9c", border: "#20150c" }),
-      52,
-      (GATE.signTop + GATE.signBottom) / 2,
-      GATE.z + 0.08 + DECOR_GAP,
-      signW,
-      GATE.signTop - GATE.signBottom,
-      "S",
-    );
+    const signW = 3.9;
+    const signH = GATE.signTop - GATE.signBottom;
+    const sx = 51.5;
+    const sz = GATE.z - 0.3;
+    for (const cx of [sx - signW / 2 + 0.15, sx + signW / 2 - 0.15]) {
+      b.box(m.iron, cx - 0.02, GATE.signTop, sz - 0.02, cx + 0.02, GATE.beamY, sz + 0.02, { collide: false });
+    }
+    b.box(m.woodSaloon, sx - signW / 2, GATE.signBottom, sz - 0.05, sx + signW / 2, GATE.signTop, sz + 0.05, { collide: false });
+    const gateSign = signMat(["DIAMONDBACK"], signW, signH, { bg: "#3b2b1c", fg: "#e0cf9c", border: "#20150c" });
+    b.decal(gateSign, sx, (GATE.signTop + GATE.signBottom) / 2, sz + 0.05 + DECOR_GAP, signW, signH, "S");
+    b.decal(gateSign, sx, (GATE.signTop + GATE.signBottom) / 2, sz - 0.05 - DECOR_GAP, signW, signH, "N");
 
-    // WARNING board west of the street, just inside the gate
-    b.box(m.woodDark, 46.6, 0, 106.4, 46.78, 2.3, 106.58);
-    b.box(m.woodDark, 49.0, 0, 106.4, 49.18, 2.3, 106.58);
-    b.box(m.woodSaloon, 46.3, 2.1, 106.35, 49.5, 3.75, 106.62, { collide: false });
+    // WARNING board just inside the gate, on one post at the lane's
+    // west edge (N7 N / O7 N: a 2.1 m board lettered from 1 m to 2.45 m)
+    b.box(m.woodDark, 49.95, 0, 104.82, 50.15, 2.5, 105.02);
+    b.box(m.woodSaloon, 49.0, 0.99, 105.05, 51.1, 2.45, 105.15, { collide: false });
     b.decal(
       signMat(
-        ["WARNING!", "Gunmen, Thieves, and", "Bone-Idle Loungers", "get out of Diamondback", "and stay out —", "otherwise HANG!"],
-        3.2,
-        1.65,
+        ["WARNING!", "Gunmen, Thieves, and", "Dance House Loungers", "Get out of Diamondback", "and Stay Out", "—Otherwise Hang!"],
+        2.1,
+        1.46,
         { bg: "#33261a", fg: "#d8cba6" },
       ),
-      47.9,
-      2.92,
-      106.66,
-      3.2,
-      1.65,
+      50.05,
+      1.72,
+      105.15 + DECOR_GAP,
+      2.1,
+      1.46,
       "S",
     );
+    // the ox skull on the ground at the east post (O7 N / O7 E)
+    P.oxSkull(b, m, 55.6, 112.9);
   }
 
-  /* ---------- palisade + gate yard (windmill, water tower) ---------- */
+  /* ---------- gate fence + yard (windmill, SEE ROCK CITY tank, skull poles) ---------- */
   {
-    // tall black palisade: uneven vertical boards, west face on x
-    const pal = PALISADE;
-    for (let z = pal.zNorth; z < pal.zSouth; z += 0.34) {
-      const hh = pal.height - 0.35 + (((z * 7.3) % 1) - 0.5) * 0.5;
-      b.box(m.palisade, pal.x - 0.12, 0, z, pal.x + 0.12, hh, Math.min(pal.zSouth, z + 0.3), { collide: false });
-    }
-    b.solid({ minX: pal.x - 0.14, minY: 0, minZ: pal.zNorth, maxX: pal.x + 0.14, maxY: pal.height, maxZ: pal.zSouth });
-    for (let x = pal.x; x < pal.eastEndX; x += 0.34) {
-      const hh = pal.height - 0.35 + (((x * 5.1) % 1) - 0.5) * 0.5;
-      b.box(m.palisade, x, 0, pal.zSouth - 0.28, Math.min(pal.eastEndX, x + 0.3), hh, pal.zSouth - 0.04, { collide: false });
-    }
-    b.solid({ minX: pal.x, minY: 0, minZ: pal.zSouth - 0.3, maxX: pal.eastEndX, maxY: pal.height, maxZ: pal.zSouth });
-    // rails on the yard side
-    for (const ry of [1.0, 3.2]) {
-      b.box(m.woodDark, pal.x + 0.12, ry, pal.zNorth, pal.x + 0.2, ry + 0.12, pal.zSouth, { collide: false });
-    }
-    // "FIREARMS STRICKLY PROHIBITED" (film spelling): a standing board on
-    // two posts inside the gate, the twin of the WARNING board opposite
-    b.box(m.woodDark, 54.3, 0, 107.9, 54.48, 2.3, 108.08);
-    b.box(m.woodDark, 56.1, 0, 107.9, 56.28, 2.3, 108.08);
-    b.box(m.woodSaloon, 54.1, 1.7, 107.85, 56.5, 3.2, 108.12, { collide: false });
+    // Film N7 E / O8 N / M7 E: 2.6 m of uneven grey boards on rails,
+    // north from the gate's east post and east along the gate line; the
+    // east run stops where O7 E / O8 E show its end, and nothing runs
+    // south of the gate line
+    const f = FENCE;
+    P.boardWall(b, m, f.x, f.zNorth, f.x, f.zSouth, f.height, m.woodBlack, 1);
+    P.boardWall(b, m, f.x, GATE.z, f.eastEndX, GATE.z, f.height, m.woodBlack, -1);
+    // the run steps east to Curiosities' south-east corner (L7 E / K7 S)
+    P.boardWall(b, m, f.x, f.zNorth, 59.8, f.zNorth, f.height, m.fenceGray, -1);
+    P.boardWall(b, m, 59.8, 96.3, 59.8, f.zNorth, f.height, m.fenceGray, 1);
+    // "Firearms Strickly Prohibited" (film spelling): one long board on
+    // two posts in front of the fence (N7 N / N7 E)
+    b.box(m.woodDark, 55.3, 0, 100.1, 55.5, 2.2, 100.3);
+    b.box(m.woodDark, 55.3, 0, 104.3, 55.5, 2.2, 104.5);
+    b.box(m.woodSaloon, 55.33, 1.05, 100.0, 55.43, 2.05, 104.6, { collide: false });
     b.decal(
-      signMat(["FIREARMS", "STRICKLY", "PROHIBITED"], 2.4, 1.5, { bg: "#d8cba6", fg: "#33261a", border: "#6b5b3c" }),
-      55.3,
-      2.45,
-      108.16,
-      2.4,
-      1.5,
-      "S",
+      signMat(["Firearms Strickly Prohibited"], 4.6, 1.0, { bg: "#8d7350", fg: "#241d16" }),
+      55.33 - DECOR_GAP,
+      1.55,
+      102.3,
+      4.6,
+      1.0,
+      "W",
     );
-    P.oxSkull(b, m, pal.x - 0.55, 110.9);
-    // weathered gray fence continues north to the Curiosities corner
-    P.picketFence(b, m, pal.x, 96, pal.x, pal.zNorth, 2.4, m.fenceGray, { slat: 0.22, gap: 0.05, pointed: false });
-    // yard behind: corral rails, windmill, water tower
-    P.railFence(b, m, pal.eastEndX, 96, pal.eastEndX, pal.zSouth, 3, 1.3, m.woodGray);
-    P.railFence(b, m, pal.x, 96, pal.eastEndX, 96, 3, 1.3, m.woodGray);
-    P.windmill(b, m, 60, 102.5, 9.5);
-    P.waterTower(b, m, 64.2, 107.5, "DIAMONDBACK CITY");
+    // yard behind: corral rails, the windmill and the SEE ROCK CITY tank
+    // (three-still fix: windmill (60.4, 108.1), tank (68.5, 109.3))
+    P.railFence(b, m, f.eastEndX, 96, f.eastEndX, f.zSouth, 3, 1.3, m.woodGray);
+    P.railFence(b, m, 59.8, 96.3, f.eastEndX, 96.3, 3, 1.3, m.woodGray);
+    P.windmill(b, m, 60.35, 108.1, 12);
+    P.waterTower(b, m, 68.5, 109.3, ["SEE", "ROCK", "CITY"], 5.0, 3.0, 1.2);
+    // the two ox skulls on poles at Curiosities' corner (M7 E / L7 E)
+    P.skullPole(b, m, 58.0, 97.6, 4.3);
+    P.skullPole(b, m, 61.0, 98.5, 3.5);
+    P.barrel(b, m, 56.1, 96.7);
   }
 
-  /* ---------- west of the gate: rails, the privy, cacti (M7 W / N7 W / O6 N) ---------- */
+  /* ---------- west of the gate: rail fence, the shed, cacti (M7 W / N7 W / O6 N) ---------- */
   {
-    P.railFence(b, m, 26, 111.8, 47.5, 111.8, 3, 1.3);
-    P.railFence(b, m, 26, 104, 26, 111.8, 3, 1.3);
-    P.railFence(b, m, 34, 100.5, 47.5, 100.5, 3, 1.25);
-    // the small privy shed by the fence; the ground stays open to the jail
-    b.box(m.barnDark, 45, 0, 107.5, 46.6, 2.6, 109.1);
-    b.cone(m.roofDark, 45.8, 108.3, 2.6, 3.1, 1.2, 4);
-    P.saguaro(b, m, 43, 113.5, 3);
-    P.saguaro(b, m, 24.5, 108, 2.6);
-    P.saguaro(b, m, 38, 104.5, 2.8);
+    // one three-rail fence runs north from the gate line at x 40
+    P.railFence(b, m, 40, 99, 40, 117, 3, 1.75);
+    // the small dark shed with a pyramid roof and an east door
+    b.box(m.woodBlack, 37.8, 0, 107.3, 41.2, 3.2, 110.5);
+    b.cone(m.roofDark, 39.5, 108.9, 3.15, 4.4, 2.55, 4, Math.PI / 4);
+    P.fakeDoor(b, m, 41.2, 0, 108.9, 0.9, 2.0, "E", { mat: m.woodBlack });
+    // the two tall saguaros by the lane (O6 N / N7 N / M7 W)
+    P.saguaro(b, m, 47.8, 98.8, 4.0);
+    P.saguaro(b, m, 44.0, 102.0, 4.2);
   }
 
   /* =========== MAIN STREET, WEST SIDE =========== */
 
-  /* ---------- Hard Drive Saloon: door at H7, porch H7..J7 ---------- */
+  /* ---------- Hard Drive Saloon (H7 W): wall x 45.5, porch to 48.4, two storeys ---------- */
   {
     const r = LOTS.saloon;
     const dSaloon = streetDoor("saloon");
-    const top = 7.6;
+    const top = 8.0;
     shell(b, m.woodSaloon, r, 0, top, {
       E: [doorGapOf(dSaloon), ...winGaps("saloon", "E")],
       N: winGaps("saloon", "N"),
       W: [{ from: 65.6, to: 67.0, top: 2.6 }, ...winGaps("saloon", "W")],
     });
-    buildWindows(b, m, "saloon", m.woodSaloon);
-    // parapet on the street face
-    b.box(m.woodSaloon, r.maxX - WALL_T, top, r.minZ, r.maxX + 0.05, 8.6, r.maxZ);
+    buildWindows(b, m, "saloon", m.woodSaloon, m.glassLit);
     flatRoof(b, m, r, top);
-    capFace(b, m.woodDark, r, "E", 8.6, m, top);
-    // gold letters over the porch roof: HARD DRIVE on the H7 half, SALOON across I7/J7
-    const fx0 = r.maxX + 0.05 + DECOR_GAP;
-    b.decal(signMat(["HARD DRIVE"], 4.6, 1.0, { bg: "#241a12", fg: "#e0b34c" }), fx0, 7.0, 59.2, 4.6, 1.0, "E");
-    b.decal(signMat(["SALOON"], 9.4, 1.7, { bg: "#241a12", fg: "#e0b34c" }), fx0, 7.0, 67.8, 9.4, 1.7, "E");
-    // porch along the whole front: boardwalk + posts + roof + balcony
-    const porchX = r.maxX + 2.3;
-    P.boardwalkSlab(b, m, r.maxX, 56.2, porchX, r.maxZ + 0.2);
-    const postZ = [56.9, 61.5, 65.2, 68.8, 72.3, 74.9];
-    P.porchPosts(b, m, 0.32, 3.4, postZ.map((pz) => [porchX - 0.12, pz] as [number, number]));
+    b.box(m.woodDark, r.maxX - WALL_T - 0.1, top, r.minZ - 0.15, r.maxX + 0.25, top + 0.22, r.maxZ + 0.15, { collide: false });
+    // porch: boardwalk to x 48.4, posts on x 48 (H7 W / I7 W / K7 N),
+    // ceiling at 3.5 with the balcony floor above it and a rail
+    const porchX = 48.4;
+    const postX = 48.0;
+    P.boardwalkSlab(b, m, r.maxX, r.minZ + 0.2, porchX, r.maxZ + 0.2, 0.15);
+    const postZ = [56.9, 62.6, 67.1, 71.6, 77.2];
+    P.porchPosts(b, m, 0.15, 3.5, postZ.map((pz) => [postX, pz] as [number, number]), m.woodSaloon);
     for (const pz of postZ) {
-      // knee braces
-      b.rotBox(m.woodDark, porchX - 0.38, 3.1, pz, 0.6, 0.08, 0.08, 0, { rotZ: -0.7, collide: false });
+      b.rotBox(m.woodSaloon, postX - 0.3, 3.12, pz, 0.72, 0.09, 0.09, 0, { rotZ: -0.75, collide: false });
+      b.rotBox(m.woodSaloon, postX + 0.22, 3.2, pz, 0.5, 0.09, 0.09, 0, { rotZ: 0.75, collide: false });
     }
-    b.box(m.woodSaloon, r.maxX, 3.4, 56.2, porchX + 0.15, 3.7, r.maxZ + 0.2, { collide: false });
-    // balcony rail above the porch roof
-    P.balustrade(b, m, r.maxX + 0.2, r.maxZ + 0.2, porchX, r.maxZ + 0.2, 3.7);
-    P.balustrade(b, m, porchX, 56.4, porchX, r.maxZ + 0.2, 3.7);
-    P.balustrade(b, m, r.maxX + 0.2, 56.4, porchX, 56.4, 3.7);
-    // door dressing: boards + lanterns each side of the H7 door
-    const wx = r.maxX + DECOR_GAP;
-    b.decal(signMat(["Wines &", "Liquors"], 0.7, 0.9, { bg: "#2c2014", fg: "#d8cba6", border: "#6b5b3c" }), wx, 1.95, 57.9, 0.7, 0.9, "E");
-    b.decal(signMat(["Beers &", "Whiskeys"], 0.7, 0.9, { bg: "#2c2014", fg: "#d8cba6", border: "#6b5b3c" }), wx, 1.95, 60.1, 0.7, 0.9, "E");
-    P.wallLantern(b, m, r.maxX, 2.55, 57.9, "E");
-    P.wallLantern(b, m, r.maxX, 2.55, 60.1, "E");
-    // porch furniture: chairs, a spittoon, a hitch rail out front
-    P.chair(b, m, r.maxX + 1.4, 63.4, Math.PI / 2);
-    P.chair(b, m, r.maxX + 1.4, 68.0, Math.PI / 2);
-    P.spittoon(b, m, r.maxX + 1.0, 66.0);
-    P.hitchRail(b, m, porchX + 0.6, 64.4, porchX + 0.6, 69.2);
-    P.trough(b, m, r.maxX + 1.2, 73.6, 1.6, false);
-    // north side on Neely: a covered porch with posters (G5 S / G6 S)
+    b.box(m.woodSaloon, r.maxX, 3.5, r.minZ + 0.2, porchX + 0.1, 3.78, r.maxZ + 0.2, { collide: false });
+    P.balustrade(b, m, porchX + 0.1, r.minZ + 0.2, porchX + 0.1, r.maxZ + 0.2, 3.78, 0.95);
+    P.balustrade(b, m, r.maxX + 0.2, r.minZ + 0.2, porchX + 0.1, r.minZ + 0.2, 3.78, 0.95);
+    P.balustrade(b, m, r.maxX + 0.2, r.maxZ + 0.2, porchX + 0.1, r.maxZ + 0.2, 3.78, 0.95);
+    // the name: a two-line board standing on the balcony's front rail (J7 N / H7 S / I7 W)
+    const fx0 = r.maxX + DECOR_GAP;
+    b.box(m.woodSaloon, porchX + 0.04, 4.7, 61.3, porchX + 0.12, 7.0, 70.3, { collide: false });
+    b.decal(signMat(["HARD DRIVE", "SALOON"], 9.0, 2.3, { bg: "#2c1a10", fg: "#e0b34c", border: "#6b5b3c" }), porchX + 0.12 + DECOR_GAP, 5.85, 65.8, 9.0, 2.3, "E");
+    // boards + lanterns either side of the door (H7 W)
+    b.decal(signMat(["Beers &", "Whiskeys"], 1.0, 0.63, { bg: "#2c2014", fg: "#d8cba6", border: "#6b5b3c" }), fx0, 1.5, 61.2, 1.0, 0.63, "E");
+    b.decal(signMat(["Liquors &", "Cigars"], 1.0, 0.63, { bg: "#2c2014", fg: "#d8cba6", border: "#6b5b3c" }), fx0, 1.5, 57.8, 1.0, 0.63, "E");
+    P.wallLantern(b, m, r.maxX, 2.25, 61.26, "E", 1.7);
+    P.wallLantern(b, m, r.maxX, 2.25, 57.7, "E", 1.7);
+    // porch chairs + the brass pot against the wall (I7 W), hitch rails out front
+    P.chair(b, m, r.maxX + 0.45, 65.1, Math.PI / 2, 0.15);
+    P.chair(b, m, r.maxX + 0.45, 68.0, Math.PI / 2, 0.15);
+    P.spittoon(b, m, r.maxX + 0.4, 66.8, 0.15, 1.4);
+    P.hitchRail(b, m, 48.7, 61.0, 48.7, 64.6, 1.3);
+    P.hitchRail(b, m, 48.7, 69.5, 48.7, 73.7, 1.3);
+    b.box(m.woodDark, 48.15, 0, 72.9, 49.25, 1.15, 75.3);
+    b.box(m.woodBlack, 48.25, 1.0, 73.0, 49.15, 1.16, 75.2, { collide: false });
+    // north side on Neely (G7 W / G6 S / G5 S): the porch wraps round to
+    // the street corner and runs the whole block west over the backshed;
+    // the bills on the wall are the film's — REPENT, Martash, the Winter
+    // Girls, the cancelled Manzana exhibition
     const nz = r.minZ - DECOR_GAP;
-    P.boardwalkSlab(b, m, r.minX + 0.2, r.minZ - 1.7, r.maxX - 0.2, r.minZ, 0.2);
-    P.porchPosts(b, m, 0.2, 3.2, [
-      [35.9, r.minZ - 1.55],
-      [39.3, r.minZ - 1.55],
-      [42.7, r.minZ - 1.55],
-      [45.3, r.minZ - 1.55],
-    ]);
-    b.box(m.woodSaloon, r.minX, 3.2, r.minZ - 1.7, r.maxX, 3.45, r.minZ, { collide: false });
-    b.decal(posterMat("circus"), 43.1, 2.0, nz, 0.85, 1.15, "N");
-    b.decal(posterMat("wanted"), 37.5, 2.1, nz, 0.85, 1.15, "N");
-    b.decal(posterMat("wanted2"), 39.1, 1.95, nz, 0.85, 1.15, "N");
-    P.bench(b, m, 42.2, r.minZ - 0.8, 1.7, "N");
-    P.spittoon(b, m, 37.1, r.minZ - 0.9);
-    b.decal(signMat(["HARD DRIVE SALOON"], 5.6, 1.0, { bg: "#241a12", fg: "#e0b34c" }), 40.2, 6.4, nz, 5.6, 1.0, "N");
+    P.boardwalkSlab(b, m, LOTS.saloonBackshed.minX + 0.2, r.minZ - 1.7, porchX, r.minZ, 0.15);
+    P.porchPosts(b, m, 0.15, 3.4, [
+      [47.7, r.minZ - 1.5],
+      [45.0, r.minZ - 1.5],
+      [40.0, r.minZ - 1.5],
+      [36.0, r.minZ - 1.5],
+      [32.6, r.minZ - 1.5],
+    ], m.woodSaloon);
+    b.box(m.woodSaloon, LOTS.saloonBackshed.minX, 3.4, r.minZ - 1.7, porchX + 0.1, 3.65, r.minZ, { collide: false });
+    b.decal(posterMat("repent"), 43.14, 2.26, nz, 1.6, 2.05, "N");
+    b.decal(posterMat("martash"), 40.56, 2.28, nz, 1.3, 1.9, "N");
+    b.decal(posterMat("girls"), 35.74, 2.28, nz, 1.3, 1.9, "N");
+    b.decal(posterMat("manzana"), 34.4, 2.28, nz, 1.3, 1.9, "N");
+    P.bench(b, m, 41.1, r.minZ - 0.5, 2.6, "N");
+    P.bench(b, m, 36.9, r.minZ - 0.5, 2.6, "N");
+    P.spittoon(b, m, 44.4, r.minZ - 0.6, 0.15, 1.6);
+    P.spittoon(b, m, 38.8, r.minZ - 0.6, 0.15, 1.6);
+    // the name in gold along the top of the west face (G4 S / G3 S)
+    b.decal(letters(["HARD DRIVE SALOON"], 7.2, 0.8, "#e0b34c"), r.minX - DECOR_GAP, 7.2, 68.0, 7.2, 0.8, "W");
     // south face: red board + lamps near Main (K5 E / K7 W views)
-    b.decal(signMat(["HARD DRIVE SALOON"], 4.4, 0.8, { bg: "#5e1713", fg: "#e0cf9c" }), 41.2, 3.2, r.maxZ + DECOR_GAP, 4.4, 0.8, "S");
-    b.decal(posterMat("wanted"), 37.9, 1.9, r.maxZ + DECOR_GAP, 0.85, 1.15, "S");
     P.wallLantern(b, m, 44.1, 2.4, r.maxZ, "S");
   }
 
@@ -588,50 +581,66 @@ export function buildTown(m: Mats, nightGroup: THREE.Group): TownResult {
   {
     const r = LOTS.saloonBackshed;
     const back = streetDoor("saloonBack");
-    shell(b, m.woodSaloon, r, 0, 3.6, {
+    shell(b, m.woodSaloon, r, 0, 6.0, {
       W: [doorGapOf(back)],
       E: [{ from: 65.6, to: 67.0, top: 2.6 }],
     });
-    flatRoof(b, m, r, 3.6);
+    flatRoof(b, m, r, 6.0);
     const px = r.minX - DECOR_GAP;
-    // "EAT, DRINK AND GO TO BED, OR GIT OUT!" stencil by the back door
+    // the barn door at the lane's mouth stands open, its leaf swung out
+    // across the lane (H4 E / G4 S); bills either side of it (H4 E / I4 E)
+    b.decal(signMat([""], 2.6, 3.5, { bg: "#0e0a07", fg: "#0e0a07" }), px, 1.75, 59.9, 2.6, 3.5, "W");
+    b.rotBox(m.woodMid, 30.7, 1.75, 58.66, 2.6, 3.5, 0.08, 0, { collide: true });
+    b.decal(posterMat("wanted"), px, 2.0, 57.7, 1.0, 1.6, "W");
+    b.decal(posterMat("wanted2"), px, 2.3, 62.25, 1.05, 1.6, "W");
+    b.decal(posterMat("circus"), px, 3.45, 63.87, 1.3, 1.7, "W");
+    b.decal(posterMat("bishop"), px, 1.55, 64.15, 1.3, 1.65, "W");
+    b.decal(posterMat("martash"), px, 2.85, 65.95, 1.1, 1.7, "W");
+    // "EAT, DRINK AND GO TO BED, OR GIT OUT!" hand-lettered beside the
+    // back door, GRANT over it (J4 E / I4 S)
     b.decal(
-      signMat(["HARD DRIVE SALOON", "EAT, DRINK AND GO TO BED,", "OR GIT OUT!"], 4.2, 1.5, {
-        bg: "#2c2014",
-        fg: "#e6dcba",
-      }),
+      signMat(["HARD DRIVE", "SALOON", "EAT, DRINK", "AND GO", "TO BED,", "OR GIT", "OUT!"], 1.3, 1.9, { bg: "#241a12", fg: "#e6dcba", font: "cursive" }),
       px,
-      2.55,
-      73.6,
-      4.2,
-      1.5,
-      "W",
-    );
-    b.decal(signMat(["GRANT"], 1.1, 0.45, { bg: "#3c2c1c", fg: "#d8cba6" }), px, 3.1, 70, 1.1, 0.45, "W");
-    // poster wall along the lane (H4 E / I4 E)
-    b.decal(posterMat("wanted"), px, 2.1, 61.2, 0.85, 1.15, "W");
-    b.decal(posterMat("circus"), px, 1.9, 62.9, 0.85, 1.15, "W");
-    b.decal(posterMat("bishop"), px, 2.2, 64.8, 0.85, 1.15, "W");
-    b.decal(posterMat("wanted2"), px, 2.15, 68.1, 0.85, 1.15, "W");
-    // chalk menu board (I4 S view)
-    b.decal(
-      signMat(["SALOON", "steak  .25", "beans  .10", "whiskey .15"], 1.3, 1.6, { bg: "#1c1712", fg: "#cfc4a6", align: "left" }),
-      px,
-      1.9,
-      77.6,
+      1.95,
+      74.3,
       1.3,
-      1.6,
+      1.9,
       "W",
     );
-    P.barrel(b, m, 32.9, 63.6);
-    P.barrel(b, m, 33.8, 64.5);
-    P.crate(b, m, 33.35, 76.6, 0.8, 1.1, 0.2, m.woodWatson);
-    // south face on Day street: Beers & Whiskeys posters
-    b.decal(signMat(["Beers & Whiskeys"], 2.4, 0.7, { bg: "#2c2014", fg: "#d8cba6", border: "#6b5b3c" }), 34.6, 2.6, r.maxZ + DECOR_GAP, 2.4, 0.7, "S");
-    b.decal(posterMat("wanted"), 33.2, 1.6, r.maxZ + DECOR_GAP, 0.85, 1.15, "S");
+    b.decal(signMat(["GRANT"], 1.25, 0.6, { bg: "#3c2c1c", fg: "#d8cba6" }), px, 2.75, 75.9, 1.25, 0.6, "W");
+    // the DAY plate on the shed's south end (K4 N / K5 N)
+    b.decal(signMat(["DAY"], 0.96, 0.45, { bg: "#3a2814", fg: "#e8dcb8", font: "Rockwell, 'Arial Black', Georgia, serif" }), 33.0, 2.88, r.maxZ + DECOR_GAP, 0.96, 0.45, "S");
+    b.decal(
+      signMat(["SALOON", "steak  .25", "beans  .10", "whiskey .15"], 1.3, 1.3, { bg: "#1c1712", fg: "#cfc4a6", align: "left" }),
+      32.5,
+      1.95,
+      r.maxZ + DECOR_GAP,
+      1.3,
+      1.3,
+      "S",
+    );
+    // barrels and crates stacked along the lane wall (I4 E / K4 N)
+    P.barrel(b, m, 31.3, 65.4, 0.42, 0.95);
+    P.barrel(b, m, 31.3, 70.0, 0.42, 0.95);
+    P.barrel(b, m, 31.3, 70.0, 0.4, 0.9, 0.95);
+    P.crate(b, m, 31.3, 67.5, 1.3, 1.3, 0.05, m.crateLight);
+    b.box(m.crateLight, 30.75, 1.3, 66.95, 31.85, 2.4, 68.05);
   }
 
-  /* ---------- Bank (F7 W): brick, no porch, barred windows ---------- */
+  /* ---------- the saloon's south face on Day (K5 N / K6 N / L5 N): bills over the wagon, script boards at the corner ---------- */
+  {
+    const sz = LOTS.saloon.maxZ + DECOR_GAP;
+    b.decal(posterMat("girls"), 35.6, 2.8, sz, 1.25, 1.9, "S");
+    b.decal(posterMat("wanted"), 37.9, 2.75, sz, 1.0, 1.3, "S");
+    b.decal(posterMat("martash"), 39.05, 2.3, sz, 1.1, 1.7, "S");
+    b.decal(posterMat("bishop"), 41.55, 2.45, sz, 1.1, 1.5, "S");
+    b.decal(posterMat("repent"), 42.65, 1.45, sz, 1.1, 1.4, "S");
+    b.decal(posterMat("circus"), 43.75, 2.5, sz, 1.1, 1.6, "S");
+    b.decal(signMat(["Beers &", "Whiskeys"], 1.9, 1.35, { bg: "#241a12", fg: "#e6dcba", border: "#0e0a07", font: "cursive" }), 44.0, 4.05, sz, 1.9, 1.35, "S");
+    b.decal(signMat(["Liquors", "& Cigars"], 1.9, 1.3, { bg: "#241a12", fg: "#e6dcba", border: "#0e0a07", font: "cursive" }), 44.0, 6.05, sz, 1.9, 1.3, "S");
+  }
+
+  /* ---------- Bank (F7 W): dark brick, letters painted on, barred windows ---------- */
   {
     const r = LOTS.bank;
     const d = streetDoor("bank");
@@ -640,471 +649,468 @@ export function buildTown(m: Mats, nightGroup: THREE.Group): TownResult {
     flatRoof(b, m, r, 5.2);
     capFace(b, m.brickMayor, r, "E", 5.2);
     const fx = r.maxX + DECOR_GAP;
-    b.decal(
-      signMat(["DIAMONDBACK", "BANK & TRUST", "est. 1875"], 6.4, 1.8, { bg: "#5b3d2c", fg: "#efeadb" }),
-      fx,
-      4.15,
-      43.25,
-      6.4,
-      1.8,
-      "E",
-    );
-    b.decal(signMat(["POST NO BILLS"], 1.5, 0.4, { bg: "#7e1f1c", fg: "#efeadb" }), fx, 0.6, 40.8, 1.5, 0.4, "E");
-    b.box(m.marble, r.maxX, 0, 42.4, r.maxX + 0.6, 0.14, 44.2); // stone step
-    // painted signs on north + south brick faces, dark board on the lane
-    b.decal(signMat(["DIAMONDBACK BANK & TRUST"], 6.5, 1.1, { bg: "#6b4732", fg: "#efeadb" }), 43, 4.3, r.minZ - DECOR_GAP, 6.5, 1.1, "N");
-    b.decal(signMat(["DIAMONDBACK BANK & TRUST"], 6.5, 1.1, { bg: "#6b4732", fg: "#efeadb" }), 43, 4.3, r.maxZ + DECOR_GAP, 6.5, 1.1, "S");
-    b.decal(signMat(["POST NO BILLS"], 2.6, 0.7, { bg: "#7e1f1c", fg: "#efeadb" }), 37, 2.3, r.maxZ + DECOR_GAP, 2.6, 0.7, "S");
-    b.decal(signMat(["DIAMONDBACK", "BANK & TRUST"], 4.2, 1.6, { bg: "#2c2014", fg: "#cfc4a6", border: "#6b5b3c" }), r.minX - DECOR_GAP, 3.4, 43.25, 4.2, 1.6, "W");
-    b.decal(winCold, 40.5, 3.9, r.maxZ + DECOR_GAP, 1, 1.3, "S");
-    P.barrel(b, m, 37.4, 48.7);
-    P.barrel(b, m, 41.2, 48.6);
+    // cream letters straight on the brick: three lines with flourishes (F7 W)
+    b.decal(letters(["DIAMONDBACK", "BANK & TRUST", "~ est. 1875 ~"], 5.6, 1.5, "#e6dcc0"), fx, 3.72, 44.0, 5.6, 1.5, "E");
+    b.decal(signMat(["POST NO BILLS"], 1.4, 0.3, { bg: "#b8481e", fg: "#2c1a10" }), fx, 0.54, 45.9, 1.4, 0.3, "E");
+    // heavy dark surround round the double door
+    b.box(m.woodBlack, r.maxX - 0.02, 0, d.z - 1.15, r.maxX + 0.08, 3.15, d.z - 1.0, { collide: false });
+    b.box(m.woodBlack, r.maxX - 0.02, 0, d.z + 1.0, r.maxX + 0.08, 3.15, d.z + 1.15, { collide: false });
+    b.box(m.woodBlack, r.maxX - 0.02, 3.0, d.z - 1.15, r.maxX + 0.08, 3.15, d.z + 1.15, { collide: false });
+    // the name again on the north + south brick faces (G7 N sees the "K T"
+    // on the Neely corner), a dark board on the lane
+    b.decal(signMat(["POST NO BILLS"], 2.6, 0.63, { bg: "#b8481e", fg: "#2c1a10" }), 41.2, 2.9, r.maxZ + DECOR_GAP, 2.6, 0.63, "S");
+    b.decal(signMat(["DIAMONDBACK", "BANK & TRUST"], 2.3, 0.68, { bg: "#c8c0b0", fg: "#241d16" }), 46.25, 2.55, r.maxZ + DECOR_GAP, 2.3, 0.68, "S");
+    b.decal(signMat(["DIAMONDBACK", "BANK & TRUST"], 4.2, 1.6, { bg: "#2c2014", fg: "#cfc4a6", border: "#6b5b3c" }), r.minX - DECOR_GAP, 3.4, 44, 4.2, 1.6, "W");
+    P.barrel(b, m, 34.0, 48.9);
+    P.barrel(b, m, 35.85, 48.9);
   }
 
   /* ---------- Dr. Rodham (E7 W) + Grant annex ---------- */
   {
     const r = LOTS.doctor;
     const d = streetDoor("doctor");
-    shell(b, m.woodDoctor, r, 0, 3.6, {
+    shell(b, m.woodDoctor, r, 0, 4.4, {
       E: [doorGapOf(d), ...winGaps("doctor", "E")],
     });
     buildWindows(b, m, "doctor", m.woodDoctor);
-    b.box(m.woodDoctor, r.maxX - WALL_T, 3.6, r.minZ, r.maxX + 0.04, 4.9, r.maxZ);
-    flatRoof(b, m, r, 3.6);
-    capFace(b, m.woodDark, r, "E", 4.9, m, 3.6);
-    const fx = r.maxX + 0.04 + DECOR_GAP;
+    b.box(m.woodDoctor, r.maxX - WALL_T, 4.4, r.minZ, r.maxX + 0.04, 4.75, r.maxZ);
+    flatRoof(b, m, r, 4.4);
+    capFace(b, m.woodDark, r, "E", 4.75, m, 4.4);
+    // brown board with cream letters over the door (E7 W)
+    b.box(m.woodDark, r.maxX + 0.04, 3.18, 34.5, r.maxX + 0.1, 4.02, 37.5, { collide: false });
     b.decal(
-      signMat(["DR. H. RODHAM", "Medical and Tonsorial Parlour"], 5.6, 1.2, { bg: "#4f382a", fg: "#e6dcba", border: "#33261a" }),
-      fx,
-      4.2,
-      35.25,
-      5.6,
-      1.2,
+      signMat(["DR. H. RODHAM", "Medical and Tonsorial Parlour"], 2.95, 0.84, { bg: "#4f382a", fg: "#e6dcba", border: "#33261a" }),
+      r.maxX + 0.1 + DECOR_GAP,
+      3.6,
+      36.0,
+      2.95,
+      0.84,
       "E",
     );
-    P.boardwalkSlab(b, m, r.maxX, 32.2, r.maxX + 1.5, 38.3);
-    P.barrel(b, m, r.maxX + 0.9, 37.4);
+    // boardwalk 1.7 m into the street, the barrel on it by the door
+    P.boardwalkSlab(b, m, r.maxX, r.minZ, r.maxX + 1.7, r.maxZ, 0.15);
+    P.barrel(b, m, r.maxX + 0.9, 34.4, 0.4, 0.9, 0.15);
     // north hoarding on Mission street: painted ads (D6 S view)
     const nz = r.minZ - DECOR_GAP;
     b.decal(signMat(["DR. H. RODHAM", "Medical and Tonsorial Parlour"], 3.6, 1.2, { bg: "#4f382a", fg: "#e6dcba" }), 45.6, 2.6, nz, 3.6, 1.2, "N");
     b.decal(posterMat("circus"), 41.9, 1.9, nz, 0.85, 1.15, "N");
     b.decal(posterMat("tonic"), 40.2, 2.2, nz, 0.85, 1.15, "N");
 
-    // Grant annex on the west lane: dark planks, brown door, tonic ads
+    // Grant annex on the west lane (E4 E): 4.5 m of tan boards, the GRANT
+    // board, a tall brown door, the vegetable-compound bill, barrels
     const a = LOTS.doctorAnnex;
-    shell(b, m.woodMid, a, 0, 3.4, {});
-    flatRoof(b, m, a, 3.4);
+    shell(b, m.woodDoctor, a, 0, 4.5, {});
+    flatRoof(b, m, a, 4.5);
     const ax = a.minX - DECOR_GAP;
-    b.decal(signMat(["GRANT"], 1.4, 0.5, { bg: "#3c2c1c", fg: "#d8cba6" }), ax, 3.0, 35.2, 1.4, 0.5, "W");
-    P.fakeDoor(b, m, a.minX, 0, 35.2, 1.2, 2.4, "W", { mat: m.woodMid });
+    b.decal(signMat(["GRANT"], 1.3, 0.35, { bg: "#3c2c1c", fg: "#d8cba6" }), ax, 2.5, 32.85, 1.3, 0.35, "W");
+    b.decal(signMat(["Medical and", "Tonsorial Parlour"], 1.6, 0.45, { bg: "#d8cba6", fg: "#4a3826", border: "#8a7a52" }), ax, 1.5, 34.5, 1.6, 0.45, "W");
+    P.fakeDoor(b, m, a.minX, 0, 36.0, 1.7, 2.95, "W", { mat: m.woodMid });
     b.decal(
-      signMat(["DEENA KAOUSIA'S", "VEGETABLE COMPOUND"], 2.2, 1.1, { bg: "#d8cba6", fg: "#33261a", border: "#6b5b3c" }),
+      signMat(["DEENA KAOUSIA'S", "VEGETABLE", "COMPOUND", "It's A Positive Cure"], 1.9, 1.1, { bg: "#d8cba6", fg: "#33261a", border: "#6b5b3c" }),
       ax,
-      2.1,
-      33.4,
-      2.2,
+      2.65,
+      38.4,
+      1.9,
       1.1,
       "W",
     );
-    b.decal(posterMat("tonic"), ax, 1.9, 37.4, 0.85, 1.15, "W");
-    b.decal(posterMat("circus"), 35, 2.1, a.minZ - DECOR_GAP, 0.85, 1.15, "N");
-    P.barrel(b, m, a.minX + 0.7, 37.7);
-    P.crate(b, m, a.minX + 0.6, 33.2, 0.8, 0.7, 0.2);
+    P.barrel(b, m, a.minX - 0.6, 33.4, 0.5, 1.0);
+    P.crate(b, m, a.minX - 0.65, 35.0, 1.2, 0.6, 0.05, m.woodBlack);
+    P.barrel(b, m, a.minX - 0.55, 38.0, 0.4, 0.95);
+    P.barrel(b, m, a.minX - 0.9, 31.5, 0.4, 0.95);
   }
 
-  /* ---------- Jail (L7 W): adobe, SHERIFF, door south-of-centre ---------- */
+  /* ---------- Jail (L7 W): dark adobe, SHERIFF, tall door south of centre ---------- */
   {
     const r = LOTS.jail;
     const d = streetDoor("jail");
-    shell(b, m.adobeJail, r, 0, 3.7, {
+    const top = 3.95;
+    shell(b, m.adobeJail, r, 0, top, {
       E: [doorGapOf(d), ...winGaps("jail", "E")],
       W: winGaps("jail", "W"),
     });
     buildWindows(b, m, "jail", m.adobeJail);
-    b.box(m.adobeJail, r.minX - 0.05, 3.7, r.minZ - 0.05, r.maxX + 0.05, 3.85, r.maxZ + 0.05, { collide: false });
-    flatRoof(b, m, r, 3.5, m.adobeJail);
-    // vigas (beam ends) along the front, and the small high window
-    for (const vz of [88.9, 90.3, 91.7, 93.1, 94.5, 95.5]) {
-      b.box(m.woodDark, r.maxX, 3.15, vz - 0.09, r.maxX + 0.3, 3.35, vz + 0.09, { collide: false });
+    flatRoof(b, m, r, top - 0.2, m.adobeJail);
+    // vigas along the east + north faces (L7 W / K6 S)
+    for (const vx of [41.2, 42.8, 44.4, 46.0, 47.4]) {
+      const viga = new THREE.CylinderGeometry(0.13, 0.13, 0.3, 8);
+      viga.rotateX(Math.PI / 2);
+      viga.translate(vx, top - 0.38, r.minZ - 0.14);
+      b.mesh(m.woodDark, viga);
     }
-    b.decal(m.winCold, r.maxX + DECOR_GAP, 3.0, 89.2, 0.5, 0.45, "E");
     const fx = r.maxX + DECOR_GAP;
-    b.decal(signMat(["SHERIFF"], 2.2, 0.75, { bg: "#6e3423", fg: "#efeadb", border: "#40190f" }), fx, 2.75, 91.6, 2.2, 0.75, "E");
-    b.decal(posterMat("wanted"), fx, 1.75, 92.4, 0.7, 0.95, "E");
-    P.bench(b, m, r.maxX + 0.9, 91.0, 1.7, "E");
-    P.spittoon(b, m, r.maxX + 0.7, 89.6);
-    P.wallLantern(b, m, r.maxX, 2.35, 94.8, "E");
-    b.box(m.marble, r.maxX, 0, 92.7, r.maxX + 0.7, 0.12, 94.5); // stone step
-    // west wall graffiti + well-yard dressing (L5 E view)
-    P.picketFence(b, m, 38.4, 88.4, 38.4, 91.4, 1.15, m.woodMid, { slat: 0.14, gap: 0.12 });
+    b.decal(signMat(["SHERIFF"], 1.65, 0.56, { bg: "#4a1f16", fg: "#efeadb", border: "#2a1109" }), fx, 2.14, 91.6, 1.65, 0.56, "E");
+    b.decal(posterMat("wanted"), fx, 1.2, 92.2, 0.54, 0.85, "E");
+    P.bench(b, m, r.maxX + 0.55, 91.2, 2.05, "E");
+    P.spittoon(b, m, r.maxX + 0.8, 89.8, 0, 1.6);
+    P.wallLantern(b, m, r.maxX, 1.98, 95.05, "E", 1.7);
+    b.box(m.marble, r.maxX, 0, 92.6, r.maxX + 0.9, 0.12, 94.6); // stone stoop
+    // a grey iron drum by the north corner (L7 W / K6 S)
+    b.cyl(m.woodGray, 47.7, 87.6, 0, 0.62, 0.24, { seg: 10, collide: true });
+    b.sphere(m.woodGray, 47.7, 0.62, 87.6, 0.24, 8);
+    // brick chimney on the west end (M7 W)
+    b.box(m.brickMayor, 40.6, top - 0.3, 92.2, 41.6, 5.5, 93.2, { collide: false });
+    // west wall: the well-yard pickets (L5 E)
+    P.picketFence(b, m, 38.9, 88.4, 38.9, 91.3, 1.5, m.woodMid, { slat: 0.16, gap: 0.1 });
     P.barrel(b, m, 37.9, 95.6);
-    // north face on Day: posters + viga ends (K6 S view)
-    for (const vx of [39.4, 41, 42.6, 44.2, 45.8, 47.2]) {
-      b.box(m.woodDark, vx - 0.09, 3.15, r.minZ - 0.3, vx + 0.09, 3.35, r.minZ, { collide: false });
-    }
-    b.decal(posterMat("wanted"), 41, 2.0, r.minZ - DECOR_GAP, 0.85, 1.15, "N");
-    b.decal(posterMat("wanted2"), 42.6, 1.9, r.minZ - DECOR_GAP, 0.85, 1.15, "N");
-    P.barrel(b, m, 46.2, r.minZ - 0.6);
+    // north face on Day: wanted bills, a barrel, the DAY corner (K6 S / K7 W)
+    b.decal(posterMat("wanted"), 41.4, 1.7, r.minZ - DECOR_GAP, 0.7, 0.95, "N");
+    b.decal(posterMat("wanted2"), 43.6, 1.9, r.minZ - DECOR_GAP, 0.7, 0.95, "N");
+    b.decal(posterMat("wanted"), 45.8, 1.85, r.minZ - DECOR_GAP, 0.7, 0.95, "N");
+    P.barrel(b, m, 42.3, r.minZ - 0.7);
   }
 
   /* =========== MAIN STREET, EAST SIDE =========== */
 
-  /* ---------- Stagecoach (H7 E): shallow office, porch, hitch rail ---------- */
+  /* ---------- Stagecoach (H7 E): shallow office, low porch, hitch rail ---------- */
   {
     const r = LOTS.stage;
     const d = streetDoor("stage");
-    shell(b, m.woodStage, r, 0, 3.6, { W: [doorGapOf(d), ...winGaps("stage", "W")] });
-    buildWindows(b, m, "stage", m.woodStage);
-    b.box(m.woodStage, r.minX - 0.04, 3.6, r.minZ, r.minX + WALL_T, 5.4, r.maxZ);
-    flatRoof(b, m, r, 3.6);
-    capFace(b, m.woodDark, r, "W", 5.4, m, 3.6);
+    shell(b, m.woodOffice, r, 0, 3.7, { W: [doorGapOf(d), ...winGaps("stage", "W")] });
+    buildWindows(b, m, "stage", m.woodOffice);
+    b.box(m.woodOffice, r.minX - 0.04, 3.7, r.minZ, r.minX + WALL_T, 5.6, r.maxZ);
+    flatRoof(b, m, r, 3.7);
+    capFace(b, m.woodDark, r, "W", 5.6, m, 3.7);
     const fx = r.minX - 0.04 - DECOR_GAP;
-    b.decal(
-      signMat(["The Great Southwestern", "STAGECOACH Co."], 7.4, 1.6, { bg: "#8d7350", fg: "#2c2014" }),
-      fx,
-      4.5,
-      60.5,
-      7.4,
-      1.6,
-      "W",
-    );
-    b.decal(signMat(["STAGECOACH"], 2.6, 0.6, { bg: "#a3541d", fg: "#2c2014", border: "#6b3b12" }), fx, 3.05, 60.5, 2.6, 0.6, "W");
-    b.decal(signMat(["POST OFFICE"], 1.0, 0.32, { bg: "#4f382a", fg: "#efeadb" }), fx, 2.9, 59.2, 1.0, 0.32, "W");
-    P.boardwalkSlab(b, m, r.minX - 1.6, 56.2, r.minX, r.maxZ - 0.2);
-    P.porchPosts(b, m, 0.32, 3.1, [
-      [r.minX - 1.45, 56.8],
-      [r.minX - 1.45, 60.5],
-      [r.minX - 1.45, 64.2],
+    // yellow letters on the dark false front, STAGECOACH board on the fascia (H7 E)
+    b.decal(letters(["The Great Southwestern", "STAGECOACH Co."], 5.7, 1.15, "#d9b23c"), fx, 4.55, 59.9, 5.7, 1.15, "W");
+    b.decal(letters(["POST OFFICE"], 0.7, 0.28, "#e6dcba"), fx, 2.0, 58.35, 0.7, 0.28, "W");
+    // porch: floor from 56.2, four square posts on 56.3, roof 3.1..3.4
+    const postX = 56.3;
+    P.boardwalkSlab(b, m, postX - 0.1, r.minZ + 0.2, r.minX, r.maxZ - 0.1, 0.15);
+    P.porchPosts(b, m, 0.15, 3.1, [
+      [postX, 56.4],
+      [postX, 58.3],
+      [postX, 61.4],
+      [postX, 63.4],
     ]);
-    P.porchRoof(b, m, r.minX - 1.7, 56.2, r.minX, r.maxZ - 0.2, 3.1, 3.55, "W");
-    P.hitchRail(b, m, r.minX - 2.5, 57.6, r.minX - 2.5, 63.6);
-    b.box(m.iron, r.minX - 1.3, 0.32, 63.4, r.minX - 0.4, 0.9, 64.5); // planter
-    P.wagonWheel(b, m, r.minX - 0.6, 0.3, 56.9, 0.75, 0.18);
-    P.wallLantern(b, m, r.minX, 2.4, 61.6, "W");
-    // north wall ad on Neely (G7 E view)
-    b.decal(signMat(["The Great Southwestern STAGECOACH Co."], 5.4, 0.9, { bg: "#8d7350", fg: "#2c2014" }), 59, 3.0, r.minZ - DECOR_GAP, 5.4, 0.9, "N");
-    // south face over Watson's roof line: coach posters (G8 S view sees the warehouse)
-    const w = LOTS.stageWarehouse;
-    solidBuilding(b, m, w, 3.8, m.barnDark, "flat");
+    b.box(m.woodOffice, postX - 0.25, 3.1, r.minZ, r.minX, 3.4, r.maxZ, { collide: false });
+    b.decal(signMat(["STAGECOACH"], 2.5, 0.3, { bg: "#a3541d", fg: "#2c2014", border: "#6b3b12" }), postX - 0.25 - DECOR_GAP, 3.25, 60.5, 2.5, 0.3, "W");
+    P.wallLantern(b, m, r.minX, 2.0, 61.0, "W", 1.7);
+    // rough hitch rail on the street, the black planter, the bench under the north window
+    P.hitchRail(b, m, 56.2, 60.8, 56.2, 63.6, 1.2);
+    b.box(m.iron, 54.9, 0, 56.3, 56.2, 0.82, 58.0);
+    P.bench(b, m, r.minX - 0.4, 57.2, 2.2, "W");
+    // north face on Neely (G8 S / G7 E): the coach bills, a leaning wheel,
+    // a brass pot, the company board on the porch roof's north edge
+    const nz = r.minZ - DECOR_GAP;
     b.decal(
-      signMat(["ASBESTOS, DETROIT AND SANTA FE", "— COACHES —", "For Through Tickets Inquire Within"], 5.4, 1.7, {
-        bg: "#2c2014",
-        fg: "#d8cba6",
+      signMat(["ASBESTOS, DRYROT", "AND SANTA FE", "~", "DAILY LINE OF", "COACHES.", "The Great Southwestern", "STAGECOACH Co."], 1.4, 2.0, {
+        bg: "#d8cba6",
+        fg: "#33261a",
+        border: "#6b5b3c",
       }),
-      66.5,
-      2.4,
-      w.maxZ + DECOR_GAP,
-      5.4,
-      1.7,
-      "S",
+      62.5,
+      2.55,
+      nz,
+      1.4,
+      2.0,
+      "N",
     );
-    b.decal(posterMat("wanted2"), 63.2, 2.2, w.maxZ + DECOR_GAP, 0.85, 1.15, "S");
+    b.decal(signMat(["For Through", "Tickets Inquire", "Within"], 1.45, 0.5, { bg: "#5e1713", fg: "#e6dcba" }), 60.1, 2.35, nz, 1.45, 0.5, "N");
+    b.decal(posterMat("wanted"), 60.4, 0.95, nz, 0.85, 0.85, "N");
+    P.wagonWheel(b, m, 59.15, 0, r.minZ - 0.5, 0.95, 0.25);
+    P.spittoon(b, m, 58.4, r.minZ - 0.8, 0, 1.6);
+    b.box(m.woodDark, postX - 0.25, 2.72, r.minZ - 0.05, r.minX, 3.1, r.minZ + 0.05, { collide: false });
     b.decal(
-      signMat(["STAGECOACH", "For Through Tickets", "Inquire Within"], 3.0, 1.5, { bg: "#2c2014", fg: "#d8cba6" }),
-      w.maxX + DECOR_GAP,
-      2.3,
-      58.6,
-      3.0,
-      1.5,
-      "E",
+      signMat(["The Great Southwestern", "STAGECOACH Co."], 1.25, 0.34, { bg: "#a3541d", fg: "#2c2014" }),
+      (postX - 0.25 + r.minX) / 2,
+      2.91,
+      r.minZ - 0.05 - DECOR_GAP,
+      1.25,
+      0.34,
+      "N",
     );
-    P.fakeDoor(b, m, w.maxX, 0, 61.0, 1.3, 2.4, "E", { mat: m.woodBlack });
-    b.decal(posterMat("news"), w.maxX + DECOR_GAP, 2.1, 57.2, 0.85, 1.15, "E");
-    P.barrel(b, m, w.maxX + 0.55, 60);
-    P.wagonWheel(b, m, 63.5, 0, w.maxZ + 0.45, 0.7, 0.2);
-    P.barrel(b, m, 70.2, w.maxZ + 0.7);
+    // the warehouse behind, set back with a loading dock (G9 S / G10 S)
+    const w = LOTS.stageWarehouse;
+    solidBuilding(b, m, w, 5.4, m.barnDark, "flat");
+    P.fakeDoor(b, m, 69.55, 1.0, w.minZ, 1.3, 2.1, "N", { mat: m.woodBlack });
+    b.decal(signMat(["STAGE"], 1.5, 0.55, { bg: "#a3541d", fg: "#2c2014", border: "#6b3b12" }), 67.75, 3.67, w.minZ - DECOR_GAP, 1.5, 0.55, "N");
+    b.box(m.woodDark, 64.0, 0, 57.8, w.maxX, 1.0, w.minZ);
+    P.barrel(b, m, 66.0, 59.0, 0.36, 0.9, 1.0);
+    P.barrel(b, m, 68.5, 59.0, 0.4, 0.95, 1.0);
+    b.box(m.crateLight, 69.6, 1.0, 58.4, 70.4, 1.7, 59.4);
+    b.box(m.crateLight, 70.6, 1.0, 58.6, 71.4, 1.6, 59.4);
+    P.crate(b, m, 64.6, 56.9, 1.0, 0.9, 0.1, m.crateLight);
+    P.crate(b, m, 66.1, 57.4, 0.9, 0.8, 0.3, m.crateLight);
+    P.crate(b, m, 65.3, 55.9, 0.8, 0.7, 0.2, m.crateLight);
+    b.decal(posterMat("notice"), r.maxX + DECOR_GAP, 2.6, 57.7, 1.2, 1.7, "E");
   }
 
-  /* ---------- white boarding house (Lee west side) ---------- */
+  /* ---------- the grey house on Lee's west side (G10 S) ---------- */
   {
     const wh = LOTS.whiteHouse;
-    solidBuilding(b, m, wh, 6.6, m.woodWhite, "gableZ", m.roofDark, 1.7);
+    solidBuilding(b, m, wh, 4.1, m.woodWatson, "flat", m.roofDark);
     const fx = wh.maxX + DECOR_GAP;
-    P.fakeDoor(b, m, wh.maxX, 0, 66.2, 1.2, 2.4, "E");
-    b.decal(posterMat("tonic"), fx, 1.9, 63.8, 0.85, 1.15, "E");
-    b.decal(
-      signMat(["Grain Recipes", "for the modern kitchen"], 1.1, 1.2, { bg: "#ddd2b0", fg: "#241d16", border: "#8a7a52" }),
-      fx,
-      1.95,
-      68.5,
-      1.1,
-      1.2,
-      "E",
-    );
-    b.decal(signMat(["FEED"], 1.1, 0.42, { bg: "#2c2014", fg: "#dfb44e" }), fx, 3.1, 63.4, 1.1, 0.42, "E");
-    windowRow(b, winCold, "E", fx, [64.3, 67.9], 4.6, 0.9, 1.35);
-    nb.decal(winWarm, fx + 0.004, 4.6, 64.3, 0.9, 1.35, "E");
-    b.flat(m.boardwalk, wh.maxX, 65.3, wh.maxX + 1.0, 67.1, 0.06);
-    P.barrel(b, m, wh.maxX + 0.5, 62.9);
-    P.barrel(b, m, wh.maxX + 0.55, 69.4);
+    P.boardwalkSlab(b, m, wh.maxX, wh.minZ, wh.maxX + 1.6, wh.maxZ + 0.6, 0.15);
+    P.fakeDoor(b, m, wh.maxX, 0.15, 68.0, 1.45, 2.5, "E", { mat: m.woodDark });
+    b.decal(posterMat("tonic"), fx, 2.1, 69.8, 1.0, 1.4, "E");
+    b.decal(posterMat("circus"), fx, 1.6, 66.05, 0.8, 1.1, "E");
+    b.decal(posterMat("notice"), fx, 1.9, 65.0, 1.0, 1.4, "E");
+    P.barrel(b, m, wh.maxX + 0.65, 71.4, 0.5, 1.0, 0.15);
+    P.barrel(b, m, wh.maxX + 0.6, 64.4, 0.45, 0.95, 0.15);
+    P.crate(b, m, wh.maxX + 0.65, 64.9, 1.0, 0.6, 0.05, m.crateLight);
   }
 
-  /* ---------- Watson's Apothecary (I7 E) ---------- */
+  /* ---------- Watson's Apothecary (I7 E): pale boards, orange letters, deep boardwalk ---------- */
   {
     const r = LOTS.watson;
     const d = streetDoor("watson");
-    shell(b, m.woodWatson, r, 0, 3.6, { W: [doorGapOf(d), ...winGaps("watson", "W")] });
+    shell(b, m.woodWatson, r, 0, 4.4, { W: [doorGapOf(d), ...winGaps("watson", "W")] });
     buildWindows(b, m, "watson", m.woodWatson);
-    b.box(m.woodWatson, r.minX - 0.04, 3.6, r.minZ, r.minX + WALL_T, 5.6, r.maxZ);
-    flatRoof(b, m, r, 3.6);
-    capFace(b, m.woodDark, r, "W", 5.6, m, 3.6);
+    b.box(m.woodWatson, r.minX - 0.04, 4.4, r.minZ, r.minX + WALL_T, 6.4, r.maxZ);
+    flatRoof(b, m, r, 4.4);
+    capFace(b, m.woodDark, r, "W", 6.4, m, 4.4);
     const fx = r.minX - 0.04 - DECOR_GAP;
+    b.decal(letters(["Watson's"], 3.0, 0.5, "#c96f1e"), fx, 4.3, 67.9, 3.0, 0.5, "W");
+    b.decal(letters(["APOTHECARY"], 6.8, 0.62, "#c96f1e"), fx, 3.63, 67.9, 6.8, 0.62, "W");
+    P.wallLantern(b, m, r.minX, 1.9, 69.35, "W", 1.7);
+    // boardwalk right across the front, out to 55.9
+    P.boardwalkSlab(b, m, 55.9, r.minZ + 0.1, r.minX, r.maxZ, 0.15);
+    // the chalked A-board at the boardwalk's south edge (I7 E / J7 N)
+    b.rotBox(m.woodBlack, 55.85, 1.1, 70.8, 0.08, 1.9, 0.9, 0, { rotZ: 0.2, collide: true });
+    b.rotBox(m.woodBlack, 56.2, 1.1, 70.8, 0.08, 1.9, 0.9, 0, { rotZ: -0.2, collide: false });
     b.decal(
-      signMat(["Watson's", "APOTHECARY"], 6.8, 1.8, { bg: "#b5b2a0", fg: "#c96f1e" }),
-      fx,
-      4.55,
-      68.75,
-      6.8,
-      1.8,
-      "W",
-    );
-    P.wallLantern(b, m, r.minX, 2.4, 70.0, "W");
-    P.boardwalkSlab(b, m, r.minX - 1.5, r.minZ + 0.2, r.minX, r.maxZ - 0.2);
-    // sandwich board + planter on the street (J7 N view)
-    b.rotBox(m.white, 54.6, 0.55, 70.6, 0.7, 1.0, 0.08, 0.3, { rotX: 0.18, collide: true });
-    b.rotBox(m.white, 54.78, 0.55, 70.6, 0.7, 1.0, 0.08, 0.3, { rotX: -0.18, collide: false });
-    b.box(m.iron, r.minX - 1.2, 0.32, 65.4, r.minX - 0.3, 0.85, 66.2);
-    b.decal(
-      signMat(["TONICS", "POWDERS", "CURES"], 0.9, 1.1, { bg: "#1c1712", fg: "#cfc4a6" }),
-      fx,
-      1.5,
-      71.9,
-      0.9,
+      signMat(["TONICS", "POWDERS", "CURES"], 0.8, 1.1, { bg: "#1c1712", fg: "#cfc4a6" }),
+      55.62,
+      1.25,
+      70.8,
+      0.8,
       1.1,
       "W",
     );
   }
 
-  /* ---------- Bolivar's Dry Goods (J7 E) + annex ---------- */
+  /* ---------- Bolivar's Dry Goods (J7 E): red letters on brown boards, log porch ---------- */
   {
     const r = LOTS.bolivar;
     const d = streetDoor("bolivar");
-    shell(b, m.woodMid, r, 0, 3.5, { W: [doorGapOf(d), ...winGaps("bolivar", "W")] }, { S: m.brickCream });
-    buildWindows(b, m, "bolivar", m.woodMid);
-    // tan brick upper with red letters
-    b.box(m.brickCream, r.minX - 0.04, 3.5, r.minZ, r.maxX, 5.5, r.maxZ);
-    flatRoof(b, m, r, 3.5, m.roofDark);
-    b.box(m.woodDark, r.minX - 0.34, 5.5, r.minZ - 0.15, r.minX + 0.42, 5.66, r.maxZ + 0.15, { collide: false });
-    const fx = r.minX - 0.04 - DECOR_GAP;
-    b.decal(
-      signMat(["BOLIVAR'S", "DRY GOODS"], 6.6, 1.9, { bg: "#d9cfb2", fg: "#b03024" }),
-      fx,
-      4.5,
-      76.25,
-      6.6,
-      1.9,
-      "W",
-    );
-    b.decal(signMat(["OPEN"], 0.5, 0.3, { bg: "#efeadb", fg: "#33261a" }), fx, 2.1, 77.3, 0.5, 0.3, "W");
-    // rustic log porch
-    P.boardwalkSlab(b, m, r.minX - 1.6, r.minZ + 0.2, r.minX, r.maxZ - 0.2);
-    for (const pz of [73.2, 76.3, 79.4]) {
-      b.cyl(m.woodDark, r.minX - 1.45, pz, 0.32, 3.2, 0.11, { seg: 7, collide: true });
+    shell(b, m.woodMid, r, 0, 4.75, { W: [doorGapOf(d)] });
+    flatRoof(b, m, r, 4.75, m.roofDark);
+    b.box(m.woodDark, r.minX - 0.3, 4.75, r.minZ - 0.15, r.minX + 0.42, 4.9, r.maxZ + 0.15, { collide: false });
+    const fx = r.minX - DECOR_GAP;
+    b.decal(letters(["BOLIVAR'S", "DRY GOODS"], 5.2, 1.2, "#d63a2c"), fx, 4.3, 76.0, 5.2, 1.2, "W");
+    // dark shop windows with arched white lettering on the glass (J7 E)
+    for (const [wz, text] of [
+      [73.5, "SUPERIOR DRY GOODS"],
+      [78.1, "CHOICE GROCERIES"],
+    ] as const) {
+      b.box(m.woodDark, r.minX - 0.06, 1.2 - 0.08, wz - 1.0, r.minX - 0.02, 2.9 + 0.08, wz + 1.0, { collide: false });
+      b.decal(signMat([text.split(" ")[0], text.split(" ").slice(1).join(" ")], 1.85, 1.7, { bg: "#0c0a08", fg: "#e8e0cc" }), r.minX - 0.06 - DECOR_GAP, 2.05, wz, 1.85, 1.7, "W");
     }
-    P.porchRoof(b, m, r.minX - 1.7, r.minZ + 0.2, r.minX, r.maxZ - 0.2, 3.2, 3.5, "W");
-    // hanging round signs + pans
-    b.decal(signMat(["DRY", "GOODS"], 0.8, 0.8, { bg: "#1c1712", fg: "#d8cba6", border: "#6b5b3c" }), fx, 2.6, 73.4, 0.8, 0.8, "W");
-    b.decal(signMat(["CHOICE", "GROCERIES"], 0.8, 0.8, { bg: "#1c1712", fg: "#d8cba6", border: "#6b5b3c" }), fx, 2.6, 79.1, 0.8, 0.8, "W");
-    b.box(m.iron, r.minX - 1.1, 2.6, 74.8, r.minX - 0.7, 3.0, 74.9, { collide: false });
-    b.box(m.iron, r.minX - 1.1, 2.5, 78.2, r.minX - 0.75, 2.95, 78.3, { collide: false });
-    // porch clutter
-    P.barrel(b, m, r.minX - 0.9, 73.1);
-    b.cyl(m.white, r.minX - 0.5, 79.3, 0.32, 0.95, 0.2, { seg: 8 });
-    b.cyl(m.white, r.minX - 0.95, 79.1, 0.32, 0.85, 0.18, { seg: 8 });
-    P.chair(b, m, r.minX - 0.8, 75.0, -Math.PI / 2);
-    // south wall painted brick sign over the K7 alley
-    b.decal(signMat(["BOLIVAR'S DRY GOODS"], 5.4, 0.9, { bg: "#d9cfb2", fg: "#b03024" }), 60.5, 4.6, r.maxZ + DECOR_GAP, 5.4, 0.9, "S");
-    b.decal(signMat(["Choice Groceries"], 2.2, 0.6, { bg: "#1c1712", fg: "#d8cba6" }), 58.4, 2.6, r.maxZ + DECOR_GAP, 2.2, 0.6, "S");
-    b.decal(signMat(["Choice Groceries"], 2.2, 0.6, { bg: "#1c1712", fg: "#d8cba6" }), 63.4, 2.6, r.maxZ + DECOR_GAP, 2.2, 0.6, "S");
+    b.decal(signMat(["OPEN"], 0.5, 0.3, { bg: "#efeadb", fg: "#33261a" }), fx, 2.95, 75.9, 0.5, 0.3, "W");
+    // shallow porch: rough log posts on x 56.3, flat plank roof 3.28..3.6
+    const postX = 56.3;
+    for (const pz of [72.1, 74.8, 77.1, 79.7]) {
+      b.cyl(m.woodDark, postX, pz, 0, 3.3, 0.13, { seg: 7, collide: true });
+    }
+    b.box(m.woodStage, postX - 0.3, 3.28, r.minZ - 0.2, r.minX, 3.6, r.maxZ + 0.2, { collide: false });
+    // pans hung under the porch roof
+    for (const [pz, py] of [
+      [73.2, 2.75],
+      [74.2, 2.95],
+      [77.6, 2.8],
+      [78.6, 2.95],
+    ] as const) {
+      b.rotBox(m.iron, postX + 0.3, py, pz, 0.06, 0.5, 0.5, 0, { collide: false });
+      b.box(m.iron, postX + 0.28, py + 0.25, pz - 0.01, postX + 0.32, 3.28, pz + 0.01, { collide: false });
+    }
+    // porch clutter (J7 E): chair, brass pot, barrels, broom sack, box, milk cans, churn
+    P.chair(b, m, r.minX - 0.45, 73.4, -Math.PI / 2);
+    P.spittoon(b, m, r.minX - 0.5, 74.0, 0, 1.5);
+    P.barrel(b, m, r.minX - 0.55, 74.9, 0.36, 0.9);
+    P.sack(b, m, r.minX - 0.5, 77.4);
+    b.cyl(m.woodDark, r.minX - 0.55, 77.4, 0, 1.75, 0.02, { seg: 5 });
+    P.crate(b, m, r.minX - 0.6, 77.9, 0.55, 0.5, 0.1);
+    b.cyl(m.white, r.minX - 0.5, 78.35, 0, 0.7, 0.16, { seg: 8 });
+    P.barrel(b, m, r.minX - 0.55, 78.95, 0.3, 0.7);
+    b.cyl(m.woodGray, r.minX - 0.45, 79.6, 0, 0.95, 0.27, { seg: 10, collide: true });
+    b.cyl(m.woodGray, r.minX - 0.45, 79.6, 0.95, 1.1, 0.16, { seg: 8 });
+    // the white sandwich board and the black crate at the north end
+    b.rotBox(m.white, 55.4, 0.55, 72.3, 0.06, 1.1, 0.9, 0, { rotZ: -0.22, collide: true });
+    b.rotBox(m.white, 55.7, 0.55, 72.3, 0.06, 1.1, 0.9, 0, { rotZ: 0.22, collide: false });
+    P.crate(b, m, 55.9, 72.9, 0.7, 0.45, 0.1, m.woodBlack);
+    // south face over the K7 alley (K7 E / K8 N): the name in red on the
+    // boards, a CHOICE GROCERIES board at the corner, a porch of logs
+    // along it with pans hung underneath
+    b.decal(letters(["BOLIVAR'S DRY GOODS"], 5.4, 0.7, "#d63a2c"), 62.7, 3.7, r.maxZ + DECOR_GAP, 5.4, 0.7, "S");
+    b.decal(signMat(["CHOICE", "GROCERIES"], 1.6, 0.6, { bg: "#1c1712", fg: "#d8cba6", border: "#6b5b3c" }), 57.9, 2.7, r.maxZ + DECOR_GAP, 1.6, 0.6, "S");
+    for (const px of [60.6, 63.4, 65.8]) {
+      b.cyl(m.woodDark, px, r.maxZ + 1.5, 0, 3.0, 0.13, { seg: 7, collide: true });
+    }
+    b.box(m.woodStage, 59.8, 3.0, r.maxZ, 66.0, 3.3, r.maxZ + 1.7, { collide: false });
+    for (const [px, py] of [
+      [61.6, 2.7],
+      [62.6, 2.85],
+      [64.4, 2.75],
+    ] as const) {
+      b.rotBox(m.iron, px, py, r.maxZ + 1.2, 0.5, 0.5, 0.06, 0, { collide: false });
+      b.box(m.iron, px - 0.01, py + 0.25, r.maxZ + 1.18, px + 0.01, 3.0, r.maxZ + 1.22, { collide: false });
+    }
+    P.barrel(b, m, 64.0, r.maxZ + 0.7, 0.4, 0.95);
 
-    // hardware annex + lumber yard (K8 N views)
-    const a = LOTS.bolivarAnnex;
-    solidBuilding(b, m, a, 3.4, m.woodMid, "flat");
-    b.decal(signMat(["Lumber Yard", "Out Back  →"], 2.4, 0.9, { bg: "#e6dcba", fg: "#33261a", border: "#6b5b3c" }), 69.4, 2.9, a.maxZ + DECOR_GAP, 2.4, 0.9, "S");
-    b.decal(
-      signMat(["Pots & Pans", "Tin Ware", "Hard Ware", "Guns & Pistols"], 1.7, 1.6, { bg: "#2c2014", fg: "#d8cba6" }),
-      67,
-      1.9,
-      a.maxZ + DECOR_GAP,
-      1.7,
-      1.6,
-      "S",
-    );
-    b.decal(posterMat("wanted"), 70.6, 2, a.maxZ + DECOR_GAP, 0.85, 1.15, "S");
+    // east of the store a board fence with leaning planks closes the yard
+    // to the white house; a small board and a barrel on the store's south
+    // wall by it (K9 N / K8 E / K9 W)
+    // (the yard fence stops at the street: Lee runs on south between the
+    // mansion and the range, K10 N / J10 S)
+    P.boardWall(b, m, 66.4, 80.2, 71.5, 80.2, 2.4, m.woodSaloon, -1);
+    for (const [px, tilt] of [
+      [68.8, 0.16],
+      [69.25, 0.12],
+      [71.0, 0.2],
+      [71.4, 0.15],
+    ] as const) {
+      b.rotBox(m.woodDark, px, 1.55, 80.05, 0.24, 3.1, 0.05, 0, { rotZ: tilt, collide: false });
+    }
+    b.decal(posterMat("wanted"), 65.25, 2.65, r.maxZ + DECOR_GAP, 0.9, 1.3, "S");
+    b.decal(signMat(["GONO", "MANS FRIEND"], 0.75, 0.35, { bg: "#efeadb", fg: "#241d16" }), 64.4, 1.5, r.maxZ + DECOR_GAP, 0.75, 0.35, "S");
+    b.decal(posterMat("notice"), 60.2, 2.6, r.maxZ + DECOR_GAP, 0.5, 1.2, "S");
+    P.barrel(b, m, 65.7, 81.2, 0.5, 1.1);
   }
 
   /* ---------- K7 east alley dressing ---------- */
   {
-    P.barrel(b, m, 57.4, 83.2);
-    P.saguaro(b, m, 78, 84, 3.2);
     P.saguaro(b, m, 88, 81.5, 2.6);
-    // birdhouse/semaphore post far east + adobe ruin
-    b.box(m.woodDark, 92, 0, 84.3, 92.16, 3.1, 84.46);
-    b.box(m.woodBlack, 91.7, 3.1, 84.1, 92.5, 3.7, 84.7, { collide: false });
-    b.box(m.adobeMission, 96, 0, 78, 101, 1.6, 82);
-    // rail fence + gate closing the alley east
-    P.railFence(b, m, 92, 80.4, 92, 88, 2, 1.2, m.woodGray);
+
   }
 
-  /* ---------- Curiosities (L7 E): a narrow blackwood shop, red posts, pagoda ---------- */
+  /* ---------- Curiosities (L7 E): black shop, red posts, red pagoda roof, tall sign ---------- */
   {
     const r = LOTS.curio;
     const d = streetDoor("curio");
-    shell(b, m.woodBlack, r, 0, 3.7, { W: [doorGapOf(d), ...winGaps("curio", "W")] });
+    shell(b, m.woodBlack, r, 0, 4.3, { W: [doorGapOf(d), ...winGaps("curio", "W")] });
     buildWindows(b, m, "curio", m.woodBlack);
-    flatRoof(b, m, r, 3.7, m.roofDark);
-    // tall black parapet so the big red band clears the porch roof
-    b.box(m.woodBlack, r.minX, 3.7, r.minZ, r.minX + WALL_T, 6.5, r.maxZ);
-    falseFrontBraces(b, m, r, "W", 3.88, 6.5);
+    flatRoof(b, m, r, 4.3, m.roofDark);
+    // the sign panel: a black false front to 6 m carrying CURIOSITIES in red
+    b.box(m.woodBlack, r.minX, 4.3, r.minZ, r.minX + WALL_T, 6.0, r.maxZ);
+    falseFrontBraces(b, m, r, "W", 4.48, 6.0);
     const fx = r.minX - DECOR_GAP;
-    b.decal(signMat(["CURIOSITIES"], 7, 1.15, { bg: "#a3261d", fg: "#e0cf9c", border: "#5e1713" }), fx, 5.75, 92, 7, 1.15, "W");
-    b.decal(signMat(["+ CURIOSITIES +"], 5.2, 0.7, { bg: "#241d16", fg: "#c33a2b" }), fx, 3.25, 92, 5.2, 0.7, "W");
-    // pagoda eaves: upturned dark slabs along the parapet top
-    b.box(m.woodBlack, r.minX - 0.7, 6.5, r.minZ - 0.5, r.minX + 0.6, 6.75, r.maxZ + 0.5, { collide: false });
-    for (const [cx, cz] of [
-      [r.minX - 0.75, r.minZ - 0.55],
-      [r.minX - 0.75, r.maxZ + 0.55],
-    ] as const) {
-      b.rotBox(m.woodBlack, cx, 6.92, cz, 1.2, 0.14, 1.2, 0.6, { rotZ: 0.35, collide: false });
+    b.decal(letters(["CURIOSITIES"], 7.4, 1.0, "#c8302a"), fx, 5.15, 91.8, 7.4, 1.0, "W");
+    // red window frames + the red door recess
+    for (const wz of [89.25, 94.35]) {
+      b.box(m.curioRed, r.minX - 0.06, 0.92, wz - 0.4, r.minX - 0.02, 2.68, wz - 0.31, { collide: false });
+      b.box(m.curioRed, r.minX - 0.06, 0.92, wz + 0.31, r.minX - 0.02, 2.68, wz + 0.4, { collide: false });
+      b.box(m.curioRed, r.minX - 0.06, 2.6, wz - 0.4, r.minX - 0.02, 2.68, wz + 0.4, { collide: false });
+      b.box(m.curioRed, r.minX - 0.06, 0.92, wz - 0.4, r.minX - 0.02, 1.0, wz + 0.4, { collide: false });
     }
-    // red porch posts with black bases
-    P.boardwalkSlab(b, m, r.minX - 1.5, 88.2, r.minX, 95.8);
-    for (const pz of [88.7, 91.0, 93.0, 95.3]) {
-      b.box(m.woodBlack, r.minX - 1.42, 0.32, pz - 0.14, r.minX - 1.14, 1.1, pz + 0.14, { collide: true });
-      b.box(m.curioRed, r.minX - 1.38, 1.1, pz - 0.1, r.minX - 1.18, 4.5, pz + 0.1, { collide: false });
+    b.box(m.curioRed, r.minX - 0.05, 0, d.z - 0.95, r.minX - 0.01, 2.95, d.z - 0.85, { collide: false });
+    b.box(m.curioRed, r.minX - 0.05, 0, d.z + 0.85, r.minX - 0.01, 2.95, d.z + 0.95, { collide: false });
+    b.box(m.curioRed, r.minX - 0.05, 2.85, d.z - 0.95, r.minX - 0.01, 2.95, d.z + 0.95, { collide: false });
+    // red porch posts with black bases on x 56.5, the red pagoda roof
+    const postX = 56.5;
+    for (const pz of [88.3, 90.15, 93.4, 95.2]) {
+      b.box(m.woodBlack, postX - 0.14, 0, pz - 0.14, postX + 0.14, 0.5, pz + 0.14, { collide: true });
+      b.box(m.curioRed, postX - 0.1, 0.5, pz - 0.1, postX + 0.1, 2.9, pz + 0.1, { collide: false });
     }
-    P.porchRoof(b, m, r.minX - 1.6, 88.2, r.minX, 95.8, 4.1, 4.5, "W", m.roofDark);
-    // red window frames + stool
-    for (const wz of [89.6, 94.4]) {
-      b.box(m.curioRed, r.minX - 0.06, 1.1, wz - 0.64, r.minX - 0.02, 2.7, wz - 0.55, { collide: false });
-      b.box(m.curioRed, r.minX - 0.06, 1.1, wz + 0.55, r.minX - 0.02, 2.7, wz + 0.64, { collide: false });
+    b.box(m.woodBlack, postX - 0.2, 2.85, r.minZ - 0.6, r.minX, 2.97, r.maxZ + 0.6, { collide: false });
+    b.box(m.curioRed, postX - 0.35, 2.72, r.minZ - 0.7, r.minX - 0.08, 3.12, r.maxZ + 0.7, { collide: false });
+    b.decal(letters(["+ CURIOSITIES +"], 4.5, 0.32, "#3a0c0a"), postX - 0.35 - DECOR_GAP, 2.92, 92.0, 4.5, 0.32, "W");
+    for (const cz of [r.minZ - 0.75, r.maxZ + 0.75]) {
+      b.rotBox(m.curioRed, postX - 0.3, 3.3, cz, 1.4, 0.15, 1.1, 0, { rotX: cz < 92 ? 0.55 : -0.55, collide: false });
     }
-    P.stool(b, m, r.minX - 0.9, 90.4, 0.55);
-    P.barrel(b, m, 54.6, 87.4);
-    // ox skull on a pole + the range's lane east of the shop
-    b.box(m.woodDark, r.maxX + 0.8, 0, 88.6, r.maxX + 0.94, 5.0, 88.74);
-    P.oxSkull(b, m, r.maxX + 0.87, 88.67, 5.05);
-    // north wall: MAIN corner board + poster (K7 E / K8 W views)
-    b.decal(signMat(["MAIN"], 1.2, 0.4, { bg: "#2c2014", fg: "#d8cba6" }), 57.4, 2.9, r.minZ - DECOR_GAP, 1.2, 0.4, "N");
-    // back veranda: red posts + pergola along the yard (K8 S view)
-    for (const px of [57.2, 59.6, 62.0]) {
-      b.box(m.curioRed, px - 0.1, 0, r.minZ - 2.2, px + 0.1, 2.6, r.minZ - 2.0, { collide: true });
-    }
-    b.box(m.woodBlack, 56.8, 2.6, r.minZ - 2.3, r.maxX + 0.2, 2.8, r.minZ - 1.9, { collide: false });
-    P.porchRoof(b, m, 56.8, r.minZ - 2.2, r.maxX + 0.2, r.minZ, 2.75, 3.1, "N", m.roofDark);
-    b.decal(posterMat("wanted"), 58.6, 1.9, r.minZ - DECOR_GAP, 0.85, 1.15, "N");
-    b.decal(posterMat("circus"), 61.2, 2.05, r.minZ - DECOR_GAP, 0.85, 1.15, "N");
-    b.cyl(m.iron, 60.5, r.minZ - 1.2, 0, 0.18, 0.2, { seg: 8 }); // dog bowl
+    // stool by the door, the pan on the ground at the north inner post
+    P.stool(b, m, 58.0, 90.4, 0.5);
+    b.cyl(m.iron, 56.8, 90.7, 0, 0.1, 0.24, { seg: 10 });
+    // north face on the alley (K8 S / K7 E): the sign panel wraps the corner,
+    // three bills and two barrels against the black boards
+    b.box(m.woodBlack, r.minX, 4.3, r.minZ, r.minX + 3.9, 6.0, r.minZ + WALL_T, { collide: false });
+    b.decal(letters(["CURIOSITIES"], 3.5, 0.75, "#c8302a"), 60.15, 5.15, r.minZ - DECOR_GAP, 3.5, 0.75, "N");
+    b.decal(posterMat("girls"), 63.5, 2.2, r.minZ - DECOR_GAP, 1.0, 1.7, "N");
+    b.decal(posterMat("manzana"), 62.5, 1.9, r.minZ - DECOR_GAP, 0.9, 1.5, "N");
+    b.decal(posterMat("martash"), 60.0, 2.1, r.minZ - DECOR_GAP, 1.0, 1.5, "N");
+    P.barrel(b, m, 61.7, r.minZ - 1.0, 0.42, 1.05);
+    P.barrel(b, m, 59.1, r.minZ - 0.8, 0.4, 0.95);
   }
 
-  /* ---------- the tall dark barn east of Curiosities + the board fence (K8 S / K9 S) ---------- */
+  /* ---------- the tall dark barn east of Curiosities + the board fence across Lee's end (K8 S / K9 S) ---------- */
   {
     const r = LOTS.rangeBarn;
     solidBuilding(b, m, r, 5.4, m.barnDark, "gableX", m.roofDark, 1.8);
-    b.decal(posterMat("wanted"), 64.3, 2.1, r.minZ - DECOR_GAP, 0.85, 1.15, "N");
-    b.decal(posterMat("circus"), 65.9, 1.95, r.minZ - DECOR_GAP, 0.85, 1.15, "N");
-    b.decal(posterMat("wanted2"), 67.4, 2.1, r.minZ - DECOR_GAP, 0.85, 1.15, "N");
+    b.decal(posterMat("girls"), 66.4, 2.5, r.minZ - DECOR_GAP, 0.9, 1.5, "N");
     b.decal(posterMat("wanted"), r.maxX + DECOR_GAP, 2.5, 90.2, 0.85, 1.15, "E");
-    P.barrel(b, m, 64.2, r.minZ - 0.7);
-    P.barrel(b, m, 66.8, r.minZ - 0.6);
-    // the tall uneven board fence closing the range's west end (K9 S)
-    for (let x = r.maxX; x < 74; x += 0.34) {
-      const hh = 2.3 + (((x * 5.1) % 1) - 0.5) * 0.45;
-      b.box(m.fenceGray, x, 0, 88.0, Math.min(74, x + 0.28), hh, 88.25, { collide: false });
-    }
-    b.solid({ minX: r.maxX, minY: 0, minZ: 87.95, maxX: 74, maxY: 2.4, maxZ: 88.3 });
-    b.box(m.woodDark, r.maxX, 0.6, 88.25, 74, 0.72, 88.32, { collide: false });
-    b.box(m.woodDark, r.maxX, 1.7, 88.25, 74, 1.82, 88.32, { collide: false });
+    P.barrel(b, m, 64.6, r.minZ - 0.7);
+    P.boardWall(b, m, r.maxX, 88.0, 72.4, 88.0, 2.55, m.fenceGray, 1);
+    b.box(m.woodDark, 72.3, 0, 87.85, 72.6, 3.2, 88.15);
   }
 
-  /* ---------- Cactus Bed Hotel (E7+F7 east) ---------- */
+  /* ---------- Cactus Bed Hotel (E7+F7 east): olive boards, arched door, sunburst sign ---------- */
   {
     const r = LOTS.hotel;
     const d = streetDoor("hotel");
-    const top = 8.2;
+    const top = 8.7;
+    // the door gap runs up to the transom's head; the frame fills to 3.02
+    // and the arched transom the rest
+    const doorGap = { ...doorGapOf(d), top: 3.5 };
     shell(b, m.oliveHotel, r, 0, top, {
-      W: [doorGapOf(d), ...winGaps("hotel", "W")],
+      W: [doorGap, ...winGaps("hotel", "W")],
       S: winGaps("hotel", "S"),
     });
-    buildWindows(b, m, "hotel", m.oliveHotel);
-    b.box(m.oliveHotel, r.minX - 0.04, top, r.minZ, r.maxX, 9.2, r.maxZ);
+    buildWindows(b, m, "hotel", m.oliveHotel, m.glassLit);
+    b.box(m.oliveHotel, r.minX - 0.04, top, r.minZ, r.maxX, top + 0.5, r.maxZ);
     flatRoof(b, m, r, top);
-    b.box(m.woodDark, r.minX - 0.34, 9.2, r.minZ - 0.15, r.minX + 0.42, 9.36, r.maxZ + 0.15, { collide: false });
-    b.box(m.woodDark, r.minX - 0.15, 9.2, r.maxZ - 0.42, r.maxX + 0.15, 9.36, r.maxZ + 0.34, { collide: false });
+    b.box(m.woodDark, r.minX - 0.34, top + 0.5, r.minZ - 0.15, r.minX + 0.42, top + 0.66, r.maxZ + 0.15, { collide: false });
+    b.box(m.woodDark, r.minX - 0.15, top + 0.5, r.maxZ - 0.42, r.maxX + 0.15, top + 0.66, r.maxZ + 0.34, { collide: false });
     const fx = r.minX - 0.04 - DECOR_GAP;
-    // painted sign across the E7+F7 face with the sunburst emblem
-    b.decal(
-      signMat(["CACTUS BED", "HOTEL"], 8.6, 2.2, { bg: "#6e7155", fg: "#e3d9b8" }),
-      fx,
-      7.0,
-      41,
-      8.6,
-      2.2,
-      "W",
-    );
-    b.decal(m.sunFace, fx, 7.3, 34.6, 1.6, 1.6, "W");
-    // arched double door surround
-    b.box(m.woodDark, r.minX - 0.1, 0, d.z - 1.12, r.minX - 0.02, 3.1, d.z - 0.98, { collide: false });
-    b.box(m.woodDark, r.minX - 0.1, 0, d.z + 0.98, r.minX - 0.02, 3.1, d.z + 1.12, { collide: false });
-    b.box(m.woodDark, r.minX - 0.1, 2.95, d.z - 1.12, r.minX - 0.02, 3.2, d.z + 1.12, { collide: false });
-    const sz = r.maxZ + DECOR_GAP;
-    b.decal(signMat(["CACTUS BED HOTEL"], 7.2, 1.4, { bg: "#6e7155", fg: "#e3d9b8", border: "#4d502f" }), 64, 7.2, sz, 7.2, 1.4, "S");
-    b.decal(signMat(["CACTUS BED HOTEL"], 6.6, 1.1, { bg: "#6e7155", fg: "#e3d9b8" }), 64, 6.7, r.minZ - DECOR_GAP, 6.6, 1.1, "N");
-    // street furniture: boardwalk, lanterns, bench, potted cactus, rail
-    P.boardwalkSlab(b, m, r.minX - 1.5, 32.2, r.minX, 47.8);
-    P.wallLantern(b, m, r.minX, 2.45, 33.0, "W");
-    P.wallLantern(b, m, r.minX, 2.45, 36.2, "W");
-    P.bench(b, m, r.minX - 0.85, 42.4, 1.7, "W");
-    P.potPlant(b, m, r.minX - 0.8, 32.9);
-    P.barrel(b, m, r.minX - 0.8, 44.0);
-    P.crate(b, m, r.minX - 0.7, 47.0, 0.7, 0.6, 0.2);
-    P.hitchRail(b, m, r.minX - 2.5, 37.6, r.minX - 2.5, 41.6);
-    // south porch along Neely (G8 N / G9 N views)
-    P.boardwalkSlab(b, m, 57, r.maxZ, 71.5, r.maxZ + 1.5);
-    P.porchPosts(b, m, 0.32, 3.0, [
-      [58, r.maxZ + 1.35],
-      [61.5, r.maxZ + 1.35],
-      [65, r.maxZ + 1.35],
-      [68.5, r.maxZ + 1.35],
-      [71.2, r.maxZ + 1.35],
+    // cream letters straight on the boards, a sunburst at each end (E7 E / F7 E)
+    b.decal(letters(["CACTUS BED"], 8.5, 0.8, "#e3d9b8", undefined, true), fx, 4.8, 39.25, 8.5, 0.8, "W");
+    b.decal(letters(["HOTEL"], 7.4, 0.7, "#e3d9b8", undefined, true), fx, 3.92, 39.1, 7.4, 0.7, "W");
+    b.decal(m.sunFanN, fx, 4.45, 33.9, 1.6, 1.3, "W");
+    b.decal(m.sunFanS, fx, 4.45, 44.5, 1.6, 1.3, "W");
+    // the arched transom over the double door + dark surround
+    P.archTransom(b, m, "z", d.z, d.width, d.y + d.height + 0.12, 3.2, 3.5, r.minX + WALL_T / 2, WALL_T, m.oliveHotel);
+    b.box(m.woodBlack, r.minX - 0.1, 0, d.z - 1.42, r.minX - 0.02, 3.55, d.z - 1.28, { collide: false });
+    b.box(m.woodBlack, r.minX - 0.1, 0, d.z + 1.28, r.minX - 0.02, 3.55, d.z + 1.42, { collide: false });
+    P.wallLantern(b, m, r.minX, 2.1, 34.0, "W", 1.7);
+    P.wallLantern(b, m, r.minX, 2.1, 37.8, "W", 1.7);
+    // boardwalk from 55.7 with the potted saguaro, barrel, crate, chair and pumpkin
+    P.boardwalkSlab(b, m, 55.7, r.minZ + 0.2, r.minX, r.maxZ + 1.7, 0.15);
+    b.cyl(m.brickMayor, 56.6, 33.1, 0.15, 0.55, 0.3, { rTop: 0.36, seg: 8, collide: true });
+    b.cyl(m.cactus, 56.6, 33.1, 0.55, 1.7, 0.16, { seg: 6 });
+    b.sphere(m.cactus, 56.6, 1.7, 33.1, 0.16, 6);
+    P.barrel(b, m, 57.05, 43.2, 0.48, 1.2, 0.15);
+    P.crate(b, m, 57.1, 44.8, 1.0, 0.95, 0.05, m.crateLight);
+    b.sphere(m.pumpkin, 56.7, 0.4, 46.1, 0.24, 8);
+    P.hitchRail(b, m, 55.7, 37.8, 55.7, 41.3, 1.1);
+    // south porch along Neely (G8 N / G9 N / F7 E): 2 m deep, roof 3.5..3.85,
+    // posts on the 48.0 line wrapping the SW corner, benches and brass pots
+    P.boardwalkSlab(b, m, 56.3, r.maxZ, r.maxX + 0.3, r.maxZ + 1.7, 0.15);
+    P.porchPosts(b, m, 0.15, 3.5, [
+      [56.4, 48.0],
+      [57.9, 48.0],
+      [64.6, 48.0],
+      [71.3, 48.0],
     ]);
-    P.porchRoof(b, m, 57, r.maxZ, 71.5, r.maxZ + 1.6, 3.0, 3.4, "S");
-    P.bench(b, m, 63, r.maxZ + 0.8, 1.8, "N");
-    P.spittoon(b, m, 66.4, r.maxZ + 0.7);
-    // back porch on Lee with HOTEL letters + price board (F10 W view)
-    P.boardwalkSlab(b, m, r.maxX, 42, r.maxX + 1.4, 47);
-    P.porchPosts(b, m, 0.32, 2.9, [
-      [r.maxX + 1.25, 42.6],
-      [r.maxX + 1.25, 46.4],
-    ]);
-    P.porchRoof(b, m, r.maxX, 42, r.maxX + 1.5, 47, 2.9, 3.3, "E");
-    b.decal(signMat(["HOTEL"], 1.9, 0.6, { bg: "#241d16", fg: "#dfb44e" }), r.maxX + DECOR_GAP, 3.6, 44.5, 1.9, 0.6, "E");
+    b.box(m.woodDark, 56.25, 3.5, r.maxZ, r.maxX + 0.25, 3.85, r.maxZ + 1.8, { collide: false });
+    P.chair(b, m, 58.2, r.maxZ + 0.45, Math.PI, 0.15);
+    P.spittoon(b, m, 60.0, r.maxZ + 1.0, 0.15, 1.6);
+    P.spittoon(b, m, 64.7, r.maxZ + 1.0, 0.15, 1.6);
+    P.spittoon(b, m, 67.4, r.maxZ + 1.0, 0.15, 1.6);
+    P.bench(b, m, 61.8, r.maxZ + 0.55, 2.0, "N");
+    P.bench(b, m, 66.5, r.maxZ + 0.55, 2.0, "N");
+    P.fakeDoor(b, m, 68.9, 0.15, r.maxZ, 1.3, 2.75, "S", { mat: m.woodDark });
+    // the porch's east end on Lee (F10 W / G10 N): HOTEL in gold on a board
+    // under the roof's east edge, the price board and two crates on the wall
+    b.box(m.woodDark, r.maxX + 0.15, 2.62, 47.1, r.maxX + 0.21, 2.98, 48.9, { collide: false });
+    b.decal(letters(["HOTEL"], 1.7, 0.32, "#dfb44e"), r.maxX + 0.21 + DECOR_GAP, 2.8, 48.0, 1.7, 0.32, "E");
     b.decal(
-      signMat(["CACTUS BED HOTEL", "Rooms $1 a Night", "Lodging & Board", "Baths 25¢"], 3, 2, { bg: "#3b3a28", fg: "#e3d9b8", border: "#241d16" }),
+      signMat(["CACTUS BED", "HOTEL", "Rooms from", "$1 a Night,", "Long Term", "Lodging", "Available"], 1.4, 2.3, { bg: "#2a2418", fg: "#c9a441", border: "#141008" }),
       r.maxX + DECOR_GAP,
-      1.9,
-      38.5,
-      3,
-      2,
+      2.85,
+      43.7,
+      1.4,
+      2.3,
       "E",
     );
-    P.barrel(b, m, r.maxX + 0.6, 40.4);
+    P.crate(b, m, r.maxX + 0.55, 44.3, 0.9, 0.9, 0.05, m.crateLight);
+    P.crate(b, m, r.maxX + 0.65, 43.2, 1.1, 1.1, 0.1, m.crateLight);
   }
 
-  /* ---------- santa marta cantina (north side of Mission street) ---------- */
+  /* ---------- Mission street's north side east of the mission: rail fence and corral (D7 E / D10 N / E10 N) ---------- */
   {
-    const r = LOTS.santaMarta;
-    solidBuilding(b, m, r, 4.4, m.brickCream, "flat");
-    b.box(m.tileRed, r.minX - 0.2, 4.4, r.maxZ - 0.7, r.maxX + 0.2, 4.75, r.maxZ + 0.3, { collide: false });
-    const fz = r.maxZ + DECOR_GAP;
-    P.fakeDoor(b, m, 71, 0, r.maxZ, 1.7, 2.6, "S", { mat: m.woodBlack });
-    b.decal(signMat(["santa marta"], 1.8, 0.52, { bg: "#3b5233", fg: "#dfb44e" }), 71, 3.2, fz, 1.8, 0.52, "S");
-    b.decal(posterMat("wanted"), 68.2, 2, fz, 0.85, 1.15, "S");
-    P.wallLantern(b, m, 69.7, 2.3, r.maxZ, "S");
-    P.potPlant(b, m, 74.4, r.maxZ + 0.85);
-    // "TO santa marta" road sign at the Main corner points east (D7 E view)
-    b.box(m.woodDark, 55.2, 0, 27.6, 55.36, 3, 27.76);
-    b.decal(signMat(["TO", "santa marta →"], 1.3, 0.8, { bg: "#3b5233", fg: "#dfb44e" }), 55.28, 2.5, 27.9, 1.3, 0.8, "S");
+    P.railFence(b, m, 64.8, 23.2, 79.8, 23.2, 3, 2.0, m.woodStage);
+    b.box(m.brickMayor, 56.2, 0, 25.6, 57.0, 0.55, 26.4);
+    b.cyl(m.cactus, 56.6, 26.0, 0.55, 1.4, 0.14, { seg: 6 });
   }
 
   /* ---------- Mission (terminates the north view) ---------- */
@@ -1112,11 +1118,18 @@ export function buildTown(m: Mats, nightGroup: THREE.Group): TownResult {
     const r = LOTS.mission;
     const d = streetDoor("mission");
     const wingTop = 4.8;
-    const frontTop = 7.2;
-    // south wall: portico stretch (west), tall door block (centre), sign stretch (east)
-    wallX(b, m.adobeMission, r.minX, 46, r.maxZ, 0, wingTop, [], 0.5);
-    wallX(b, m.adobeMission, 46, 58.5, r.maxZ, 0, frontTop, [doorGapOf(d, 0.04)], 0.5);
-    wallX(b, m.adobeMission, 58.5, r.maxX, r.maxZ, 0, wingTop, [], 0.5);
+    const frontTop = 7.0;
+    // the whole front is one 7 m wall (E7 N / F7 N); wings behind are lower
+    // the front wall east of x 41.5 is one 7 m wall on the lot edge (E7 N /
+    // F7 N); the west wing steps 1.4 m forward under a red tile hip roof
+    // (D6 N / D7 W / G3 N) and the east wing behind rises to 7.5
+    const wingX = 41.5;
+    const wingFront = r.maxZ + 1.4;
+    wallX(b, m.adobeMission, wingX, r.maxX, r.maxZ - 0.25, 0, frontTop, [doorGapOf(d, 0.04), { from: 51.3, to: 52.5, top: frontTop, bottom: 6.2 }], 0.5);
+    wallX(b, m.adobeMission, r.minX, wingX + 0.5, wingFront - 0.25, 0, frontTop, [], 0.5);
+    wallZ(b, m.adobeMission, r.maxZ - 0.5, wingFront, wingX + 0.25, 0, frontTop, [], 0.5);
+    P.gableRoof(b, m, r.minX - 0.2, r.minZ + 6.0, wingX + 0.4, wingFront + 0.2, frontTop, 8.8, "z", m.tileRed, m.adobeMission);
+    b.box(m.adobeMission, 59.5, wingTop, r.minZ + 0.3, r.maxX - 0.3, 7.5, r.maxZ - 0.5, { collide: false });
     // west + east + north outer walls (the padre's window west, the
     // schoolhouse's two arched windows north)
     wallZ(b, m.adobeMission, r.minZ, r.maxZ, r.minX, 0, wingTop, winGaps("padre", "W"), 0.5);
@@ -1124,57 +1137,59 @@ export function buildTown(m: Mats, nightGroup: THREE.Group): TownResult {
     wallX(b, m.adobeMission, r.minX, r.maxX, r.minZ, 0, wingTop, winGaps("school", "N"), 0.5);
     buildWindows(b, m, "school", m.adobeMission);
     buildWindows(b, m, "padre", m.adobeMission);
-    // espadaña gable over the doors, centred on Main Street (x 52):
-    // stepped adobe + bell niche + cross
-    b.box(m.adobeMission, 47.25, frontTop, r.maxZ - 0.6, 56.75, 8.6, r.maxZ + 0.1, { collide: false });
-    b.box(m.adobeMission, 48.75, 8.6, r.maxZ - 0.6, 55.25, 9.8, r.maxZ + 0.1, { collide: false });
-    b.archWall(m.adobeMission, "x", 50.35, 53.65, r.maxZ - 0.25, 9.8, 11.2, 52, 0.9, 10.9, 0.7, { collide: false });
-    b.box(m.woodDark, 51.85, 11.2, r.maxZ - 0.35, 52.15, 12.0, r.maxZ - 0.15, { collide: false });
-    b.box(m.woodDark, 51.45, 11.6, r.maxZ - 0.35, 52.55, 11.8, r.maxZ - 0.15, { collide: false });
-    P.bell(b, m, 52, 10.15, r.maxZ - 0.25, 0.28);
-    // red tile copings
-    b.box(m.tileRed, r.minX - 0.2, wingTop, r.maxZ - 0.75, 46.2, wingTop + 0.35, r.maxZ + 0.35, { collide: false });
-    b.box(m.tileRed, 58.3, wingTop, r.maxZ - 0.75, r.maxX + 0.2, wingTop + 0.35, r.maxZ + 0.35, { collide: false });
-    b.box(m.tileRed, 46, frontTop, r.maxZ - 0.75, 58.7, frontTop + 0.35, r.maxZ + 0.35, { collide: false });
-    b.box(m.tileRed, r.minX - 0.35, wingTop, r.minZ - 0.2, r.minX + 0.35, wingTop + 0.35, r.maxZ + 0.2, { collide: false });
-    b.box(m.tileRed, r.maxX - 0.35, wingTop, r.minZ - 0.2, r.maxX + 0.35, wingTop + 0.35, r.maxZ + 0.2, { collide: false });
-    // pots along the parapet
-    for (const px of [47, 49.5, 55, 57.3, 36, 40, 62]) {
-      b.cyl(m.brickMayor, px, r.maxZ - 0.2, px > 46 && px < 58.5 ? frontTop + 0.35 : wingTop + 0.35, (px > 46 && px < 58.5 ? frontTop : wingTop) + 0.8, 0.26, { rTop: 0.3, seg: 8 });
+    // the curved bell-gable over the doors, an open niche with the bell, the cross
+    P.espadana(b, m, 51.9, r.maxZ - 0.5, 0.52, 6.1, 9.6, 6.8, 2.6, { niche: [1.2, 6.2, 7.9] });
+    b.box(m.woodDark, 51.83, 9.6, r.maxZ - 0.33, 51.97, 11.3, r.maxZ - 0.17, { collide: false });
+    b.box(m.woodDark, 51.35, 10.6, r.maxZ - 0.33, 52.45, 10.75, r.maxZ - 0.17, { collide: false });
+    P.bell(b, m, 51.9, 6.75, r.maxZ - 0.25, 0.26);
+    // dark lintel beam over the doors, the big carved sun discs either side
+    b.box(m.woodBlack, d.x - 2.95, 5.05, r.maxZ - 0.35, d.x + 2.95, 5.5, r.maxZ + 0.14, { collide: false });
+    P.sunDisc(b, m, 47.8, 3.0, r.maxZ, "S", 0.82);
+    P.sunDisc(b, m, 55.95, 3.0, r.maxZ, "S", 0.82);
+    // pots on the parapet east of the gable (E7 N)
+    for (const px of [57.6, 59.0, 60.4]) {
+      b.cyl(m.brickMayor, px, r.maxZ - 0.25, frontTop, frontTop + 0.75, 0.26, { rTop: 0.32, seg: 8 });
     }
-    // carved sun discs flanking the doors + one further west (D6 N view)
-    for (const sx of [47.6, 56.4, 42.5]) {
-      P.sunDisc(b, m, sx, 2.4, r.maxZ, "S", 0.6);
-    }
-    // studded door surround
-    b.box(m.woodDark, d.x - 1.95, 0, r.maxZ - 0.1, d.x - 1.75, 3.7, r.maxZ + 0.12, { collide: false });
-    b.box(m.woodDark, d.x + 1.75, 0, r.maxZ - 0.1, d.x + 1.95, 3.7, r.maxZ + 0.12, { collide: false });
-    b.box(m.woodDark, d.x - 1.95, 3.55, r.maxZ - 0.1, d.x + 1.95, 3.8, r.maxZ + 0.12, { collide: false });
-    // MISSION board + lamp post east of the doors (E7 N view)
-    b.box(m.woodDark, 60.2, 0, r.maxZ + 0.9, 60.36, 2.7, r.maxZ + 1.06);
-    b.decal(signMat(["MISSION"], 1.2, 0.45, { bg: "#4f382a", fg: "#e6dcba" }), 60.28, 2.3, r.maxZ + 1.1, 1.2, 0.45, "S");
-    b.decal(posterMat("wanted"), 61.8, 2.0, r.maxZ + DECOR_GAP, 0.7, 0.95, "S");
-    P.lampPost(b, m, 62.5, r.maxZ + 1.3, 3.3);
-    // pots + bowls at the base (D6 N)
+    // MISSION board on its post east of the doors, the bill, the corner lamp (E7 N)
+    b.box(m.woodDark, 57.0, 0, r.maxZ + 1.8, 57.2, 3.5, r.maxZ + 2.0);
+    b.box(m.woodSaloon, 55.975, 2.67, r.maxZ + 1.97, 58.225, 3.45, r.maxZ + 2.03, { collide: false });
+    b.decal(signMat(["MISSION"], 2.25, 0.78, { bg: "#4f382a", fg: "#e6dcba", border: "#33261a" }), 57.1, 3.06, r.maxZ + 2.03 + DECOR_GAP, 2.25, 0.78, "S");
+    // the "santa marta" board hangs from an arm pointing west (D8 N / D7 E)
+    b.box(m.woodDark, 55.5, 2.7, r.maxZ + 1.83, 57.1, 2.82, r.maxZ + 1.97, { collide: false });
+    b.box(m.woodDark, 56.2, 2.05, r.maxZ + 1.87, 56.24, 2.7, r.maxZ + 1.93, { collide: false });
+    b.box(m.woodSaloon, 55.6, 2.0, r.maxZ + 1.86, 56.85, 2.4, r.maxZ + 1.94, { collide: false });
+    const marta = signMat(["santa marta"], 1.25, 0.4, { bg: "#3b5233", fg: "#dfb44e" });
+    b.decal(marta, 56.22, 2.2, r.maxZ + 1.94 + DECOR_GAP, 1.25, 0.4, "S");
+    b.decal(marta, 56.22, 2.2, r.maxZ + 1.86 - DECOR_GAP, 1.25, 0.4, "N");
+    b.decal(posterMat("wanted"), 61.2, 2.98, r.maxZ + DECOR_GAP, 1.1, 1.9, "S");
+    P.lampPost(b, m, 55.5, 31.5, 3.5);
+    P.streetSign(b, m, 55.5, 31.5, 2.45, ["MISSION", "MAIN"], "NW");
+    // pots, bowls and broken crocks at the wall foot (E7 N / D7 N / D6 N)
     for (const [px, pz, pr] of [
-      [43.6, 24.7, 0.22], [44.6, 24.8, 0.16], [59.4, 24.7, 0.2], [45.8, 24.6, 0.12],
+      [42.2, wingFront + 0.4, 0.2],
+      [43.6, r.maxZ + 0.4, 0.25],
+      [45.3, r.maxZ + 0.4, 0.18],
+      [46.1, r.maxZ + 0.4, 0.3],
+      [47.4, r.maxZ + 0.4, 0.2],
+      [55.2, r.maxZ + 0.4, 0.2],
+      [58.4, r.maxZ + 0.4, 0.22],
     ] as const) {
-      b.cyl(m.brickMayor, px, pz, 0, pr * 1.3, pr, { rTop: pr * 1.15, seg: 8 });
+      b.cyl(m.brickMayor, px, pz, 0, pr * 1.2, pr * 1.3, { rTop: pr * 1.7, seg: 9 });
     }
-    // hanging lamp arm (D7 W view)
-    b.box(m.woodDark, 45.2, 3.0, r.maxZ + 0.5, 45.35, 3.15, r.maxZ + 1.6, { collide: false });
-    b.box(m.glassWarm, 45.18, 2.6, r.maxZ + 1.3, 45.38, 2.9, r.maxZ + 1.5, { collide: false });
-    // bell gantry at the SW corner (D5 N view): beam + three bells
-    b.box(m.woodDark, 33.7, 0, 25.0, 34.0, 3.6, 25.3);
-    b.box(m.woodDark, 39.6, 0, 25.0, 39.9, 3.6, 25.3);
-    b.box(m.woodDark, 33.6, 3.3, 24.6, 39.9, 3.6, 24.9, { collide: false });
-    P.bell(b, m, 35.1, 2.55, 24.75, 0.34);
-    P.bell(b, m, 36.8, 2.45, 24.75, 0.42);
-    P.bell(b, m, 38.5, 2.55, 24.75, 0.34);
+    b.rotBox(m.brickMayor, 41.4, 0.16, r.maxZ + 3.2, 0.7, 0.3, 0.45, 0.6, { rotZ: 0.4, collide: false });
+    b.rotBox(m.bone, 43.0, 0.05, r.maxZ + 2.4, 0.4, 0.05, 0.08, 0.3, { collide: false });
+    // bell gantry before the west wing (D5 N / E4 N): two posts, a beam
+    // at 4.2 m, one big bell between two small ones
+    b.box(m.woodDark, 34.4, 0, wingFront + 1.05, 34.7, 4.4, wingFront + 1.35);
+    b.box(m.woodDark, 38.45, 0, wingFront + 1.05, 38.75, 4.4, wingFront + 1.35);
+    b.box(m.woodDark, 34.2, 4.1, wingFront + 1.05, 38.95, 4.4, wingFront + 1.35, { collide: false });
+    P.bell(b, m, 36.6, 3.15, wingFront + 1.2, 0.68);
+    P.bell(b, m, 35.1, 3.1, wingFront + 1.2, 0.45);
+    P.bell(b, m, 38.1, 3.1, wingFront + 1.2, 0.45);
     // iron cage cart by the west wing (D4 N / E4 N views)
     {
-      const cx = 29.5;
-      const cz = 27;
+      const cx = 27.3;
+      const cz = 24.7;
       b.box(m.woodDark, cx - 1.5, 0.62, cz - 0.95, cx + 1.5, 0.8, cz + 0.95, { collide: true });
       const axle = new THREE.CylinderGeometry(0.05, 0.05, 2.3, 8);
       axle.rotateX(Math.PI / 2);
@@ -1199,161 +1214,176 @@ export function buildTown(m: Mats, nightGroup: THREE.Group): TownResult {
         b.box(m.woodDark, cx + 2.86, 0.12, cz - 0.64, cx + 2.94, 0.2, cz + 0.64, { collide: false });
       }
     }
-    // bell tower with its dome, rising over the padre's room at the
-    // north-west (the dome the cemetery and Neely stills see)
+    // bell tower with its onion dome at the north-west, 21 m to the top
+    // (F7 N / G7 N put it at (39, -3.4))
     {
-      const tx = 41.5;
-      const tz = -4.5;
-      b.box(m.adobeMission, tx - 1.9, wingTop, tz - 1.9, tx + 1.9, 10.0, tz + 1.9, { collide: false });
-      b.box(m.tileRed, tx - 2.2, 10.0, tz - 2.2, tx + 2.2, 10.4, tz + 2.2, { collide: false });
-      b.box(m.adobeMission, tx - 1.5, 10.4, tz - 1.5, tx + 1.5, 12.6, tz + 1.5, { collide: false });
+      const tx = 39;
+      const tz = -3.4;
+      b.box(m.adobeMission, tx - 2.8, wingTop, tz - 2.8, tx + 2.8, 14.5, tz + 2.8, { collide: false });
+      b.box(m.tileRed, tx - 3.1, 14.5, tz - 3.1, tx + 3.1, 14.9, tz + 3.1, { collide: false });
+      b.box(m.adobeMission, tx - 2.2, 14.9, tz - 2.2, tx + 2.2, 16.8, tz + 2.2, { collide: false });
       for (const f of ["N", "S", "E", "W"] as const) {
-        const off = 1.51;
+        const off = 2.21;
         const dx = f === "E" ? off : f === "W" ? -off : 0;
         const dz = f === "S" ? off : f === "N" ? -off : 0;
-        b.decal(signMat([""], 0.8, 1.5, { bg: "#241d16", fg: "#241d16" }), tx + dx, 11.5, tz + dz, 0.8, 1.5, f);
+        b.decal(signMat([""], 1.0, 1.5, { bg: "#241d16", fg: "#241d16" }), tx + dx, 15.85, tz + dz, 1.0, 1.5, f);
       }
-      P.bell(b, m, tx, 11.1, tz, 0.3);
-      b.cyl(m.adobeMission, tx, tz, 12.6, 13.0, 1.7, { seg: 12 });
-      b.sphere(m.cream, tx, 13.3, tz, 1.55, 12);
-      b.box(m.woodDark, tx - 0.08, 14.7, tz - 0.08, tx + 0.08, 15.6, tz + 0.08, { collide: false });
-      b.box(m.woodDark, tx - 0.4, 15.15, tz - 0.08, tx + 0.4, 15.3, tz + 0.08, { collide: false });
-    }
-    // pumpkins + baskets along the base
-    for (const [px, pz] of [
-      [47, 24.9],
-      [55.8, 24.8],
-      [35.5, 25.2],
-    ] as const) {
-      b.sphere(m.brass, px, 0.25, pz, 0.26, 8);
+      P.bell(b, m, tx, 15.5, tz, 0.3);
+      b.cyl(m.adobeMission, tx, tz, 16.8, 17.4, 2.6, { seg: 14 });
+      b.sphere(m.cream, tx, 18.4, tz, 3.0, 14);
+      b.cyl(m.cream, tx, tz, 20.8, 21.4, 0.5, { rTop: 0.3, seg: 8 });
+      b.box(m.woodDark, tx - 0.08, 21.4, tz - 0.08, tx + 0.08, 22.5, tz + 0.08, { collide: false });
+      b.box(m.woodDark, tx - 0.4, 22.0, tz - 0.08, tx + 0.4, 22.15, tz + 0.08, { collide: false });
     }
   }
 
   /* =========== NEELY STREET WEST =========== */
 
-  /* ---------- Sidewinder (G1 S): dark storefront, barber pole, coffins ---------- */
+  /* ---------- Sidewinder (G1 S): dark brown storefront, barber pole, coffins ---------- */
   {
     const r = LOTS.sidewinder;
     const d = streetDoor("sidewinder");
-    shell(b, m.woodBlack, r, 0, 3.5, { N: [doorGapOf(d), ...winGaps("sidewinder", "N")] });
-    buildWindows(b, m, "sidewinder", m.woodBlack);
-    b.box(m.woodBlack, r.minX, 3.5, r.minZ - 0.04, r.maxX, 4.7, r.minZ + WALL_T);
-    flatRoof(b, m, r, 3.5);
-    capFace(b, m.woodDark, r, "N", 4.7, m, 3.5);
+    shell(b, m.woodSaloon, r, 0, 3.6, { N: [doorGapOf(d), ...winGaps("sidewinder", "N")] });
+    buildWindows(b, m, "sidewinder", m.woodSaloon);
+    b.box(m.woodSaloon, r.minX, 3.6, r.minZ - 0.04, r.maxX, 4.6, r.minZ + WALL_T);
+    flatRoof(b, m, r, 3.6);
+    capFace(b, m.woodDark, r, "N", 4.6, m, 3.6);
     const fz = r.minZ - 0.04 - DECOR_GAP;
     b.decal(
-      signMat(["HIRAM SIDEWINDER", "Undertaking & Barbering"], 6.4, 1.2, { bg: "#4a2a1c", fg: "#ded6b6", border: "#2a160c" }),
-      4,
+      signMat(["HIRAM SIDEWINDER", "Undertaking & Barbering"], 5.8, 0.9, { bg: "#6b4a2e", fg: "#efe6cc", border: "#3a2416" }),
       4.1,
+      3.95,
       fz,
-      6.4,
-      1.2,
+      5.8,
+      0.9,
       "N",
     );
-    P.boardwalkSlab(b, m, r.minX, r.minZ - 1.3, r.maxX, r.minZ);
-    P.barberPole(b, m, 1.2, r.minZ - 1.0);
-    // coffins leaning outside + one on the ground (east alley)
-    P.coffin(b, m, r.maxX + 0.6, 57.6, 0.15, true);
-    P.coffin(b, m, r.maxX + 0.9, 59.8, 0.3, true);
-    P.coffin(b, m, r.maxX + 1.6, 61.6, 0.5);
-    P.barrel(b, m, r.maxX + 0.5, 63.4);
+    P.boardwalkSlab(b, m, r.minX, r.minZ - 1.9, r.maxX, r.minZ, 0.15);
+    P.barberPole(b, m, 7.4, 55.4, 3.4);
+    // the price board and the coffins on the east side (G2 S)
+    b.decal(
+      signMat(["HAIR CUTS 25¢", "SHAVE 25¢", "HEADSTONES $5", "PLOTS $10"], 1.4, 1.4, { bg: "#22301f", fg: "#d8e0b0", border: "#101810" }),
+      r.maxX + DECOR_GAP,
+      2.33,
+      58.1,
+      1.4,
+      1.4,
+      "E",
+    );
+    P.coffin(b, m, 10.6, 56.6, 0);
+    P.coffin(b, m, 9.4, 57.0, 0.2, true);
+    P.barrel(b, m, 10.7, 63.3);
     // black shed behind (G2 S / G3 W)
-    solidBuilding(b, m, { minX: 1, minZ: 63, maxX: 7, maxZ: 68 }, 2.8, m.woodBlack, "gableX", m.roofDark, 1.2);
+    solidBuilding(b, m, { minX: 1, minZ: 65.5, maxX: 7, maxZ: 70 }, 2.8, m.woodBlack, "gableX", m.roofDark, 1.2);
   }
 
-  /* ---------- The Rattler (H4 W): a small green storefront ---------- */
+  /* ---------- The Rattler (H4 W): grey-green office 2.4 m behind a deep porch, poster wall ---------- */
   {
     const r = LOTS.rattler;
     const d = streetDoor("rattler");
-    shell(b, m.rattlerGreen, r, 0, 3.5, { E: [doorGapOf(d), ...winGaps("rattler", "E")] });
+    const top = 5.0;
+    shell(b, m.rattlerGreen, r, 0, top, { E: [doorGapOf(d), ...winGaps("rattler", "E")] });
     buildWindows(b, m, "rattler", m.rattlerGreen);
-    b.box(m.rattlerGreen, r.maxX - WALL_T, 3.5, r.minZ, r.maxX + 0.04, 5.0, r.maxZ);
-    flatRoof(b, m, r, 3.5);
-    capFace(b, m.woodDark, r, "E", 5.0, m, 3.5);
+    // the east false front rises to 6.0 with white letters straight on the boards (H4 W / G4 S)
+    b.box(m.rattlerGreen, r.maxX - WALL_T, top, r.minZ, r.maxX + 0.04, 6.0, r.maxZ);
+    flatRoof(b, m, r, top);
+    capFace(b, m.woodDark, r, "E", 6.0, m, top);
     const fx = r.maxX + 0.04 + DECOR_GAP;
-    b.decal(
-      signMat(["The Rattler", "Chott Flippo, Editor"], 4.4, 1.05, { bg: "#ded6b6", fg: "#241d16", border: "#8a7a52" }),
-      fx,
-      4.45,
-      59.25,
-      4.4,
-      1.05,
-      "E",
-    );
-    b.decal(signMat(["WE PRINT", "ANYTHING"], 3.0, 0.85, { bg: "#49513a", fg: "#efeadb" }), fx, 3.5, 59.25, 3.0, 0.85, "E");
-    b.decal(
-      signMat(["THE NEWS TODAY", "The Rattler  5¢"], 1.1, 0.9, { bg: "#ddd2b0", fg: "#241d16", border: "#8a7a52" }),
-      fx,
-      1.9,
-      61.6,
-      1.1,
-      0.9,
-      "E",
-    );
-    // flat canopy porch
-    P.boardwalkSlab(b, m, r.maxX, r.minZ + 0.2, r.maxX + 1.5, r.maxZ - 0.2, 0.2);
-    P.porchPosts(b, m, 0.2, 3.0, [
-      [r.maxX + 1.35, 56.6],
-      [r.maxX + 1.35, 62.0],
+    b.decal(letters(["PERIODICALS and PRINTING"], 3.0, 0.24, "#e8e2d2"), fx, 5.74, 60.0, 3.0, 0.24, "E");
+    b.decal(letters(["The Rattler"], 4.2, 0.66, "#e8e2d2", "'Old English Text MT', 'UnifrakturMaguntia', Georgia, serif"), fx, 5.28, 60.0, 4.2, 0.66, "E");
+    b.decal(letters(["Chott Flippo, Editor"], 3.2, 0.3, "#e8e2d2"), fx, 4.78, 60.0, 3.2, 0.3, "E");
+    // dark corner boards flank the storefront
+    for (const cz of [r.minZ + 0.16, r.maxZ - 0.16]) {
+      b.box(m.woodDark, r.maxX - 0.02, 0, cz - 0.16, r.maxX + 0.08, top, cz + 0.16, { collide: false });
+    }
+    // porch: boardwalk 2.4 m deep, roof 3.6..3.9 on two posts a metre in from
+    // its ends, WE PRINT ANYTHING on the fascia (H4 W / G4 S / G3 S)
+    const px = r.maxX + 2.4;
+    P.boardwalkSlab(b, m, r.maxX, r.minZ, px, r.maxZ, 0.15);
+    P.porchPosts(b, m, 0.15, 3.6, [
+      [px - 0.15, r.minZ + 1.1],
+      [px - 0.15, r.maxZ - 1.0],
     ]);
-    b.box(m.rattlerGreen, r.maxX, 3.0, r.minZ, r.maxX + 1.6, 3.2, r.maxZ, { collide: false });
-    P.spittoon(b, m, r.maxX + 0.5, 57.2);
-    P.tableSquare(b, m, r.maxX + 2.6, 61.6, 1.3, 0.6, 0.8);
-    // rail fence along the lane edge south of the storefront (H4 W)
-    P.railFence(b, m, 24.5, 63.2, 24.5, 70.5, 3, 1.15);
-    // north wall on Neely: olive-green poster wall (G3 S / G4 S)
+    b.box(m.rattlerGreen, r.maxX, 3.6, r.minZ - 0.05, px + 0.1, 3.9, r.maxZ + 0.05, { collide: false });
+    b.box(m.woodDark, px + 0.1, 3.36, 58.4, px + 0.16, 3.92, 61.6, { collide: false });
+    b.decal(signMat(["WE PRINT", "ANYTHING"], 3.2, 0.56, { bg: "#3a2416", fg: "#efeadb" }), px + 0.16 + DECOR_GAP, 3.64, 60.0, 3.2, 0.56, "E");
+    b.decal(signMat(["WE PRINT", "ANYTHING"], 3.2, 0.56, { bg: "#3a2416", fg: "#efeadb" }), px + 0.1 - DECOR_GAP, 3.64, 60.0, 3.2, 0.56, "W");
+    // THE NEWS TODAY pinned inside the south pane, the brass pot by the door,
+    // the hitch rail out on the street
+    b.decal(
+      signMat(["THE NEWS TODAY", "The Rattler  5¢"], 1.5, 1.7, { bg: "#ddd2b0", fg: "#241d16", border: "#8a7a52" }),
+      fx,
+      1.62,
+      58.4,
+      1.5,
+      1.7,
+      "E",
+      { audit: false },
+    );
+    P.spittoon(b, m, r.maxX + 1.7, 61.4, 0.15, 1.6);
+    P.hitchRail(b, m, px + 0.9, 57.0, px + 0.9, 58.6, 1.28);
+    // the two-rail fence running west along 64.5 south of the porch and the
+    // wagon behind it (H4 W / G4 S)
+    P.railFence(b, m, 19.7, 64.5, 24.7, 64.5, 2, 1.4);
+    // the poster wall on Neely (G3 S / G2 S): Manzana, Martash, REPENT,
+    // the Winter Girls and a wanted bill, crates and barrels before it
     const nz = r.minZ - DECOR_GAP;
-    b.decal(posterMat("wanted"), 18.4, 2.1, nz, 0.85, 1.15, "N");
-    b.decal(posterMat("circus"), 19.9, 1.9, nz, 0.85, 1.15, "N");
-    b.decal(posterMat("wanted2"), 23.1, 1.95, nz, 0.85, 1.15, "N");
-    P.crate(b, m, 20.8, 55.1, 0.9, 0.7, 0.15, m.woodStage);
-    b.decal(signMat(["AMMUNITION"], 0.8, 0.28, { bg: "#a98e66", fg: "#33261a" }), 20.8, 0.45, 54.63, 0.8, 0.28, "N");
-    P.barrel(b, m, 22.4, 55.2);
-    P.barrel(b, m, 18.2, 55.3);
+    b.decal(posterMat("manzana"), 20.85, 2.45, nz, 1.4, 1.8, "N");
+    b.decal(posterMat("martash"), 19.45, 2.85, nz, 1.3, 2.0, "N");
+    b.decal(posterMat("repent"), 18.3, 2.25, nz, 1.0, 1.7, "N");
+    b.decal(posterMat("girls"), 16.8, 2.65, nz, 1.4, 1.8, "N");
+    b.decal(posterMat("wanted"), 15.3, 2.45, nz, 0.95, 1.35, "N");
+    P.crate(b, m, 21.05, 55.3, 1.1, 1.0, 0.05, m.crateLight);
+    b.box(m.woodBlack, 20.85, 1.0, 55.1, 21.25, 1.55, 55.5);
+    P.crate(b, m, 20.05, 55.3, 0.9, 0.94, 0.0, m.crateLight);
+    P.barrel(b, m, 18.15, 55.5, 0.35, 0.94);
+    P.barrel(b, m, 16.85, 55.4, 0.5, 1.17);
   }
 
   /* ---------- behind the Rattler: rock-city shed, outhouse, cart, hide ---------- */
   {
     const r = LOTS.rockCityShed;
-    solidBuilding(b, m, r, 2.7, m.woodGray, "gableX", m.roofDark, 1.2);
-    b.decal(signMat(["SEE ROCK CITY"], 2.6, 0.8, { bg: "#8a8478", fg: "#efeadb", border: "#5a554a" }), 17, 1.8, r.maxZ + DECOR_GAP, 2.6, 0.8, "S");
-    b.decal(signMat(["SEE", "ROCK", "CITY"], 1.4, 1.5, { bg: "#8a8478", fg: "#efeadb", border: "#5a554a" }), 17, 1.5, r.minZ - DECOR_GAP, 1.4, 1.5, "N");
+    solidBuilding(b, m, r, 3.4, m.woodGray, "gableX", m.roofDark, 0.5);
+    b.decal(letters(["SEE", "ROCK", "CITY"], 1.7, 1.5, "#e8e2d2"), 12.4, 2.35, r.minZ - DECOR_GAP, 1.7, 1.5, "N");
+    P.fakeDoor(b, m, 13.6, 0, r.maxZ, 1.2, 2.2, "S", { mat: m.woodGray });
+    // the yard fences: north-south along the lane, east-west across its head (J4 W / K3 W)
+    P.railFence(b, m, 24.7, 64.5, 24.7, 82.0, 2, 1.4);
+    P.hitchRail(b, m, 17.0, 82.0, 22.5, 82.0, 1.2);
     // outhouse
     b.box(m.barnDark, 8.9, 0, 66.4, 10.1, 2.5, 67.6);
     b.cone(m.roofDark, 9.5, 67, 2.5, 2.9, 0.95, 4);
     P.fakeDoor(b, m, 9.5, 0, 67.6, 0.7, 1.8, "S", { mat: m.woodGray });
-    // two-wheel canopy cart
-    P.buckboard(b, m, 12.5, 62.6, 0.4);
-    // hide stretched on a frame + antlers (J4 W view)
-    b.box(m.woodDark, 15.4, 0, 74.8, 15.56, 2.6, 74.96);
-    b.box(m.woodDark, 18.4, 0, 74.8, 18.56, 2.6, 74.96);
-    b.box(m.woodDark, 15.3, 2.4, 74.8, 18.7, 2.56, 74.96, { collide: false });
-    b.decal(signMat([""], 2.4, 1.7, { bg: "#5a4632", fg: "#5a4632" }), 17, 1.4, 74.98, 2.4, 1.7, "S");
-    b.rotBox(m.bone, 17, 2.8, 74.9, 0.9, 0.3, 0.12, 0, { collide: false });
+    // two-wheel canopy cart in the yard (J4 W)
+    P.tipCart(b, m, 20.5, 71.0, 0.35);
   }
 
   /* ---------- Shady Acres cemetery ---------- */
   {
     const r = LOTS.cemetery;
+    // film G2 N / G4 W: tall pointed pickets on Neely, a three-rail fence
+    // up the lane side with a heavy timber post on the corner
     const fence = (x0: number, z0: number, x1: number, z1: number): void => {
-      P.picketFence(b, m, x0, z0, x1, z1, 1.3, m.woodBlack, { slat: 0.09, gap: 0.09, pointed: true, postEvery: 2.6 });
+      P.picketFence(b, m, x0, z0, x1, z1, 1.75, m.woodSaloon, { slat: 0.14, gap: 0.16, pointed: true, postEvery: 2.6 });
     };
     fence(r.minX, r.maxZ, r.maxX, r.maxZ); // south, along Neely
-    fence(r.minX, r.minZ, r.maxX, r.minZ); // north
-    fence(r.minX, r.minZ, r.minX, r.maxZ); // west
-    // east fence with the SHADY ACRES gate opening (E4 W pose)
-    fence(r.maxX, r.minZ, r.maxX, 33.5);
-    fence(r.maxX, 39.5, r.maxX, r.maxZ);
-    b.box(m.woodDark, r.maxX - 0.16, 0, 33.2, r.maxX + 0.16, 3.2, 33.52);
-    b.box(m.woodDark, r.maxX - 0.16, 0, 39.48, r.maxX + 0.16, 3.2, 39.8);
-    b.box(m.woodDark, r.maxX - 0.2, 3.05, 32.9, r.maxX + 0.2, 3.35, 40.1, { collide: false });
-    b.box(m.woodSaloon, r.maxX - 0.08, 2.35, 34.1, r.maxX + 0.08, 3.05, 38.9, { collide: false });
-    b.decal(signMat(["SHADY ACRES"], 4.6, 0.68, { bg: "#33261a", fg: "#efeadb" }), r.maxX + 0.08 + DECOR_GAP, 2.7, 36.5, 4.6, 0.68, "E");
-    b.decal(signMat(["SHADY ACRES"], 4.6, 0.68, { bg: "#33261a", fg: "#efeadb" }), r.maxX - 0.08 - DECOR_GAP, 2.7, 36.5, 4.6, 0.68, "W");
-    P.oxSkull(b, m, r.maxX, 33.36, 3.37);
-    // adobe gate posts near the Neely corner (G3 N view)
-    b.box(m.brickCream, 17.6, 0, r.maxZ - 0.5, 18.5, 1.9, r.maxZ + 0.4);
-    b.box(m.brickCream, 20.6, 0, r.maxZ - 0.5, 21.5, 1.9, r.maxZ + 0.4);
+    fence(r.minX, r.minZ, r.minX, r.maxZ); // west, far out in the desert
+    // the yard is open to the north (D4 W); the lane side carries pickets
+    // north of the gate and rails south of it, with a heavy corner post
+    fence(r.maxX, r.minZ, r.maxX, 31.0);
+    P.railFence(b, m, r.maxX, 31.0, r.maxX, 33.5, 3, 1.5, m.woodSaloon);
+    P.railFence(b, m, r.maxX, 39.5, r.maxX, r.maxZ, 3, 1.5, m.woodSaloon);
+    b.box(m.woodSaloon, r.maxX - 0.2, 0, r.maxZ - 0.2, r.maxX + 0.2, 2.7, r.maxZ + 0.2);
+    b.box(m.brickMayor, r.maxX - 0.3, 0, r.minZ - 0.3, r.maxX + 0.3, 1.6, r.minZ + 0.3);
+    b.cyl(m.woodDark, r.maxX, r.minZ, 1.6, 1.95, 0.2, { rTop: 0.24, seg: 8 });
+    b.cyl(m.cactus, r.maxX, r.minZ, 1.95, 2.9, 0.09, { seg: 6 });
+    // the SHADY ACRES gate frame (F4 N): posts to 4 m, the board at 2.9..3.45, the skull on the beam
+    b.box(m.woodDark, r.maxX - 0.16, 0, 33.2, r.maxX + 0.16, 4.0, 33.52);
+    b.box(m.woodDark, r.maxX - 0.16, 0, 39.48, r.maxX + 0.16, 4.0, 39.8);
+    b.box(m.woodDark, r.maxX - 0.2, 3.7, 32.9, r.maxX + 0.2, 4.0, 40.1, { collide: false });
+    b.box(m.woodSaloon, r.maxX - 0.08, 2.9, 34.1, r.maxX + 0.08, 3.45, 38.9, { collide: false });
+    b.decal(signMat(["SHADY ACRES"], 4.6, 0.55, { bg: "#33261a", fg: "#efeadb" }), r.maxX + 0.08 + DECOR_GAP, 3.17, 36.5, 4.6, 0.55, "E");
+    b.decal(signMat(["SHADY ACRES"], 4.6, 0.55, { bg: "#33261a", fg: "#efeadb" }), r.maxX - 0.08 - DECOR_GAP, 3.17, 36.5, 4.6, 0.55, "W");
+    P.oxSkull(b, m, r.maxX, 34.0, 4.05);
     // graves: lettered slate, granite, boards and crosses, in rough rows
     const stones: [number, number, P.StoneKind, string[] | undefined, "E" | "S" | "N" | "W", number][] = [
       [19.2, 31.6, "slate", ["HERE", "LIES", "LESTER MOORE", "FOUR SLUGS", "FROM A .44", "NO LES", "NO MORE"], "E", 0.02],
@@ -1377,6 +1407,15 @@ export function buildTown(m: Mats, nightGroup: THREE.Group): TownResult {
       [12.8, 46.4, "granite", ["DIED", "1881"], "N", 0],
       [7.2, 46.0, "cross", undefined, "N", 0.07],
       [3.4, 38.6, "cross", undefined, "E", -0.03],
+      // the yard runs far out west (E3 W / G1 N)
+      [-2.5, 30.5, "granite", ["JOHN", "DOE"], "E", 0],
+      [-6.0, 34.0, "slate", ["HERE LIES", "A STRANGER", "1878"], "E", 0.03],
+      [-10.5, 31.0, "cross", undefined, "E", -0.04],
+      [-14.0, 36.5, "granite", ["MARY", "ELLEN", "1880"], "E", 0],
+      [-18.5, 33.0, "slate", ["SHOT", "IN A", "FAIR FIGHT", "1879"], "E", 0.05],
+      [-8.0, 41.5, "wood", ["A", "MINER", "1877"], "E", -0.06],
+      [-16.0, 42.0, "cross", undefined, "E", 0.02],
+      [-3.5, 44.5, "granite", ["DIED", "1882"], "N", 0],
     ];
     for (const [gx, gz, kind, text, facing, lean] of stones) {
       P.gravestone(b, m, gx, gz, kind, { text, facing, lean });
@@ -1394,16 +1433,21 @@ export function buildTown(m: Mats, nightGroup: THREE.Group): TownResult {
       mound.translate(gx, 0, gz);
       b.mesh(m.dirt, mound);
     }
-    P.deadTree(b, m, 9.8, 39.0, 5.2);
-    P.buckboard(b, m, 4.6, 40.2, 0.15);
+    P.deadTree(b, m, 4.5, 36.0, 10);
     P.saguaro(b, m, 21.4, 30.2, 2.6);
     P.saguaro(b, m, 1.9, 34.8, 3.4);
     P.saguaro(b, m, 14.6, 29.6, 2.2);
+    P.saguaro(b, m, -9.0, 27.5, 3.6);
+    P.saguaro(b, m, -20.0, 38.0, 3.0);
   }
 
-  /* ---------- Neely west props ---------- */
+  /* ---------- Neely west end: the wagon and coffins outside Sidewinder's (G1 W / G4 W) ---------- */
   {
-    P.wagonWheel(b, m, 21.2, 0, 47.9, 0.7, 0.2);
+    P.wagon(b, m, -0.8, 50.2, Math.PI / 2);
+    P.coffin(b, m, -0.1, 53.4, Math.PI / 2);
+    b.box(m.woodMid, -5.05, 0, 51.75, -3.75, 2.4, 53.05);
+    b.cone(m.roofDark, -4.4, 52.4, 2.4, 2.95, 0.95, 4, Math.PI / 4);
+    P.fakeDoor(b, m, -3.75, 0, 52.4, 0.7, 1.8, "E", { mat: m.woodDark });
     // hand pump + trough north of G4 (F4 field)
     b.box(m.iron, 27.9, 0, 43.9, 28.2, 1.1, 44.2);
     b.rotBox(m.iron, 28.35, 1.05, 44.05, 0.5, 0.08, 0.08, 0, { collide: false });
@@ -1414,30 +1458,42 @@ export function buildTown(m: Mats, nightGroup: THREE.Group): TownResult {
 
   /* =========== LEE STREET / EAST =========== */
 
-  /* ---------- Livery (F10 E) ---------- */
+  /* ---------- Livery (F10 E): pale boards, gold LIVERY board, red roof ---------- */
   {
     const r = LOTS.livery;
     const d = streetDoor("livery");
-    shell(b, m.woodStage, r, 0, 3.6, { W: [doorGapOf(d), ...winGaps("livery", "W")] });
+    shell(b, m.woodStage, r, 0, 3.8, { W: [doorGapOf(d), ...winGaps("livery", "W")] });
     buildWindows(b, m, "livery", m.woodStage);
-    b.box(m.woodStage, r.minX - 0.04, 3.6, r.minZ, r.minX + WALL_T, 5.2, r.maxZ);
-    P.gableRoof(b, m, r.minX, r.minZ, r.maxX, r.maxZ, 3.6, 5.4, "x", m.roofDark, m.woodStage);
-    capFace(b, m.woodDark, r, "W", 5.2, m, 3.6);
+    b.box(m.woodStage, r.minX - 0.04, 3.8, r.minZ, r.minX + WALL_T, 5.5, r.maxZ);
+    P.gableRoof(b, m, r.minX, r.minZ, r.maxX, r.maxZ, 3.8, 5.6, "x", m.roofRed, m.woodStage);
+    capFace(b, m.woodDark, r, "W", 5.5, m, 3.8);
     const fx = r.minX - 0.04 - DECOR_GAP;
-    b.decal(signMat(["LIVERY"], 4.6, 1.2, { bg: "#241d16", fg: "#dfb44e", border: "#0f0c08" }), fx, 4.4, 43.7, 4.6, 1.2, "W");
-    // sacks + barrel + crate + chair out front
-    P.sack(b, m, r.minX - 0.8, 46.6);
-    P.sack(b, m, r.minX - 1.3, 46.9);
-    P.sack(b, m, r.minX - 0.95, 47.3, 0.4);
-    P.barrel(b, m, r.minX - 0.7, 48.4);
-    P.crate(b, m, r.minX - 0.8, 41.9, 0.85, 0.7, 0.15);
-    P.chair(b, m, r.minX - 0.7, 40.4, Math.PI / 2);
-    b.cyl(m.white, r.minX - 1.4, 39.6, 0, 0.55, 0.16, { seg: 8 }); // milk can
-    // south wall + posters over the G11 alley
-    b.decal(posterMat("wanted"), 84, 2.1, r.maxZ + DECOR_GAP, 0.85, 1.15, "S");
-    b.decal(posterMat("circus"), 86, 1.9, r.maxZ + DECOR_GAP, 0.85, 1.15, "S");
-    b.decal(posterMat("wanted2"), 88.2, 2.05, r.maxZ + DECOR_GAP, 0.85, 1.15, "S");
-    P.bench(b, m, 85, r.maxZ + 0.9, 1.7, "S");
+    b.decal(letters(["LIVERY"], 5.4, 0.9, "#dfb44e", undefined, true), fx, 4.3, 43.5, 5.4, 0.9, "W");
+    // hay, crates, barrels and the milk can out front (G10 N)
+    P.sack(b, m, r.minX - 0.8, 46.3);
+    P.sack(b, m, r.minX - 1.3, 46.7);
+    P.sack(b, m, r.minX - 0.95, 47.1, 0.4);
+    P.barrel(b, m, r.minX - 0.4, 47.6);
+    P.barrel(b, m, r.minX + 0.3, 48.7);
+    P.crate(b, m, r.minX - 0.8, 42.7, 0.85, 0.7, 0.15);
+    P.crate(b, m, r.minX - 1.1, 43.4, 0.6, 0.5, 0.3);
+    b.cyl(m.white, r.minX - 1.3, 41.5, 0, 0.55, 0.16, { seg: 8 }); // milk can
+    // south face over the G11 alley: two bills and a long rough table
+    b.decal(posterMat("girls"), 82.5, 2.5, r.maxZ + DECOR_GAP, 1.06, 1.6, "S");
+    b.decal(posterMat("wanted"), 88.3, 2.3, r.maxZ + DECOR_GAP, 0.8, 1.05, "S");
+    b.decal(posterMat("manzana"), 89.8, 2.35, r.maxZ + DECOR_GAP, 0.9, 1.2, "S");
+    b.box(m.woodDark, 81.0, 1.0, r.maxZ + 0.6, 84.1, 1.1, r.maxZ + 1.1);
+    for (const lx of [81.2, 82.55, 83.9]) {
+      b.box(m.woodDark, lx - 0.05, 0, r.maxZ + 0.8, lx + 0.05, 1.0, r.maxZ + 0.9, { collide: false });
+    }
+    P.barrel(b, m, 80.2, r.maxZ + 1.0);
+    // the rail fence and gate closing Neely's east end (G10 E / G11 E)
+    P.railFence(b, m, 88, 47.5, 88, 50.0, 3, 1.95, m.woodStage);
+    P.railFence(b, m, 88, 53.3, 88, 56.5, 3, 1.95, m.woodStage);
+    for (const gz of [50.0, 53.3]) {
+      b.box(m.woodStage, 87.85, 0, gz - 0.15, 88.15, 2.3, gz + 0.15);
+    }
+    P.railFence(b, m, 88.15, 53.3, 91.3, 53.3, 3, 1.75, m.woodStage); // the leaf, swung open eastward
   }
 
   /* ---------- mayor compound: pillar fence, iron gate, mansion ---------- */
@@ -1445,42 +1501,42 @@ export function buildTown(m: Mats, nightGroup: THREE.Group): TownResult {
     const f = LOTS.mayorFence;
     const gate = streetDoor("mayor");
     const pillar = (px: number, pz: number): void => {
-      b.box(m.brickMayor, px - 0.42, 0, pz - 0.42, px + 0.42, 2.6, pz + 0.42);
-      b.box(m.white, px - 0.5, 2.6, pz - 0.5, px + 0.5, 2.78, pz + 0.5, { collide: false });
-      b.cone(m.white, px, pz, 2.78, 3.3, 0.52, 4);
+      b.box(m.brickMayor, px - 0.385, 0, pz - 0.385, px + 0.385, 3.5, pz + 0.385);
+      b.box(m.white, px - 0.47, 3.5, pz - 0.47, px + 0.47, 3.68, pz + 0.47, { collide: false });
+      b.cone(m.white, px, pz, 3.68, 3.95, 0.62, 4, Math.PI / 4);
     };
     // west run on the Lee street line with the gate opening (I10 E pose)
     const gz0 = gate.z - gate.width / 2 - 0.45;
     const gz1 = gate.z + gate.width / 2 + 0.45;
-    const westPosts = [f.minZ, 61.2, gz0, gz1, 73.6, f.maxZ];
+    const westPosts = [f.minZ, 59.3, 62.5, gz0, gz1, 73.1, 76.8, f.maxZ];
     for (const pz of westPosts) {
       pillar(f.minX, pz);
     }
     const scallop = (x0: number, z0: number, x1: number, z1: number): void => {
-      P.boardFence(b, m, x0, z0, x1, z1, 2.45, 1.75, m.woodBlack);
+      P.boardFence(b, m, x0, z0, x1, z1, 2.95, 2.2, m.woodSaloon);
     };
-    scallop(f.minX, f.minZ + 0.42, f.minX, 61.2 - 0.42);
-    scallop(f.minX, 61.2 + 0.42, f.minX, gz0 - 0.42);
-    scallop(f.minX, gz1 + 0.42, f.minX, 73.6 - 0.42);
-    scallop(f.minX, 73.6 + 0.42, f.minX, f.maxZ - 0.42);
+    for (let i = 0; i + 1 < westPosts.length; i += 1) {
+      const a = westPosts[i];
+      const bz = westPosts[i + 1];
+      if (a === gz0) {
+        continue;
+      }
+      scallop(f.minX, a + 0.42, f.minX, bz - 0.42);
+    }
     // north run with LEE board + MACINTOSH graffiti (G10 E / G11 S views)
-    const eastPosts = [84.8, 89.6, 94.4, f.maxX];
+    const eastPosts = [83.85, 87.6, 91.35, 95.1, f.maxX];
     let prev = f.minX;
     for (const px of eastPosts) {
       pillar(px, f.minZ);
       scallop(prev + 0.42, f.minZ, px - 0.42, f.minZ);
       prev = px;
     }
-    b.decal(signMat(["NEELY"], 1.2, 0.45, { bg: "#efeadb", fg: "#241d16" }), 82.6, 1.7, f.minZ - 0.06 - DECOR_GAP, 1.2, 0.45, "N");
-    b.decal(
-      signMat(["MACINTOSH IS A", "SON OF A B——"], 3.4, 1.0, { bg: "#241d16", fg: "#efeadb", font: "cursive" }),
-      91.8,
-      1.35,
-      f.minZ - 0.06 - DECOR_GAP,
-      3.4,
-      1.0,
-      "N",
-    );
+    b.decal(signMat(["NEELY"], 0.74, 0.27, { bg: "#efeadb", fg: "#241d16" }), f.minX, 2.52, f.minZ - 0.385 - DECOR_GAP, 0.74, 0.27, "N");
+    b.decal(signMat(["NEELY"], 0.74, 0.27, { bg: "#efeadb", fg: "#241d16" }), f.minX - 0.385 - DECOR_GAP, 2.45, f.minZ, 0.74, 0.27, "W");
+    b.box(m.woodDark, 79.45, 0, 54.55, 79.6, 2.8, 54.7);
+    b.box(m.woodDark, 79.1, 2.35, 54.5, 79.95, 2.75, 54.56, { collide: false });
+    b.decal(signMat(["LEE"], 0.8, 0.36, { bg: "#3a2814", fg: "#e8dcb8", font: "Rockwell, 'Arial Black', Georgia, serif" }), 79.52, 2.55, 54.5 - DECOR_GAP, 0.8, 0.36, "N");
+    b.decal(letters(["MACINTOSH IS", "A SON OF A B"], 2.2, 1.05, "#e8e2d2", "cursive"), 81.5, 1.42, f.minZ - 0.04 - DECOR_GAP, 2.2, 1.05, "N");
     // south + east runs
     prev = f.minX;
     for (const px of eastPosts) {
@@ -1500,7 +1556,11 @@ export function buildTown(m: Mats, nightGroup: THREE.Group): TownResult {
     for (const pz of [gz0, gz1]) {
       P.wallLantern(b, m, f.minX - 0.42, 1.9, pz, "W");
     }
-    P.potPlant(b, m, f.minX - 0.9, gz1 + 1.1);
+    b.cyl(m.brickMayor, 78.6, 64.7, 0, 0.55, 0.3, { rTop: 0.38, seg: 9, collide: true });
+    b.cyl(m.cactus, 78.5, 64.7, 0.55, 1.5, 0.15, { seg: 6 });
+    b.cyl(m.cactus, 78.8, 64.85, 0.55, 1.2, 0.12, { seg: 6 });
+    b.decal(signMat(["DAY"], 0.8, 0.3, { bg: "#efeadb", fg: "#241d16" }), f.minX - 0.385 - DECOR_GAP, 2.5, f.maxZ, 0.8, 0.3, "W");
+    b.decal(signMat(["LEE"], 0.74, 0.27, { bg: "#efeadb", fg: "#241d16" }), f.minX, 2.6, f.maxZ + 0.385 + DECOR_GAP, 0.74, 0.27, "S");
     b.box(m.iron, f.minX - 0.08, 2.9, gate.z - 1.65, f.minX + 0.08, 3.05, gate.z + 1.65, { collide: false });
     b.decal(signMat(["M"], 0.7, 0.55, { bg: "#241d16", fg: "#dfb44e", border: "#dfb44e" }), f.minX - 0.08 - DECOR_GAP, 3.35, gate.z, 0.7, 0.55, "W");
     b.box(m.iron, f.minX - 0.06, 3.05, gate.z - 0.5, f.minX + 0.06, 3.7, gate.z + 0.5, { collide: false });
@@ -1509,7 +1569,7 @@ export function buildTown(m: Mats, nightGroup: THREE.Group): TownResult {
 
     // mansion: cream two-story, brown shutters, gable + chimneys, porch
     const r = LOTS.mansion;
-    const front = { from: 65.75, to: 67.45, top: 2.72 };
+    const front = { from: 67.05, to: 68.75, top: 2.72 };
     shell(b, m.woodWhite, r, 0, 7.2, { W: [front, ...winGaps("mansion", "W")] });
     buildWindows(b, m, "mansion", m.woodWhite);
     P.gableRoof(b, m, r.minX, r.minZ, r.maxX, r.maxZ, 7.2, 9.6, "z", m.roofDark, m.woodWhite);
@@ -1519,31 +1579,28 @@ export function buildTown(m: Mats, nightGroup: THREE.Group): TownResult {
     // gable-end cornice returns on the street face
     b.box(m.woodDark, r.minX - 0.3, 7.2, r.minZ - 0.2, r.minX + 0.2, 7.4, r.maxZ + 0.2, { collide: false });
     const fx = r.minX - DECOR_GAP;
-    // brown shutters flanking every front window
-    for (const wz of [59.5, 62, 71, 74]) {
-      for (const wy of [1.9, 5.3]) {
-        b.box(m.woodMid, r.minX - 0.06, wy - 0.75, wz - 0.85, r.minX - 0.02, wy + 0.75, wz - 0.55, { collide: false });
-        b.box(m.woodMid, r.minX - 0.06, wy - 0.75, wz + 0.55, r.minX - 0.02, wy + 0.75, wz + 0.85, { collide: false });
-      }
+    // brown shutters flanking every front window (I10 E)
+    for (const [wz, wy] of [
+      [65.6, 1.6], [70.3, 1.6], [62.5, 5.2], [65.6, 5.2], [70.3, 5.2], [73.2, 5.2],
+    ] as const) {
+      b.box(m.woodMid, r.minX - 0.06, wy - 0.75, wz - 0.85, r.minX - 0.02, wy + 0.75, wz - 0.55, { collide: false });
+      b.box(m.woodMid, r.minX - 0.06, wy - 0.75, wz + 0.55, r.minX - 0.02, wy + 0.75, wz + 0.85, { collide: false });
     }
-    for (const wy of [5.3]) {
-      b.box(m.woodMid, r.minX - 0.06, wy - 0.75, 66.6 - 0.85, r.minX - 0.02, wy + 0.75, 66.6 - 0.55, { collide: false });
-      b.box(m.woodMid, r.minX - 0.06, wy - 0.75, 66.6 + 0.55, r.minX - 0.02, wy + 0.75, 66.6 + 0.85, { collide: false });
-    }
-    // porch around the front door (aligned with the gate walk)
-    P.boardwalkSlab(b, m, r.minX - 1.8, 64.2, r.minX, 69, 0.3);
+    // the door bay: a low porch on the gate axis under a front-facing gable
+    P.boardwalkSlab(b, m, r.minX - 1.8, 65.7, r.minX, 70.1, 0.3);
     P.porchPosts(b, m, 0.3, 3.0, [
-      [r.minX - 1.6, 64.6],
-      [r.minX - 1.6, 68.6],
+      [r.minX - 1.6, 65.9],
+      [r.minX - 1.6, 69.9],
     ], m.woodWhite);
-    P.porchRoof(b, m, r.minX - 1.9, 64, r.minX, 69.2, 3.0, 3.4, "W");
-    b.decal(signMat(["M"], 0.6, 0.5, { bg: "#efeadb", fg: "#dfb44e", border: "#b08d3f" }), fx, 3.9, 66.6, 0.6, 0.5, "W");
-    b.box(m.marble, r.minX - 2.3, 0, 65.4, r.minX - 1.8, 0.15, 67.8); // step
+    P.porchRoof(b, m, r.minX - 1.9, 65.5, r.minX, 70.3, 3.0, 3.4, "W");
+    P.gableRoof(b, m, r.minX - 0.4, 64.4, r.minX + 6.0, 71.3, 7.2, 8.7, "x", m.roofDark, m.woodWhite);
+    b.decal(signMat(["M"], 0.6, 0.5, { bg: "#efeadb", fg: "#dfb44e", border: "#b08d3f" }), fx, 3.9, 67.9, 0.6, 0.5, "W");
+    b.box(m.marble, r.minX - 2.3, 0, 66.7, r.minX - 1.8, 0.15, 69.1); // step
     // grounds: trees
     for (const [tx, tz] of [
-      [83.4, 61.5],
-      [83.8, 74.5],
-      [97.5, 54.5],
+      [83.4, 60.0],
+      [83.8, 76.5],
+      [97.5, 57.5],
     ] as const) {
       b.cyl(m.woodDark, tx, tz, 0, 1.9, 0.18, { seg: 7, collide: true });
       b.sphere(m.cactusDark, tx, 2.8, tz, 1.5, 8);
@@ -1552,97 +1609,64 @@ export function buildTown(m: Mats, nightGroup: THREE.Group): TownResult {
 
   /* ---------- Day street east + rifle range ---------- */
   {
-    // DAY/LEE sign gantry over Day at the Lee corner
-    b.box(m.woodDark, 73.4, 0, 72.3, 73.7, 3.4, 72.6);
-    b.box(m.woodDark, 79.4, 0, 72.3, 79.7, 3.4, 72.6);
-    b.box(m.woodDark, 73.3, 3.2, 72.32, 79.8, 3.45, 72.58, { collide: false });
-    b.decal(signMat(["DAY"], 1.3, 0.45, { bg: "#2c2014", fg: "#d8cba6" }), 75.4, 2.85, 72.62 + DECOR_GAP, 1.3, 0.45, "S");
-    b.decal(signMat(["DAY"], 1.3, 0.45, { bg: "#2c2014", fg: "#d8cba6" }), 75.4, 2.85, 72.28 - DECOR_GAP, 1.3, 0.45, "N");
-    b.decal(signMat(["LEE"], 1.3, 0.45, { bg: "#2c2014", fg: "#d8cba6" }), 77.6, 2.4, 72.62 + DECOR_GAP, 1.3, 0.45, "S");
     // The range is the `_TARGET` set: tiles L9..O13 (x 64..104, z 88..120),
     // entered through the gate on the K11 axis (x 84). Rail fences either
     // side of the gate (K10 S / K11 S), the banner over it; nothing
     // stands inside but the booth, the tank, the windmill and cacti.
-    P.railFence(b, m, 74, 88.3, 82.4, 88.3, 3, 1.25, m.woodGray);
-    P.railFence(b, m, 85.6, 88.3, 100, 88.3, 3, 1.25, m.woodGray);
-    b.box(m.woodDark, 82.25, 0, 88.1, 82.55, 3.6, 88.4);
-    b.box(m.woodDark, 85.45, 0, 88.1, 85.75, 3.6, 88.4);
-    b.decal(
-      signMat(["TARGET AND RIFLE RANGE"], 4.6, 0.7, { bg: "#8d7350", fg: "#241d16", border: "#4f382a" }),
-      84,
-      3.2,
-      88.05 - DECOR_GAP,
-      4.6,
-      0.7,
-      "N",
-    );
-    b.box(m.woodDark, 81.6, 3.5, 88.1, 86.4, 3.65, 88.4, { collide: false });
-    // east + south rails, and the yard rail extended to close the west
-    P.railFence(b, m, 100, 88.3, 100, 116, 2, 1.2, m.woodGray);
-    P.railFence(b, m, 66, 116, 100, 116, 2, 1.2, m.woodGray);
-    P.railFence(b, m, 66, PALISADE.zSouth, 66, 116, 2, 1.2, m.woodGray);
-    P.railFence(b, m, 88, 94.6, 98, 94.6, 3, 1.2, m.woodGray);
+    P.railFence(b, m, 72.6, 88.3, 73.3, 88.3, 3, 1.8, m.woodStage);
+    P.railFence(b, m, 75.7, 88.3, 80.8, 88.3, 3, 1.8, m.woodStage);
+    for (const gx of [73.3, 75.7]) {
+      b.box(m.woodDark, gx - 0.12, 0, 88.18, gx + 0.12, 2.6, 88.42);
+    }
+    P.railFence(b, m, 88.2, 88.3, 91.4, 88.3, 3, 1.8, m.woodStage);
+    // the gate: posts 7.2 m apart carrying SKIZ SHERATON'S board at 4.35 m
+    b.box(m.woodDark, 80.6, 0, 88.1, 81.0, 4.9, 88.5);
+    b.box(m.woodDark, 87.8, 0, 88.1, 88.2, 4.9, 88.5);
+    b.box(m.woodDark, 80.4, 4.6, 88.1, 88.4, 4.9, 88.5, { collide: false });
+    b.box(m.woodSaloon, 81.9, 3.9, 88.22, 86.9, 4.8, 88.38, { collide: false });
+    const rangeSign = signMat(["SKIZ SHERATON'S", "TARGET AND RIFLE RANGE"], 5.0, 0.9, { bg: "#3a2814", fg: "#d8cba6", border: "#20150c" });
+    b.decal(rangeSign, 84.4, 4.35, 88.22 - DECOR_GAP, 5.0, 0.9, "N");
+    b.decal(rangeSign, 84.4, 4.35, 88.38 + DECOR_GAP, 5.0, 0.9, "S");
     // Skiz Sheraton's shooting-gallery booth at the far end, as the
     // _TARGET still films it: white body, navy teepee band, bird
     // targets, lettering, a plank walk up from the gate
     {
-      const bx0 = 77;
-      const bx1 = 91;
-      const bz0 = 110;
-      const bz1 = 112.4;
-      b.box(m.white, bx0, 0, bz0, bx1, 2.65, bz1);
-      b.box(m.glassCold, bx0 - 0.12, 2.55, bz0 - 0.06, bx1 + 0.12, 2.72, bz1 + 0.12, { collide: false });
+      const bx0 = 81.2;
+      const bx1 = 86.9;
+      const bz0 = 95.0;
+      const bz1 = 97.4;
+      b.box(m.white, bx0, 0, bz0, bx1, 2.4, bz1);
+      b.box(m.glassCold, bx0 - 0.12, 2.3, bz0 - 0.06, bx1 + 0.12, 2.47, bz1 + 0.12, { collide: false });
       b.box(m.glassCold, bx0 - 0.1, 1.42, bz0 - 0.08, bx1 + 0.1, 1.58, bz0 + 0.2, { collide: false });
       b.decal(
         new THREE.MeshLambertMaterial({ map: teepeeBandTex(7) }),
         (bx0 + bx1) / 2,
-        2.05,
+        1.95,
         bz0 - DECOR_GAP,
-        bx1 - bx0 - 1.4,
-        1.0,
+        bx1 - bx0 - 0.6,
+        0.7,
         "N",
       );
       b.box(m.white, bx0, 1.28, bz0 - 0.45, bx1, 1.5, bz0, { collide: false });
       b.decal(
-        signMat(["SKIZ SHERATON'S", "TARGET AND RIFLE RANGE"], 12.6, 1.1, {
+        signMat(["SKIZ SHERATON'S", "TARGET AND RIFLE RANGE"], 5.0, 0.6, {
           bg: "#efeadb",
           fg: "#9e2f24",
           border: "#2b3a5c",
         }),
         (bx0 + bx1) / 2,
-        0.72,
+        0.95,
         bz0 - DECOR_GAP,
-        12.6,
-        1.1,
+        5.0,
+        0.6,
         "N",
       );
       for (const [bxT, byT, sc] of [
-        [78.3, 2.2, 1], [80.1, 1.9, 0.8], [82.4, 2.35, 0.9], [84.8, 1.75, 1],
-        [87.1, 2.25, 0.8], [88.9, 1.95, 0.9], [90.4, 2.4, 0.8],
+        [81.9, 2.05, 0.8], [82.9, 1.85, 0.7], [84.0, 2.1, 0.8], [85.1, 1.8, 0.7], [86.2, 2.05, 0.8],
       ] as const) {
-        b.rotBox(m.brickMayor, bxT, byT, bz0 - 0.07, 0.22 * sc, 0.14 * sc, 0.1, 0.4, { collide: false });
+        b.rotBox(m.brickMayor, bxT, byT, bz0 - 0.07, 0.2 * sc, 0.13 * sc, 0.1, 0.4, { collide: false });
       }
-      for (const bxT of [79.1, 81.7, 83.9, 86.4, 88.6, 90.1]) {
-        b.rotBox(m.brickMayor, bxT, 1.58, bz0 - 0.22, 0.24, 0.16, 0.12, -0.3, { collide: false });
-      }
-      b.flat(m.woodWatson, 82.9, 89.5, 85.1, bz0, 0.06);
-      b.box(m.iron, 82.6, 0.02, 108.3, 85.4, 0.12, 109.9);
-      b.box(m.woodDark, 92.6, 0, 109.3, 92.75, 3.4, 109.45);
-    }
-    // SEE ROCK CITY tank on its tower + the windmill in the south-east
-    {
-      const tx = 74;
-      const tz = 104.5;
-      for (const [sx2, sz2] of [
-        [-0.8, -0.8],
-        [-0.8, 0.8],
-        [0.8, 0.8],
-        [0.8, -0.8],
-      ] as const) {
-        b.box(m.woodDark, tx + sx2 - 0.09, 0, tz + sz2 - 0.09, tx + sx2 + 0.09, 3.4, tz + sz2 + 0.09);
-      }
-      b.cyl(m.woodSaloon, tx, tz, 3.4, 5.2, 1.25, { seg: 12 });
-      b.decal(signMat(["SEE", "ROCK", "CITY"], 1.6, 1.5, { bg: "#3a2b1f", fg: "#efeadb" }), tx, 4.3, tz - 1.3, 1.6, 1.5, "N");
+      b.flat(m.woodWatson, 83.0, 89.5, 85.0, bz0, 0.06);
     }
     for (const [cx2, cz2] of [
       [70, 98.5],
@@ -1659,97 +1683,120 @@ export function buildTown(m: Mats, nightGroup: THREE.Group): TownResult {
     ] as const) {
       P.saguaro(b, m, cx2, cz2, 2.4 + ((cx2 + cz2) % 3) * 0.5);
     }
-    P.oxSkull(b, m, 86.6, 90.6);
+    P.oxSkull(b, m, 80.1, 87.4);
   }
 
   /* =========== FARM SOUTH-WEST + DAY WEST =========== */
   {
-    solidBuilding(b, m, LOTS.wheelwright, 3.8, m.woodBlack, "gableX", m.roofDark, 1.6);
-    P.fakeDoor(b, m, 11, 0, LOTS.wheelwright.maxZ, 1.5, 2.4, "S", { mat: m.woodBlack });
-    P.wallLantern(b, m, 10.6, 3.1, LOTS.wheelwright.maxZ, "S");
-    windowRow(b, winCold, "S", LOTS.wheelwright.maxZ + DECOR_GAP, [7.4, 14.6], 1.9, 1.2, 1.4);
-    // antlers on the east gable (K3 W view)
-    b.rotBox(m.bone, LOTS.wheelwright.maxX + 0.08, 3.6, 76, 0.1, 0.4, 0.9, 0, { collide: false });
-
-    // low white stable, two dark doorways with stone ramps (K2 W view)
-    const st = LOTS.whiteStable;
-    solidBuilding(b, m, st, 2.6, m.adobeMission, "flat", m.roofDark);
-    for (const dz of [81.5, 85.5]) {
-      b.decal(signMat([""], 1.1, 1.9, { bg: "#17120d", fg: "#17120d" }), st.maxX + DECOR_GAP, 1.0, dz, 1.1, 1.9, "E");
-      b.flat(m.marble, st.maxX, dz - 0.55, st.maxX + 1.2, dz + 0.55, 0.03);
+    // the wheelwright's black shop (K3 W): lantern and window on the east face
+    const ww = LOTS.wheelwright;
+    solidBuilding(b, m, ww, 3.8, m.woodBlack, "flat", m.roofDark);
+    b.box(m.woodBlack, ww.maxX - WALL_T, 3.8, ww.minZ, ww.maxX + 0.04, 5.2, ww.maxZ);
+    for (let cz = ww.minZ + 0.35; cz < ww.maxZ; cz += 1.0) {
+      b.box(m.woodBlack, ww.maxX - 0.12, 5.2, cz - 0.2, ww.maxX + 0.04, 5.45, cz + 0.2, { collide: false });
     }
-    P.wagonWheel(b, m, st.maxX + 0.4, 0, 79.2, 0.7, 0.25);
-    P.saguaro(b, m, st.maxX + 2.2, 78.6, 2.8);
+    // south face on the lane (K3 W): wagon door, a lantern high beside it, two windows
+    P.fakeDoor(b, m, 13.7, 0, ww.maxZ, 2.24, 3.2, "S", { mat: m.woodBlack });
+    P.wallLantern(b, m, 13.9, 3.55, ww.maxZ, "S");
+    b.decal(winCold, 11.5, 1.67, ww.maxZ + DECOR_GAP, 1.2, 1.75, "S");
+    b.decal(winCold, 15.5, 1.67, ww.maxZ + DECOR_GAP, 1.2, 1.75, "S");
+    P.spittoon(b, m, 18.2, 79.6, 0, 1.5);
+    // the east gable carries a stretched hide under a rack of antlers (J4 W)
+    b.decal(m.hide, ww.maxX + 0.04 + DECOR_GAP, 2.3, 77.8, 3.4, 3.0, "E");
+    b.decal(m.antler, ww.maxX + 0.04 + DECOR_GAP, 4.5, 79.0, 1.1, 0.8, "E");
+    b.decal(letters(["SEE", "ROCK", "CITY"], 1.25, 1.7, "#e8e2d2"), ww.maxX + 0.04 + DECOR_GAP, 2.45, 73.2, 1.25, 1.7, "E");
+    b.decal(letters(["SEE", "ROCK", "CITY"], 1.7, 1.5, "#e8e2d2"), 13.2, 2.5, ww.minZ - DECOR_GAP, 1.7, 1.5, "N");
 
-    // gray barn south of Day with the X-door facing the L3 spur
+    // the low dark stable with two doorways and stone ramps (K2 W / K3 W)
+    const st = LOTS.whiteStable;
+    solidBuilding(b, m, st, 2.3, m.adobeJail, "flat", m.roofDark);
+    b.box(m.woodDark, st.minX - 0.1, 2.25, st.minZ - 0.1, st.maxX + 0.1, 2.55, st.maxZ + 0.1, { collide: false });
+    for (const dz of [82.0, 85.1]) {
+      b.decal(signMat([""], 1.1, 1.9, { bg: "#17120d", fg: "#17120d" }), st.maxX + DECOR_GAP, 1.0, dz, 1.1, 1.9, "E");
+      b.flat(m.crateLight, st.maxX, dz - 0.55, st.maxX + 1.3, dz + 0.55, 0.03);
+    }
+    P.saguaro(b, m, -3.0, 77.0, 3.4);
+    P.saguaro(b, m, 1.5, 75.5, 2.6);
+
+    // grey barn under a red roof, its north end into the K3 lane (K3 W / K2 W / G2 S)
     const gb = LOTS.grayBarn;
-    solidBuilding(b, m, gb, 3.4, m.woodGray, "gableZ", m.roofDark, 2.2);
-    b.decal(
-      signMat([""], 2.6, 2.9, { bg: "#5a2b1e", fg: "#5a2b1e", planked: true }),
-      gb.maxX + DECOR_GAP,
-      1.5,
-      92.5,
-      2.6,
-      2.9,
-      "E",
-    );
-    b.decal(signMat(["X"], 2.6, 2.9, { bg: "#5a2b1e", fg: "#3a1c12", font: "Georgia" }), gb.maxX + DECOR_GAP * 2, 1.5, 92.5, 2.6, 2.9, "E");
-    b.decal(signMat(["U U"], 1.3, 0.5, { bg: "#8a8478", fg: "#3a3630" }), gb.maxX + DECOR_GAP, 3.15, 92.5, 1.3, 0.5, "E");
-    P.crate(b, m, gb.maxX + 0.9, 95.2, 0.9, 0.7, 0.2);
+    solidBuilding(b, m, gb, 4.6, m.woodGray, "gableZ", m.roofRed, 2.4);
+    // the east front on the L3 spur (L3 W / K3 S): the big X door, two
+    // horseshoes, a crate, sacks, the stone box at the corner
+    const ex = gb.maxX + DECOR_GAP;
+    b.decal(signMat(["X"], 3.6, 3.9, { bg: "#5a2b1e", fg: "#3a1c12", font: "Georgia", planked: true }), ex, 1.95, 91.8, 3.6, 3.9, "E");
+    b.flat(m.crateLight, gb.maxX, 90.2, gb.maxX + 1.3, 93.4, 0.03);
+    b.decal(letters(["U"], 0.45, 0.4, "#3a3630"), ex, 2.85, 89.3, 0.45, 0.4, "E");
+    b.decal(letters(["U"], 0.45, 0.4, "#3a3630"), ex, 2.35, 88.2, 0.45, 0.4, "E");
+    P.crate(b, m, 16.0, 88.8, 0.9, 0.8, 0.1, m.woodDark);
+    P.sack(b, m, 16.3, 94.6);
+    P.sack(b, m, 16.5, 95.3, 0.3);
+    b.box(m.wellStone, 15.5, 0, 86.6, 16.6, 1.3, 87.9);
+    b.box(m.woodDark, 15.6, 1.3, 86.7, 16.5, 1.95, 87.8);
+    // the long north face on the lane (K2 W / K3 W / J4 W): horseshoes, a blue
+    // hide and two bills, the leaning wheel, a stone box by the east end
+    const gz = gb.minZ - DECOR_GAP;
+    for (const [hx, hy] of [
+      [9.45, 3.0],
+      [8.55, 2.95],
+      [7.85, 2.9],
+    ] as const) {
+      b.decal(letters(["U"], 0.45, 0.4, "#3a3630"), hx, hy, gz, 0.45, 0.4, "N");
+    }
+    b.decal(signMat([""], 1.25, 0.95, { bg: "#2a2e44", fg: "#2a2e44" }), 14.3, 2.68, gz, 1.25, 0.95, "N");
+    b.decal(posterMat("bishop"), 13.1, 2.4, gz, 1.1, 1.4, "N");
+    b.decal(posterMat("wanted2"), 11.45, 2.8, gz, 1.1, 1.5, "N");
+    P.hitchRail(b, m, 8.5, gb.minZ - 0.8, 15.0, gb.minZ - 0.8, 1.05);
+    P.wagonWheel(b, m, 7.6, 0, gb.minZ - 0.5, 0.9, 0.15);
     P.sack(b, m, gb.maxX + 0.8, 90);
-    b.decal(posterMat("wanted"), 12, 2.0, gb.minZ - DECOR_GAP, 0.85, 1.15, "N");
-    b.decal(posterMat("bishop"), 10.2, 1.9, gb.minZ - DECOR_GAP, 0.85, 1.15, "N");
-    P.wagonWheel(b, m, 13.6, 0, gb.minZ - 0.45, 0.7, 0.15);
-    P.hitchRail(b, m, 8.5, gb.minZ - 1, 13.5, gb.minZ - 1);
 
-    // farmhouse (K4 S): gray clapboard, horseshoe over the brown door
+    // farmhouse (K4 S / L5 S): grey clapboard, north gable, a lit curtained
+    // window beside the door, the horseshoe over it
     const fh = LOTS.farmhouse;
-    solidBuilding(b, m, fh, 3.2, m.woodGray, "gableX", m.roofRed, 1.8);
+    solidBuilding(b, m, fh, 3.5, m.woodGray, "gableZ", m.roofRed, 1.2);
+    b.box(m.barnDark, fh.minX - 0.02, 0, fh.minZ, fh.minX, 3.5, fh.maxZ, { collide: false });
+    b.box(m.barnDark, fh.maxX, 0, fh.minZ, fh.maxX + 0.02, 3.5, fh.maxZ, { collide: false });
     const fhz = fh.minZ - DECOR_GAP;
-    P.fakeDoor(b, m, 29, 0, fh.minZ, 1.2, 2.3, "N", { mat: m.woodMid });
-    b.decal(signMat(["U"], 0.5, 0.4, { bg: "#8a8478", fg: "#3a3630" }), 29, 2.65, fhz, 0.5, 0.4, "N");
-    b.decal(winWarm, 26.6, 1.7, fhz, 1.1, 1.2, "N");
-    b.decal(winCold, 31.6, 1.7, fhz, 1.1, 1.2, "N");
-    b.flat(m.boardwalk, 28.3, fh.minZ - 0.9, 29.7, fh.minZ, 0.05);
+    P.fakeDoor(b, m, 28.1, 0, fh.minZ, 1.6, 2.85, "N", { mat: m.woodBlack });
+    b.decal(signMat(["U"], 0.5, 0.4, { bg: "#8a8478", fg: "#3a3630" }), 28.1, 3.3, fhz, 0.5, 0.4, "N");
+    b.decal(winWarm, 30.3, 2.15, fhz, 1.14, 1.9, "N");
+    b.box(m.woodDark, 29.65, 1.12, fh.minZ - 0.06, 30.95, 1.2, fh.minZ, { collide: false });
+    b.decal(winCold, 25.95, 2.15, fhz, 1.05, 1.9, "N");
+    b.flat(m.marble, 27.0, fh.minZ - 0.9, 29.2, fh.minZ, 0.05);
+    P.crate(b, m, 32.4, 88.5, 0.9, 0.7, 0.1, m.woodBlack);
+    P.sack(b, m, 33.4, 91.6);
+    P.sack(b, m, 32.8, 92.2, 0.3);
 
-    // black barn on the L3 spur
-    solidBuilding(b, m, LOTS.blackBarn, 3.6, m.woodBlack, "gableZ", m.roofRed, 2);
-
-    // the well, just south of the L5 pose (it looks straight at it)
-    P.well(b, m, 37.4, 97.6);
-    P.railFence(b, m, 34.3, 94.8, 34.3, 99.8, 2, 1.15);
-    P.railFence(b, m, 34.3, 99.8, 40.6, 99.8, 2, 1.15);
-    P.saguaro(b, m, 33.1, 90.2, 2.4);
+    // the well yard (L5 S / K4 S): the roofed well, a four-rail fence behind it
+    P.well(b, m, 36.5, 95.4);
+    P.railFence(b, m, 32.2, 96.6, 39.6, 96.6, 4, 2.2);
+    // the L3 spur closes on a four-rail fence with two barrels (L3 S)
+    P.railFence(b, m, 15.5, 95.8, 24.1, 95.8, 4, 2.25, m.woodMid);
+    P.barrel(b, m, 20.7, 95.2, 0.4, 1.06);
+    P.barrel(b, m, 17.85, 95.3, 0.4, 1.17);
+    P.sack(b, m, 15.4, 87.2);
 
     // freight wagon parked on Day (K4 E / K5 N views)
-    P.wagon(b, m, 31.5, 81.5, 0.08);
-    // buckboard + rails near K3
-    P.buckboard(b, m, 22.5, 76.5, -0.2);
-    P.hitchRail(b, m, 18, 79.6, 23, 79.6);
-    P.railFence(b, m, 16, 100, 30, 100, 2, 1.2);
-    P.barrel(b, m, 25.4, 97.8);
-    P.barrel(b, m, 27.2, 98.2);
+    P.wagon(b, m, 35.8, 81.4, 0.0);
   }
 
   /* =========== NE FARM (Mission street east end) =========== */
   {
     const nb2 = LOTS.neBarn;
-    solidBuilding(b, m, nb2, 3.8, m.woodGray, "gableZ", m.roofRed, 2.6);
-    b.decal(signMat([""], 2.4, 2.7, { bg: "#4a3320", fg: "#4a3320", planked: true }), nb2.minX - DECOR_GAP, 1.4, 27, 2.4, 2.7, "W");
-    b.decal(signMat(["X"], 2.4, 2.7, { bg: "#4a3320", fg: "#33200f", font: "Georgia" }), nb2.minX - DECOR_GAP * 2, 1.4, 27, 2.4, 2.7, "W");
-    P.wagonWheel(b, m, nb2.minX + 0.3, 0, 30.4, 0.8, 0.22);
-    solidBuilding(b, m, LOTS.redStable, 2.6, m.barnDark, "gableX", m.tileRed, 1.2);
+    solidBuilding(b, m, nb2, 5.0, m.woodGray, "gableX", m.tileRed, 3.0);
+    // the tall X-braced door on the west face, seen down Mission street (D7 E / E10 N)
+    b.decal(signMat(["X"], 3.6, 4.4, { bg: "#4a3320", fg: "#33200f", font: "Georgia", planked: true }), nb2.minX - DECOR_GAP, 2.2, 27.5, 3.6, 4.4, "W");
+    b.decal(signMat(["X"], 2.3, 2.8, { bg: "#4a3320", fg: "#33200f", font: "Georgia", planked: true }), 85, 1.4, nb2.maxZ + DECOR_GAP, 2.3, 2.8, "S");
+    P.wagonWheel(b, m, nb2.minX - 0.35, 0, 32.5, 0.8, 0.22);
+    // the dark stable with its red tile roof (D10 N / E10 N)
+    solidBuilding(b, m, LOTS.redStable, 5.0, m.barnDark, "gableX", m.tileRed, 1.6);
     P.railFence(b, m, 66.2, 13.8, 80, 13.8, 3, 1.3);
     P.railFence(b, m, 80, 13.8, 80, 20, 3, 1.3);
-    P.railFence(b, m, 76.2, 14, 76.2, 15.8, 2, 1.2);
-    P.railFence(b, m, 76.2, 24.15, 79.6, 24.15, 3, 1.25);
     // GLUE crates by the livery's north corner (E10 E view)
     P.crate(b, m, 81.2, 35.1, 0.95, 0.85, 0.1, m.woodStage);
     P.crate(b, m, 81.0, 34.7, 0.8, 0.7, 0.25, m.woodStage);
     b.decal(signMat(["GLUE"], 0.8, 0.4, { bg: "#a98e66", fg: "#33261a" }), 81.2, 0.55, 35.65 + DECOR_GAP, 0.8, 0.4, "S");
-    b.decal(signMat(["GLUE"], 0.7, 0.35, { bg: "#a98e66", fg: "#33261a" }), 81.0, 1.1, 35.15 + DECOR_GAP, 0.7, 0.35, "S");
     b.cyl(m.white, 82.4, 34.6, 0, 0.55, 0.16, { seg: 8 });
-    P.wagonWheel(b, m, 83.2, 0, 35.8, 0.7, 0.28);
   }
 
   /* ---------- door frames on every street door ---------- */
@@ -1768,54 +1815,66 @@ export function buildTown(m: Mats, nightGroup: THREE.Group): TownResult {
       b.cyl(m.iron, x, z, y0, y1, 0.09, { seg: 7 });
       b.cyl(m.iron, x, z, y1, y1 + 0.06, 0.16, { seg: 7 });
     };
-    pipe(41.9, 95.0, 3.5, 5.0); // jail office stove
-    pipe(64.6, 73.4, 5.42, 6.4); // Bolivar's store
-    pipe(44.2, 37.6, 3.5, 5.0); // doctor's waiting room
+    pipe(64.6, 73.4, 4.9, 6.0); // Bolivar's store
+    pipe(44.2, 37.6, 4.5, 5.6); // doctor's waiting room
     pipe(6.8, 57.2, 3.4, 4.9); // Sidewinder
     pipe(81.6, 41.0, 3.5, 6.0); // livery office
     pipe(30, 90.5, 4.4, 5.6); // farmhouse
-    b.box(m.brickBank, 71.0, 9.2, 41.4, 71.9, 10.5, 42.4, { collide: false }); // hotel fireplace flue
+    b.box(m.brickBank, 71.0, 9.2, 41.4, 71.9, 10.8, 42.4, { collide: false }); // hotel fireplace flue
 
-    // continuous boardwalk along the packed east row
-    P.boardwalkSlab(b, m, 54.5, 64.8, 56, 65.2);
-    P.boardwalkSlab(b, m, 54.5, 72.3, 56, 72.7);
   }
 
   /* ---------- street lamps + name boards ---------- */
   {
-    const lamps: [number, number, [string, string] | null][] = [
-      [48.7, 48.7, ["NEELY", "MAIN"]],
-      [55.3, 48.7, ["NEELY", "MAIN"]],
-      [55.3, 55.3, ["NEELY", "MAIN"]],
-      [48.7, 55.3, null],
-      [47.1, 79.2, ["DAY", "MAIN"]],
-      [55.3, 87.3, ["DAY", "MAIN"]],
-      [48.7, 87.3, ["MAIN", "DAY"]],
-      [55.2, 30.8, ["MISSION", "MAIN"]],
-      [48.8, 31.2, ["MISSION", "MAIN"]],
-      [71.3, 48.9, ["NEELY", "LEE"]],
+    // Film: the Neely/Main corners (G7 N / F7 E), the Day/Main corners at
+    // (55.4, 80.5) and (48.7, 86.7) (K7 N / K7 S / J7 E), Mission/Main
+    // (E7 N: (55.5, 31.5), built with the mission), Lee/Neely
+    const lamps: [number, number, [string, string], "NE" | "NW" | "SE" | "SW"][] = [
+      // Neely/Main: the NE and SW corners, each bar turned to face the crossing (G7 N / G7 E / G7 S / G7 W)
+      [55.6, 48.4, ["NEELY", "MAIN"], "SW"],
+      [48.7, 55.3, ["NEELY", "MAIN"], "NE"],
+      // Day/Main (K7 N / K7 S)
+      [55.4, 80.5, ["DAY", "MAIN"], "SW"],
+      [48.7, 86.7, ["DAY", "MAIN"], "NE"],
     ];
-    for (const [lx, lz, names] of lamps) {
+    for (const [lx, lz, names, facing] of lamps) {
       P.lampPost(b, m, lx, lz, 3.5);
-      if (names) {
-        P.streetSign(b, m, lx, lz, 3.05, names);
-      }
+      P.streetSign(b, m, lx, lz, 2.45, names, facing);
     }
+  }
+
+  /* ---------- night: lit windows and lamp halos (_NITE stills) ---------- */
+  {
+    // the saloon's and hotel's panes glow through their own glass (glassLit)
+    // the mission's door lamp
+    P.wallLantern(b, m, 52, 5.1, LOTS.mission.maxZ, "S", 1.4);
+    const glow = (x: number, y: number, z: number, i: number, d: number): void => {
+      const l = new THREE.PointLight(0xffd9a0, i * 0.6, d, 1.6);
+      l.position.set(x, y, z);
+      nightGroup.add(l);
+    };
+    for (const [lx, lz] of [
+      [55.6, 48.4],
+      [48.7, 55.3],
+      [55.4, 80.5],
+      [48.7, 86.7],
+      [55.5, 31.5],
+    ] as const) {
+      glow(lx, 3.2, lz, 6, 14);
+    }
+    glow(52, 4.8, LOTS.mission.maxZ + 0.6, 4, 9);
   }
 
   /* ---------- scattered cacti + skulls + barrels ---------- */
   {
     for (const [cx, cz, ch] of [
-      [42.5, 97.5, 3.2], [45.5, 99.5, 2.4], [30, 22.6, 3.0], [26.5, 30.5, 2.2],
-      [24.5, 25, 3.4], [69.5, 11.5, 3.0], [92, 60, 2.6], [2, 51.5, 2.8],
-      [30.5, 51, 2.2], [72, 17, 2.4], [82.5, 12.5, 3.0], [44, 84.5, 2.8],
+      [22.8, 20.5, 4.2], [29.2, 18.7, 4.5], [20.0, 20.0, 3.5], [14.8, 14.0, 3.2],
+      [69.5, 11.5, 3.0], [92, 60, 2.6],
+      [30.5, 51, 2.2], [72, 17, 2.4], [82.5, 12.5, 3.0],
     ] as const) {
       P.saguaro(b, m, cx, cz, ch);
     }
     P.barrel(b, m, 46.6, 54.8);
-    P.barrel(b, m, 57.2, 49.2);
-    P.barrel(b, m, 55, 30.2);
-    P.trough(b, m, 54.6, 73, 2.0, false);
   }
 
   b.build(group);

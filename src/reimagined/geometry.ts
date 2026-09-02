@@ -11,6 +11,25 @@ export interface Aabb {
   maxZ: number;
 }
 
+export interface DecalRecord {
+  facing: Facing;
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+  h: number;
+}
+
+export interface DecalOpts {
+  /** Skip the dressing audit (a label on a drum, a bill pinned inside a window). */
+  audit?: boolean;
+}
+
+export interface DecalOpts {
+  /** Skip the dressing audit (a label on a drum, a bill pinned inside a window). */
+  audit?: boolean;
+}
+
 export function aabb(
   minX: number,
   minY: number,
@@ -60,7 +79,11 @@ export class Builder {
 
   readonly colliders: Aabb[] = [];
 
-  /** Walkable elevated surfaces (boardwalks, floors, stairs) reuse colliders. */
+  /** Every axis-aligned box, collidable or not: the surfaces decals can hang on. */
+  readonly boxes: Aabb[] = [];
+
+  /** Every decal placed, for the dressing audit (see `auditDecor`). */
+  readonly decals: DecalRecord[] = [];
 
   private push(mat: THREE.Material, geom: THREE.BufferGeometry): void {
     let list = this.parts.get(mat);
@@ -97,6 +120,7 @@ export class Builder {
     worldUvBox(geom, w, h, d, texWorld);
     geom.translate(minX + w / 2, minY + h / 2, minZ + d / 2);
     this.push(mat, geom);
+    this.boxes.push(aabb(minX, minY, minZ, maxX, maxY, maxZ));
     if (opts.collide !== false) {
       this.solid(aabb(minX, minY, minZ, maxX, maxY, maxZ));
     }
@@ -128,11 +152,12 @@ export class Builder {
     }
     geom.translate(cx, cy, cz);
     this.push(mat, geom);
-    if (opts.collide) {
-      geom.computeBoundingBox();
-      const b = geom.boundingBox;
-      if (b) {
-        this.solid(aabb(b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z));
+    geom.computeBoundingBox();
+    const bb = geom.boundingBox;
+    if (bb) {
+      this.boxes.push(aabb(bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z));
+      if (opts.collide) {
+        this.solid(aabb(bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z));
       }
     }
   }
@@ -140,6 +165,11 @@ export class Builder {
   /** Push an already-positioned geometry for merging. */
   mesh(mat: THREE.Material, geom: THREE.BufferGeometry): void {
     this.push(mat, geom);
+    geom.computeBoundingBox();
+    const bb = geom.boundingBox;
+    if (bb) {
+      this.boxes.push(aabb(bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z));
+    }
   }
 
   cyl(
@@ -154,13 +184,17 @@ export class Builder {
     const geom = new THREE.CylinderGeometry(opts.rTop ?? r, r, y1 - y0, opts.seg ?? 10);
     geom.translate(x, (y0 + y1) / 2, z);
     this.push(mat, geom);
+    this.boxes.push(aabb(x - r, y0, z - r, x + r, y1, z + r));
     if (opts.collide) {
       this.solid(aabb(x - r, y0, z - r, x + r, y1, z + r));
     }
   }
 
-  cone(mat: THREE.Material, x: number, z: number, y0: number, y1: number, r: number, seg = 10): void {
+  cone(mat: THREE.Material, x: number, z: number, y0: number, y1: number, r: number, seg = 10, rotY = 0): void {
     const geom = new THREE.ConeGeometry(r, y1 - y0, seg);
+    if (rotY) {
+      geom.rotateY(rotY);
+    }
     geom.translate(x, (y0 + y1) / 2, z);
     this.push(mat, geom);
   }
@@ -183,11 +217,15 @@ export class Builder {
     w: number,
     h: number,
     facing: Facing,
+    opts: DecalOpts = {},
   ): void {
     const geom = new THREE.PlaneGeometry(w, h);
     geom.rotateY(FACING_ROT_Y[facing]);
     geom.translate(cx, cy, cz);
     this.push(mat, geom);
+    if (opts.audit !== false) {
+      this.decals.push({ facing, x: cx, y: cy, z: cz, w, h });
+    }
   }
 
   /** Horizontal plane (ground patches, rugs). Normal +Y. */
@@ -271,6 +309,11 @@ export class Builder {
       geom.translate(fixed + t / 2, 0, 0);
     }
     this.push(mat, geom);
+    {
+      const lo = fixed - t / 2;
+      const hi = fixed + t / 2;
+      this.boxes.push(along === "x" ? aabb(u0, y0, lo, u1, y1, hi) : aabb(lo, y0, u0, hi, y1, u1));
+    }
     if (opts.collide !== false) {
       const lo = fixed - t / 2;
       const hi = fixed + t / 2;
@@ -297,6 +340,7 @@ export class Builder {
     dir: Facing,
     baseY = 0,
     steps = 12,
+    hollow = false,
   ): void {
     const stepRise = rise / steps;
     const stepRun = run / steps;
@@ -304,14 +348,22 @@ export class Builder {
       const y1 = baseY + stepRise * (i + 1);
       const d0 = stepRun * i;
       const d1 = stepRun * (i + 1);
+      // a hollow flight shows only riser + tread under each step and
+      // keeps the space beneath open; the walker still meets a solid block
+      const yb = hollow ? Math.max(baseY, y1 - 0.32) : baseY;
+      let box: Aabb;
       if (dir === "N") {
-        this.box(mat, x0, baseY, z0 - d1, x0 + width, y1, z0 - d0);
+        box = aabb(x0, yb, z0 - d1, x0 + width, y1, z0 - d0);
       } else if (dir === "S") {
-        this.box(mat, x0, baseY, z0 + d0, x0 + width, y1, z0 + d1);
+        box = aabb(x0, yb, z0 + d0, x0 + width, y1, z0 + d1);
       } else if (dir === "E") {
-        this.box(mat, x0 + d0, baseY, z0, x0 + d1, y1, z0 + width);
+        box = aabb(x0 + d0, yb, z0, x0 + d1, y1, z0 + width);
       } else {
-        this.box(mat, x0 - d1, baseY, z0, x0 - d0, y1, z0 + width);
+        box = aabb(x0 - d1, yb, z0, x0 - d0, y1, z0 + width);
+      }
+      this.box(mat, box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ);
+      if (hollow) {
+        this.solid(aabb(box.minX, baseY, box.minZ, box.maxX, y1, box.maxZ));
       }
     }
   }

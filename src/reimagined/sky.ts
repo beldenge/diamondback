@@ -4,6 +4,7 @@
  * the mission is visible from the south gate, as the film shows.
  */
 import * as THREE from "three";
+import { applyNightMats } from "./materials";
 import { PAL } from "./palette";
 
 function gradientTex(top: string, mid: string, bottom: string): THREE.Texture {
@@ -45,7 +46,8 @@ export class Sky {
 
   constructor(scene: THREE.Scene, nightGroup: THREE.Group) {
     this.nightGroup = nightGroup;
-    this.dayTex = gradientTex("#5d84c8", PAL.skyDay, "#d9b98a");
+    // the film's sky is a nearly flat (102,127,193) down to the horizon
+    this.dayTex = gradientTex("#5f78be", PAL.skyDay, PAL.skyHorizonDay);
     this.nightTex = gradientTex("#080d1d", PAL.skyNight, PAL.skyHorizonNight);
     const domeMat = new THREE.MeshBasicMaterial({
       map: this.dayTex,
@@ -79,10 +81,12 @@ export class Sky {
     this.stars.visible = false;
     this.group.add(this.stars);
 
-    this.hemi = new THREE.HemisphereLight(0xcad7ee, 0x9a6b40, 1.15);
+    // the stills are lit mostly by ambient with a high southern sun:
+    // faces differ little in tone
+    this.hemi = new THREE.HemisphereLight(0xc4d0e6, 0x6e6052, 1.0);
     this.group.add(this.hemi);
-    this.sun = new THREE.DirectionalLight(0xffe6c0, 2.6);
-    this.sun.position.set(120, 150, 30);
+    this.sun = new THREE.DirectionalLight(0xfff0d8, 1.3);
+    this.sun.position.set(80, 150, 130);
     this.sun.target.position.set(52, 0, 60);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
@@ -97,7 +101,7 @@ export class Sky {
     this.group.add(this.sun);
     this.group.add(this.sun.target);
 
-    scene.fog = new THREE.Fog(0xcfae83, 60, 340);
+    scene.fog = new THREE.Fog(0x667fc1, 60, 260);
     this.apply(scene);
   }
 
@@ -111,10 +115,10 @@ export class Sky {
     if (this.night) {
       mat.map = this.nightTex;
       this.stars.visible = true;
-      this.hemi.intensity = 0.22;
-      this.hemi.color.set(0x4a5878);
-      this.hemi.groundColor.set(0x1c1a24);
-      this.sun.intensity = 0.5;
+      this.hemi.intensity = 0.65;
+      this.hemi.color.set(0x5a6a94);
+      this.hemi.groundColor.set(0x2a2630);
+      this.sun.intensity = 0.85;
       this.sun.color.set(0x9fb4e8);
       this.sun.position.set(-60, 120, -80);
       scene.fog = new THREE.Fog(0x141c33, 40, 260);
@@ -122,15 +126,16 @@ export class Sky {
     } else {
       mat.map = this.dayTex;
       this.stars.visible = false;
-      this.hemi.intensity = 1.15;
-      this.hemi.color.set(0xcad7ee);
-      this.hemi.groundColor.set(0x9a6b40);
-      this.sun.intensity = 2.6;
-      this.sun.color.set(0xffe6c0);
-      this.sun.position.set(120, 150, 30);
-      scene.fog = new THREE.Fog(0xcfae83, 60, 340);
+      this.hemi.intensity = 1.0;
+      this.hemi.color.set(0xc4d0e6);
+      this.hemi.groundColor.set(0x6e6052);
+      this.sun.intensity = 1.3;
+      this.sun.color.set(0xfff0d8);
+      this.sun.position.set(80, 150, 130);
+      scene.fog = new THREE.Fog(0x667fc1, 60, 260);
       this.nightGroup.visible = false;
     }
     mat.needsUpdate = true;
+    applyNightMats(this.night);
   }
 }

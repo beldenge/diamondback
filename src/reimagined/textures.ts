@@ -170,15 +170,24 @@ export function adobeTex(
     ctx.fillRect(r() * 256, r() * 256, 3 + r() * 8, 2 + r() * 6);
   }
   if (patch) {
+    // plaster fallen away in ragged patches showing the brick courses
+    // beneath (the mission and the jail in the film)
     for (let i = 0; i < patchCount; i += 1) {
-      ctx.fillStyle = shade(patch, 0.9 + r() * 0.2);
-      ctx.globalAlpha = 0.55;
-      const w = 20 + r() * 46;
-      const h = 12 + r() * 30;
-      ctx.beginPath();
-      ctx.ellipse(r() * 256, r() * 256, w / 2, h / 2, r(), 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
+      const px = r() * 256;
+      const py = r() * 256;
+      const w = 18 + r() * 40;
+      const h = 10 + r() * 26;
+      for (let row = 0; row < h; row += 6) {
+        const off = (row / 6) % 2 === 0 ? 0 : 7;
+        for (let col = -off; col < w; col += 14) {
+          const cw = Math.min(12, w - col);
+          if (cw <= 2) {
+            continue;
+          }
+          ctx.fillStyle = shade(patch, 0.8 + r() * 0.35);
+          ctx.fillRect(px + Math.max(0, col), py + row, cw - Math.max(0, -col), 5);
+        }
+      }
     }
   }
   // hairline cracks
@@ -326,6 +335,10 @@ export interface BoardOpts {
   scale?: number;
   planked?: boolean;
   align?: "center" | "left";
+  /** Fill the line height with the glyphs (letters painted on walls). */
+  tight?: boolean;
+  /** Space the characters evenly across the board (painted names). */
+  spread?: boolean;
 }
 
 /**
@@ -342,8 +355,12 @@ export function boardTex(
   const cw = Math.max(32, Math.round(w * scale));
   const ch = Math.max(32, Math.round(h * scale));
   const [c, ctx] = canvas(cw, ch);
-  ctx.fillStyle = opts.bg ?? "#4f382a";
-  ctx.fillRect(0, 0, cw, ch);
+  // "transparent" leaves the ground clear: letters painted straight
+  // onto a wall (the bank, the hotel, Bolivar's) instead of on a board
+  if (opts.bg !== "transparent") {
+    ctx.fillStyle = opts.bg ?? "#4f382a";
+    ctx.fillRect(0, 0, cw, ch);
+  }
   if (opts.planked) {
     ctx.strokeStyle = "rgba(0,0,0,0.35)";
     ctx.lineWidth = 2;
@@ -363,16 +380,24 @@ export function boardTex(
   ctx.fillStyle = opts.fg ?? "#e6dcba";
   ctx.textAlign = opts.align ?? "center";
   ctx.textBaseline = "middle";
-  const pad = ch * 0.14;
+  const pad = ch * (opts.tight ? 0.02 : 0.14);
   const lineH = (ch - pad * 2) / lines.length;
   for (let i = 0; i < lines.length; i += 1) {
     const text = lines[i];
     if (!text) {
       continue;
     }
-    let size = Math.min(lineH * 0.82, (cw * 1.62) / Math.max(4, text.length));
+    let size = Math.min(lineH * (opts.tight ? 1.0 : 0.82), (cw * (opts.tight ? 1.9 : 1.62)) / Math.max(4, text.length));
     size = Math.max(9, size);
     ctx.font = opts.font ? `${size}px ${opts.font}` : `bold ${size}px Georgia, serif`;
+    if (opts.spread && text.length > 1) {
+      const n = text.length;
+      const span = cw * 0.92;
+      for (let k = 0; k < n; k += 1) {
+        ctx.fillText(text[k], cw * 0.04 + (span * (k + 0.5)) / n, pad + lineH * (i + 0.5));
+      }
+      continue;
+    }
     const x = (opts.align ?? "center") === "left" ? cw * 0.06 : cw / 2;
     ctx.fillText(text, x, pad + lineH * (i + 0.5), cw * 0.94);
   }
@@ -392,17 +417,139 @@ export type PosterKind =
   | "repent"
   | "bishop"
   | "tonic"
-  | "news";
+  | "news"
+  | "martash"
+  | "girls"
+  | "manzana"
+  | "notice";
 
 /** Small aged handbills for the poster walls. */
 export function posterTex(kind: PosterKind): THREE.Texture {
   const [c, ctx] = canvas(96, 128);
-  const aged = kind === "bishop" ? "#241f19" : kind === "circus" ? "#ccb98a" : "#d8cba6";
+  const aged =
+    kind === "bishop" ? "#241f19" : kind === "martash" ? "#1c2140" : kind === "circus" ? "#ccb98a" : kind === "girls" || kind === "manzana" ? "#c9b070" : "#d8cba6";
   ctx.fillStyle = aged;
   ctx.fillRect(0, 0, 96, 128);
   ctx.strokeStyle = "rgba(0,0,0,0.5)";
   ctx.strokeRect(2, 2, 92, 124);
-  const ink = kind === "bishop" ? "#d8cba6" : "#231a10";
+  if (kind === "notice") {
+    // the proclamation on the stage office's east face (G9 S): a gilt seal
+    // over close-set lines of small print
+    ctx.fillStyle = "#8a6a2a";
+    ctx.beginPath();
+    ctx.arc(48, 24, 13, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#d8cba6";
+    ctx.beginPath();
+    ctx.arc(48, 24, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#4a3a20";
+    ctx.beginPath();
+    ctx.arc(48, 24, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#231a10";
+    ctx.textAlign = "center";
+    ctx.font = "bold 8px Georgia";
+    ctx.fillText("PROCLAMATION", 48, 46);
+    for (let i = 0; i < 12; i += 1) {
+      const lw = 40 + ((i * 37) % 30);
+      ctx.fillRect(48 - lw / 2, 54 + i * 5.5, lw, 1.5);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+  const ink = kind === "bishop" || kind === "martash" ? "#d8cba6" : "#231a10";
+  if (kind === "martash") {
+    // the Egyptian magician's bill: a starburst on midnight blue (G6 S / G3 S)
+    ctx.strokeStyle = "rgba(210,190,140,0.5)";
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 24; i += 1) {
+      const a = (i / 24) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(48, 68);
+      ctx.lineTo(48 + Math.cos(a) * 60, 68 + Math.sin(a) * 60);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "#0b0d1c";
+    ctx.beginPath();
+    ctx.arc(48, 68, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = ink;
+    ctx.textAlign = "center";
+    ctx.font = "8px Georgia";
+    ctx.fillText("COME AND SEE", 48, 14);
+    ctx.font = "bold 15px Georgia";
+    ctx.fillText("MARTASH", 48, 30);
+    ctx.font = "bold 10px Georgia";
+    ctx.fillText("THE", 48, 98);
+    ctx.fillText("EGYPTIAN", 48, 110);
+    ctx.fillText("MAGICIAN", 48, 122);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    return tex;
+  }
+  if (kind === "girls") {
+    // the saloon's dancing-girls bill (G5 S / G3 S / G11 N)
+    ctx.fillStyle = ink;
+    ctx.textAlign = "center";
+    ctx.font = "bold 9px Georgia";
+    ctx.fillText("DIAMONDBACK", 48, 13);
+    ctx.font = "bold 13px Georgia";
+    ctx.fillText("WANTED:", 48, 27);
+    ctx.fillStyle = "#3a2d20";
+    for (const gx of [30, 48, 66]) {
+      ctx.beginPath();
+      ctx.arc(gx, 48, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(gx - 7, 54, 14, 22);
+      ctx.fillRect(gx - 9, 76, 18, 6);
+    }
+    ctx.fillStyle = ink;
+    ctx.font = "italic 11px Georgia";
+    ctx.fillText("Winter Girls", 48, 98);
+    ctx.font = "7px Georgia";
+    ctx.fillText("apply at the", 48, 109);
+    ctx.font = "bold 8px Georgia";
+    ctx.fillText("THE HARD DRIVE SALOON", 48, 121);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    return tex;
+  }
+  if (kind === "manzana") {
+    // the exhibition bill stamped CANCELED (G5 S / G3 S)
+    ctx.fillStyle = ink;
+    ctx.textAlign = "center";
+    ctx.font = "bold 8px Georgia";
+    ctx.fillText("Will be EXHIBITED", 48, 14);
+    ctx.font = "6px Georgia";
+    ctx.fillText("For One Day Only at the Hard Drive", 48, 24);
+    ctx.font = "bold 16px Georgia";
+    ctx.fillText("MANZANA", 48, 50);
+    ctx.font = "bold 8px Georgia";
+    ctx.fillText("HAND OF THE", 48, 64);
+    ctx.fillText("FINGERLESS EARL", 48, 75);
+    ctx.font = "6px Georgia";
+    for (let y = 88; y < 122; y += 7) {
+      ctx.fillText("~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~", 48, y);
+    }
+    ctx.save();
+    ctx.translate(48, 72);
+    ctx.rotate(-0.55);
+    ctx.fillStyle = "rgba(200,30,20,0.85)";
+    ctx.font = "bold 20px Georgia";
+    ctx.fillText("CANCELED", 0, 8);
+    ctx.restore();
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    return tex;
+  }
   ctx.fillStyle = ink;
   ctx.textAlign = "center";
   const title =
@@ -484,31 +631,149 @@ export function posterTex(kind: PosterKind): THREE.Texture {
 }
 
 /** A grinning carved sun face for the mission disks. */
-export function sunFaceTex(): THREE.Texture {
+/**
+ * A quarter sunburst for the hotel's lettering: a small disc in one bottom
+ * corner with knobbed rays fanning up and away from it (E7 E / F7 E).
+ * `discRight` puts the disc in the bottom-right corner.
+ */
+export function sunFanTex(discRight = false): THREE.Texture {
   const [c, ctx] = canvas(128, 128);
-  ctx.fillStyle = "#b7ad93";
-  ctx.fillRect(0, 0, 128, 128);
-  ctx.fillStyle = "#cfc4a6";
-  ctx.beginPath();
-  ctx.arc(64, 64, 40, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = "#6f654c";
-  ctx.lineWidth = 3;
-  for (let i = 0; i < 16; i += 1) {
-    const a = (i / 16) * Math.PI * 2;
+  ctx.clearRect(0, 0, 128, 128);
+  const cx = discRight ? 112 : 16;
+  const cy = 112;
+  const sx = discRight ? -1 : 1;
+  ctx.strokeStyle = "#dfd4ac";
+  ctx.fillStyle = "#dfd4ac";
+  ctx.lineWidth = 6;
+  ctx.lineCap = "round";
+  for (let i = 0; i <= 8; i += 1) {
+    const a = (i / 8) * (Math.PI / 2);
+    const dx = sx * Math.cos(a);
+    const dy = -Math.sin(a);
+    const len = i % 2 === 0 ? 100 : 84;
     ctx.beginPath();
-    ctx.moveTo(64 + Math.cos(a) * 42, 64 + Math.sin(a) * 42);
-    ctx.lineTo(64 + Math.cos(a) * (i % 2 === 0 ? 60 : 52), 64 + Math.sin(a) * (i % 2 === 0 ? 60 : 52));
+    ctx.moveTo(cx + dx * 24, cy + dy * 24);
+    ctx.lineTo(cx + dx * len, cy + dy * len);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx + dx * (len + 5), cy + dy * (len + 5), 4.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.beginPath();
+  ctx.arc(cx, cy, 20, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#6f6a48";
+  ctx.beginPath();
+  ctx.arc(cx, cy, 9, 0, Math.PI * 2);
+  ctx.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** A pelt stretched on the wheelwright's east gable (J4 W): a dark body with four leg stubs. */
+export function hideTex(): THREE.Texture {
+  const [c, ctx] = canvas(128, 128);
+  ctx.clearRect(0, 0, 128, 128);
+  ctx.fillStyle = "#2e2118";
+  for (const [lx, ly, a] of [
+    [24, 26, 0.9],
+    [104, 26, -0.9],
+    [22, 104, 2.3],
+    [106, 104, -2.3],
+  ] as const) {
+    ctx.save();
+    ctx.translate(lx, ly);
+    ctx.rotate(a);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 9, 24, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.beginPath();
+  ctx.ellipse(64, 66, 36, 42, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#3a2a1e";
+  ctx.beginPath();
+  ctx.ellipse(64, 62, 22, 28, 0, 0, Math.PI * 2);
+  ctx.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** A rack of antlers (cut-out) for the wheelwright's east front (J4 W / K3 W). */
+export function antlerTex(): THREE.Texture {
+  const [c, ctx] = canvas(128, 96);
+  ctx.clearRect(0, 0, 128, 96);
+  ctx.strokeStyle = "#d8cfb6";
+  ctx.lineWidth = 6;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(52, 90);
+  ctx.lineTo(76, 90);
+  ctx.stroke();
+  for (const sx of [-1, 1]) {
+    const bx = 64 + sx * 8;
+    ctx.beginPath();
+    ctx.moveTo(bx, 90);
+    ctx.quadraticCurveTo(bx + sx * 18, 60, bx + sx * 40, 14);
+    ctx.stroke();
+    for (const [t, len, ang] of [
+      [0.35, 22, -1.3],
+      [0.6, 20, -1.1],
+      [0.82, 16, -0.9],
+    ] as const) {
+      const px = bx + sx * (18 * 2 * t * (1 - t) + 40 * t * t);
+      const py = 90 - (60 * 2 * t * (1 - t) + 76 * t * t);
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px + sx * Math.cos(ang) * len * 0.4, py + Math.sin(ang) * len);
+      ctx.stroke();
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function sunFaceTex(): THREE.Texture {
+  // the mission's stone sun faces (D7 N / D6 N): a shaded round face with
+  // closed eyes, a nose ridge and full lips, transparent around the disc
+  const [c, ctx] = canvas(128, 128);
+  ctx.clearRect(0, 0, 128, 128);
+  const g = ctx.createRadialGradient(52, 50, 6, 64, 64, 60);
+  g.addColorStop(0, "#c2b6a4");
+  g.addColorStop(0.7, "#a89c8c");
+  g.addColorStop(1, "#7a7064");
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(64, 64, 58, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#6a6058";
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+  for (const ex of [44, 84]) {
+    ctx.beginPath();
+    ctx.arc(ex, 54, 9, 0.15 * Math.PI, 0.85 * Math.PI);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(ex, 46, 12, 0.2 * Math.PI, 0.8 * Math.PI);
     ctx.stroke();
   }
-  ctx.fillStyle = "#55492f";
   ctx.beginPath();
-  ctx.arc(50, 56, 5, 0, Math.PI * 2);
-  ctx.arc(78, 56, 5, 0, Math.PI * 2);
+  ctx.moveTo(64, 50);
+  ctx.lineTo(58, 76);
+  ctx.lineTo(70, 76);
+  ctx.stroke();
+  ctx.fillStyle = "#8a7e72";
+  ctx.beginPath();
+  ctx.ellipse(64, 92, 16, 6, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.strokeStyle = "#6a6058";
   ctx.beginPath();
-  ctx.lineWidth = 4;
-  ctx.arc(64, 68, 18, 0.25, Math.PI - 0.25);
+  ctx.moveTo(48, 92);
+  ctx.lineTo(80, 92);
   ctx.stroke();
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -516,12 +781,12 @@ export function sunFaceTex(): THREE.Texture {
 }
 
 /** White petroglyphs on cave rock for the Yunni underground. */
-export function glyphTex(kind: "figures" | "spiral" | "snake" | "bird" | "stele"): THREE.Texture {
+export function glyphTex(kind: "figures" | "spiral" | "snake" | "bird" | "stele" | "spider" | "dancers"): THREE.Texture {
   const [c, ctx] = canvas(160, 160);
   ctx.fillStyle = kind === "stele" ? "#4a2a20" : "#57291e";
   ctx.fillRect(0, 0, 160, 160);
-  ctx.strokeStyle = "#e8dcc2";
-  ctx.fillStyle = "#e8dcc2";
+  ctx.strokeStyle = "#c8ac8c";
+  ctx.fillStyle = "#c8ac8c";
   ctx.lineWidth = 3;
   const man = (x: number, y: number, s: number): void => {
     ctx.beginPath();
@@ -587,7 +852,7 @@ export function glyphTex(kind: "figures" | "spiral" | "snake" | "bird" | "stele"
     ctx.beginPath();
     ctx.arc(80, 34, 7, 0, Math.PI * 2);
     ctx.fill();
-  } else {
+  } else if (kind === "stele") {
     // stele: bordered tablet dense with small marks
     ctx.strokeRect(8, 8, 144, 144);
     const r = rng(77);
@@ -604,6 +869,64 @@ export function glyphTex(kind: "figures" | "spiral" | "snake" | "bird" | "stele"
           ctx.stroke();
         }
       }
+    }
+  }
+  if (kind === "spider") {
+    // the pedestal's spider: a fat body, eight bent legs, two blue eyes
+    ctx.fillStyle = "#e8dcc2";
+    ctx.strokeStyle = "#e8dcc2";
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.ellipse(80, 98, 22, 30, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(80, 58, 16, 0, Math.PI * 2);
+    ctx.fill();
+    for (const sgn of [-1, 1]) {
+      for (let k = 0; k < 4; k += 1) {
+        const y = 64 + k * 16;
+        ctx.beginPath();
+        ctx.moveTo(80 + sgn * 14, y);
+        ctx.lineTo(80 + sgn * (46 + k * 4), y - 24 + k * 6);
+        ctx.lineTo(80 + sgn * (60 + k * 3), y + 10 + k * 7);
+        ctx.stroke();
+      }
+    }
+    ctx.fillStyle = "#6ad8ff";
+    ctx.beginPath();
+    ctx.arc(72, 54, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(88, 54, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (kind === "dancers") {
+    // black dancing figures with feathered heads (the snake trial's walls)
+    ctx.strokeStyle = "#1a0a08";
+    ctx.fillStyle = "#1a0a08";
+    ctx.lineWidth = 4;
+    for (const [dx, dy, s] of [
+      [45, 90, 40],
+      [115, 80, 46],
+    ] as const) {
+      ctx.beginPath();
+      ctx.arc(dx, dy - s * 0.85, s * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(dx, dy - s * 0.65);
+      ctx.lineTo(dx + s * 0.1, dy + s * 0.25);
+      ctx.moveTo(dx - s * 0.55, dy - s * 0.7);
+      ctx.lineTo(dx, dy - s * 0.35);
+      ctx.lineTo(dx + s * 0.5, dy - s * 0.75);
+      ctx.moveTo(dx + s * 0.1, dy + s * 0.25);
+      ctx.lineTo(dx - s * 0.35, dy + s * 0.95);
+      ctx.moveTo(dx + s * 0.1, dy + s * 0.25);
+      ctx.lineTo(dx + s * 0.55, dy + s * 0.85);
+      for (const k of [-2, -1, 0, 1, 2]) {
+        ctx.moveTo(dx, dy - s * 1.0);
+        ctx.lineTo(dx + k * s * 0.15, dy - s * 1.3);
+      }
+      ctx.stroke();
     }
   }
   const tex = new THREE.CanvasTexture(c);
@@ -647,8 +970,7 @@ export function teepeeBandTex(count = 7): THREE.Texture {
 /** The glowing cyan thunderbird emblem on its spiked disc. */
 export function thunderbirdTex(): THREE.Texture {
   const [c, ctx] = canvas(160, 160);
-  ctx.fillStyle = "#12100e";
-  ctx.fillRect(0, 0, 160, 160);
+  ctx.clearRect(0, 0, 160, 160);
   ctx.fillStyle = "#1c1a16";
   ctx.beginPath();
   ctx.arc(80, 80, 62, 0, Math.PI * 2);
@@ -1110,8 +1432,8 @@ export function shelfTex(kind: ShelfKind, rows = 3, w = 512, h = 256): THREE.Tex
     // items
     let x = 6;
     while (x < w - 8) {
-      const iw = kind === "curios" ? 30 + r() * 20 : kind === "plates" ? 34 : kind === "books" ? 8 + r() * 7 : 14 + r() * 9;
-      const ih = kind === "books" ? rowH * (0.55 + r() * 0.3) : kind === "curios" ? rowH * (0.5 + r() * 0.35) : rowH * (0.45 + r() * 0.3);
+      const iw = kind === "curios" ? 18 + r() * 10 : kind === "plates" ? 34 : kind === "books" ? 8 + r() * 7 : 14 + r() * 9;
+      const ih = kind === "books" ? rowH * (0.55 + r() * 0.3) : kind === "curios" ? rowH * (0.5 + r() * 0.25) : rowH * (0.45 + r() * 0.3);
       const y0 = shelfY - ih;
       if (kind === "jars" || kind === "vials") {
         ctx.fillStyle = kind === "jars" ? "#e8e2d4" : "#6a4a2a";
@@ -1147,16 +1469,25 @@ export function shelfTex(kind: ShelfKind, rows = 3, w = 512, h = 256): THREE.Tex
         ctx.beginPath();
         ctx.arc(x + iw / 2, shelfY - iw / 2, iw / 2 - 5, 0, Math.PI * 2);
         ctx.stroke();
+      } else if (r() < 0.25) {
+        // curios: the odd dark bottle among the jars
+        ctx.fillStyle = ["#2a3a2a", "#3a2a3a", "#4a3020"][Math.floor(r() * 3)];
+        ctx.fillRect(x + iw * 0.3, y0 - ih * 0.2, iw * 0.4, ih * 0.25);
+        ctx.fillRect(x + iw * 0.15, y0, iw * 0.7, ih);
       } else {
-        // curios: big glazed jars glowing with coloured contents
-        const col = ["#b8433a", "#3a5a9a", "#6f8f3a", "#c9a24a", "#7a4a7e", "#e0c9a0"][Math.floor(r() * 6)];
-        ctx.fillStyle = col;
+        // curios: white porcelain jars banded in blue under dark lids
+        ctx.fillStyle = "#e8e4dc";
         ctx.beginPath();
         ctx.ellipse(x + iw / 2, shelfY - ih / 2, iw / 2, ih / 2, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = "rgba(255,255,255,0.3)";
-        ctx.fillRect(x + iw * 0.25, shelfY - ih + 2, iw * 0.15, ih * 0.5);
-        ctx.fillStyle = "#3a2a1e";
+        ctx.strokeStyle = "#3a5a9a";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(x + iw / 2, shelfY - ih / 2, iw / 2 - 3, ih / 2 - 3, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = "#3a5a9a";
+        ctx.fillRect(x + iw * 0.2, shelfY - ih * 0.55, iw * 0.6, 3);
+        ctx.fillStyle = "#2a2018";
         ctx.fillRect(x + iw * 0.3, shelfY - ih - 3, iw * 0.4, 5);
       }
       x += iw + 3 + r() * 4;
@@ -1272,5 +1603,55 @@ export function windowTex(lit: boolean, cols = 2, rows = 3): THREE.Texture {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.ClampToEdgeWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
+}
+
+/** A schoolhouse clock face: cream dial, twelve ticks, hands at ten past ten. */
+export function clockFaceTex(): THREE.Texture {
+  const [c, ctx] = canvas(64, 64);
+  ctx.clearRect(0, 0, 64, 64);
+  ctx.fillStyle = "#efe8d8";
+  ctx.beginPath();
+  ctx.arc(32, 32, 30, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#2a2018";
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 12; i += 1) {
+    const a = (i / 12) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(32 + Math.cos(a) * 24, 32 + Math.sin(a) * 24);
+    ctx.lineTo(32 + Math.cos(a) * 28, 32 + Math.sin(a) * 28);
+    ctx.stroke();
+  }
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(32, 32);
+  ctx.lineTo(44, 20);
+  ctx.stroke();
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(32, 32);
+  ctx.lineTo(24, 16);
+  ctx.stroke();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** A dark egg rack: a board drilled with three rows of four holes. */
+export function eggRackTex(): THREE.Texture {
+  const [c, ctx] = canvas(64, 64);
+  ctx.fillStyle = "#2a2018";
+  ctx.fillRect(0, 0, 64, 64);
+  ctx.fillStyle = "#6a5a48";
+  for (let row = 0; row < 3; row += 1) {
+    for (let col = 0; col < 4; col += 1) {
+      ctx.beginPath();
+      ctx.arc(10 + col * 14.7, 12 + row * 20, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }

@@ -52,82 +52,89 @@ export function rect(minX: number, minZ: number, maxX: number, maxZ: number): Re
  * unwalkable furniture strips the stills show around it.
  */
 export const LOTS = {
-  // --- Main Street, west side (maxX = 48 faces the street) ---
-  /** `_SALLOWER` 3×6 @2.84 + the bar strip west: 11 × 19; set back so the porch edge sits on the jail's building line (x 48), porch H7..J7. */
-  saloon: rect(34.7, 56, 45.7, 75),
+  // --- Main Street, west side (the street tile is x 48..56) ---
+  /** `_SALLOWER` 3×6 @2.84 + the bar strip. Film H7 W / I7 W / K7 N: wall at x 45.5, the porch to 48.4, the south corner at 77.5. */
+  saloon: rect(34.7, 55.8, 45.5, 77.5),
   /** Backlot passage on the west lane; the J4 E back door is its west face. */
-  saloonBackshed: rect(32, 60, 34.7, 80),
-  /** `_BANK` 1×3 @3.54 lobby on the street; teller/vault rooms run back to the lane. */
-  bank: rect(34, 38.5, 48, 48),
-  /** `_DOCTOR1` + `_DOCTOR2`, one tile @5.2 each, waiting room east of the office. */
-  doctor: rect(38, 32, 48, 38.5),
+  saloonBackshed: rect(32, 55.8, 34.7, 77),
+  /** The saloon's one-storey south wing on Day, its bills facing the street (K5 N). */
+  /** `_BANK` 1×3 @3.54 lobby on the street. Film F7 W: face on the line, z 40..48. */
+  bank: rect(32.7, 40, 48, 48),
+  /** `_DOCTOR1` + `_DOCTOR2`. Film E7 W: face on the line, z 32.2..39.8. */
+  doctor: rect(38, 32.2, 48, 39.8),
   /** The dark "GRANT" annex whose lane face is the E4 E still. */
-  doctorAnnex: rect(32.5, 32, 38, 38.5),
-  /** `_JAIL` 2×2 @3.54 office + the cell strip at the back. */
-  jail: rect(38.5, 88, 48, 96),
+  doctorAnnex: rect(32.5, 32.2, 38, 39.8),
+  /** `_JAIL` 2×2 @3.54. Film L7 W / K6 S / L5 E: 7.7 × 7.4 m, face on the line. */
+  jail: rect(40.3, 88, 48, 95.4),
 
-  // --- Main Street, east side (minX = 56 faces the street) ---
-  /** `_STAGE` 1×3 @3.3: a shallow office running along the street. */
-  stage: rect(56, 56, 62, 65),
-  stageWarehouse: rect(62, 56, 72, 62.5),
-  /** `_APOTH` 3×1 @3.54 deep, counters both sides: 7.5 along the street × 11. */
-  watson: rect(56, 65, 67, 72.5),
-  /** `_STORE` 2×1 @3.1 with the U counter: 7.5 × 10. */
-  bolivar: rect(56, 72.5, 66, 80),
-  bolivarAnnex: rect(66, 72.5, 72, 80),
-  whiteHouse: rect(67, 62.5, 72, 70),
-  /** `_CHIN` 2×3 @2.16 — a narrow, shallow shop, not a warehouse. */
-  curio: rect(56, 88, 63, 96),
-  /** The tall dark barn hard against Curiosities' east wall (K8 S / K9 S); the range's board fence runs east from it. */
-  rangeBarn: rect(63, 88.5, 68.5, 96),
-  /** `_HOTLOWER` 4×3 @3.8 lobby + dining, `_HOTUPPER` corridor above. */
-  hotel: rect(56, 32, 72, 48),
-  santaMarta: rect(66, 16, 76, 24),
+  // --- Main Street, east side: film faces sit ~1.5 m behind the street line, porches in between ---
+  /** `_STAGE` 1×3 @3.3. Film H7 E: wall at 57.4, posts at 56.3. */
+  stage: rect(57.4, 56, 63.4, 63.6),
+  /** Set 4 m back from Neely with a loading dock in front (G9 S). */
+  stageWarehouse: rect(63.4, 60, 72, 63.6),
+  /** `_APOTH` 3×1 @3.54. Film I7 E: wall at 57.6, boardwalk from 55.9. */
+  watson: rect(57.6, 63.6, 67, 72.3),
+  /** `_STORE` 2×1 @3.1. Film J7 E: wall at 57.0, log posts at 56.3. */
+  bolivar: rect(57.0, 72.3, 66, 80.3),
+  /** The grey one-storey house on Lee's west side (I10 W / G10 S). */
+  whiteHouse: rect(67, 63.6, 72, 71.5),
+  /** `_CHIN` 2×3 @2.16. Film L7 E: wall at 58.2, red posts at 56.5. */
+  curio: rect(58.2, 88, 64, 96),
+  /** The tall dark barn hard against Curiosities' east wall (K8 S / K9 S). */
+  rangeBarn: rect(64, 88.5, 67.2, 96),
+  /** `_HOTLOWER` 4×3 @3.8 + `_HOTUPPER`. Film E7 E / F7 E: wall at 57.6, boardwalk from 55.7. */
+  hotel: rect(57.6, 32, 72, 46.9),
 
-  // --- Mission compound (fills the north view; the patio inside) ---
-  mission: rect(34, -6, 66, 24),
+  // --- Mission compound (fills the north view; the patio inside). Film D7 N / E7 N: front wall at z 22.7,
+  // the west wing steps 1.4 m forward (D6 N / D5 N) and the compound's SW corner is at x 30 (E4 N / D4 N) ---
+  mission: rect(30, -6, 66, 22.7),
   /** `_SCHOOL` 2×1 @4.3 across the north side of the patio; its arched windows are in the compound's north wall. */
   school: rect(44.5, -6, 59.5, 2.5),
   /** `_PADRE` 1×2 @4.3 under the bell tower, west of the school, its window on the compound's west wall. */
-  padre: rect(34, -6, 44.5, 2.5),
+  padre: rect(30, -6, 44.5, 2.5),
 
   // --- Neely west ---
   /** `_UNDERTAK` one tile @2.25 + the barber corner: a 7 m storefront. */
-  sidewinder: rect(0.5, 56, 7.5, 62),
+  sidewinder: rect(0.5, 56, 7.5, 65),
   /** `_PAPER` 1×2 @1.9 front office + the press room behind. */
-  rattler: rect(17, 56, 24, 62.5),
-  cemetery: rect(1, 29, 22.5, 47.5), // Shady Acres, a fenced yard you can enter
+  /** Film G3 S / G2 S: the north face runs 11 m along Neely, a porch wraps its east end (G4 S). */
+  rattler: rect(12.8, 56.4, 21.6, 63.6),
+  /** Shady Acres, a fenced yard you can enter: 46 m deep (E3 W / D4 W / G1 N). */
+  cemetery: rect(-24, 24.7, 22.5, 47.5),
 
   // --- East: Lee street (col 10, world 72..80) stays open D10..K10 ---
   /** `_LIVERY` 1×2 @3.1 office at the street door; stalls behind. */
   livery: rect(80, 38, 92, 48),
   mayorFence: rect(80, 56, 101, 80),
-  /** `_MAYHALL` hall between `_MAYSTUDY` (north) and `_MAYDINE` (south). */
-  mansion: rect(86, 56.5, 100, 79),
+  /** `_MAYHALL` hall between `_MAYSTUDY` (north) and `_MAYDINE` (south). Film I10 E / J10 E: the door bay at z 67.9. */
+  mansion: rect(86, 60, 100, 75.5),
 
   // --- Farm south-west (the pale wall east of the well IS the jail) ---
-  wheelwright: rect(5, 72, 17, 80),
-  whiteStable: rect(0, 80, 8, 88),
-  grayBarn: rect(3, 88, 16, 98),
-  farmhouse: rect(24, 88, 34, 96.5),
-  blackBarn: rect(23.5, 97, 34, 107),
-  rockCityShed: rect(12, 65.5, 22, 72),
+  wheelwright: rect(10.2, 72, 17, 80),
+  whiteStable: rect(0, 80.5, 8, 86.3),
+  grayBarn: rect(3.8, 87.3, 15.5, 96.3),
+  farmhouse: rect(24.3, 88, 31.8, 96.5),
+  rockCityShed: rect(11.2, 64, 16, 68),
 
   // --- North-east farm (clear of the mission footprint + Mission St) ---
   neBarn: rect(80, 20, 90, 34),
-  redStable: rect(68, 6.5, 78, 13.5),
+  redStable: rect(66.3, 8, 72.5, 15),
 } as const;
 
 export type LotName = keyof typeof LOTS;
 
-/** Gate geometry: posts + hanging DIAMONDBACK sign between N7 and O7. */
+/**
+ * Gate geometry (film O7 N / N7 S / M7 S): posts 8 m apart just south
+ * of the N7/O7 line, each a rough post with fore-and-aft braces, a
+ * crossbeam at 5.4 m and the small DIAMONDBACK board hung under it.
+ */
 export const GATE = {
-  z: 112.4,
-  westPostX: 48.6,
-  eastPostX: 55.4,
-  beamY: 6.7,
-  signTop: 6.1,
-  signBottom: 4.9,
+  z: 111.6,
+  westPostX: 48.1,
+  eastPostX: 56.1,
+  beamY: 5.4,
+  signTop: 4.85,
+  signBottom: 4.2,
 };
 
 /**
@@ -144,16 +151,23 @@ export const SHAFT_HOLE = rect(SHAFT.x - SHAFT.r, SHAFT.z - SHAFT.r, SHAFT.x + S
 export const CAFE_DOORS = { x: 42.7, z: 59.0, width: 1.7, side: "E" as Facing };
 
 /** The mission patio (`_COURT` 3×3 @5.5 + arcades), centred on the fountain. */
-export const PATIO = rect(41.5, 2.5, 62.5, 22.5);
+export const PATIO = rect(41.5, 2.5, 62.5, 22.2);
 
-/** Tall dark palisade, east of Main at the gate; ends at Curiosities. */
-export const PALISADE = {
-  x: 56.5,
-  zNorth: 103, // black run starts here; weathered gray fence 96..103
+/**
+ * The gate-yard fence east of Main (film N7 E / O8 N / M7 E): 2.6 m of
+ * uneven grey boards, not a palisade. It runs north from the gate's
+ * east post to Curiosities' corner and east along the gate line.
+ */
+export const FENCE = {
+  x: 56.3,
+  zNorth: 99.5,
   zSouth: GATE.z,
-  height: 4.4,
-  eastEndX: 66, // the south run turns the yard corner here
+  height: 2.6,
+  eastEndX: 72.5,
 };
+
+/** The old name, kept for callers; the palisade is the FENCE. */
+export const PALISADE = FENCE;
 
 export interface DoorSpec {
   id: string;
@@ -206,21 +220,21 @@ function door(
  * jail row 0 south of centre, curiosities the middle row, …).
  */
 export const STREET_DOORS: readonly DoorSpec[] = [
-  door("watson", "I7 E", "W", LOTS.watson.minX, 68.8, 1.3, 2.6, "Watson's Apothecary", { swing: -1 }),
-  door("bolivar", "J7 E", "W", LOTS.bolivar.minX, 76.3, 1.25, 2.55, "Bolivar's Dry Goods", { swing: -1 }),
-  door("saloon", "H7 W", "E", LOTS.saloon.maxX, 59, 1.35, 2.7, "Hard Drive Saloon"),
-  door("saloonBack", "J4 E", "W", LOTS.saloonBackshed.minX, 70, 1.2, 2.45, "Saloon back door", { swing: -1 }),
-  door("stage", "H7 E", "W", LOTS.stage.minX, 60.5, 1.3, 2.6, "Stagecoach office", { swing: -1 }),
-  door("hotel", "E7 E", "W", LOTS.hotel.minX, 34.6, 1.9, 2.75, "Cactus Bed Hotel", { swing: -1, double: true }),
-  door("doctor", "E7 W", "E", LOTS.doctor.maxX, 35.3, 1.25, 2.55, "Dr. Rodham"),
-  door("bank", "F7 W", "E", LOTS.bank.maxX, 43.3, 1.35, 2.75, "Bank"),
-  door("jail", "L7 W", "E", LOTS.jail.maxX, 93.6, 1.3, 2.55, "Sheriff", { swing: -1 }),
-  door("curio", "L7 E", "W", LOTS.curio.minX, 92, 1.5, 2.6, "Curiosities", { double: true }),
-  door("mission", "D7 N", "S", 52, LOTS.mission.maxZ, 3.4, 3.4, "Mission", { double: true }),
-  door("rattler", "H4 W", "E", LOTS.rattler.maxX, 60.2, 1.2, 2.5, "The Rattler"),
-  door("sidewinder", "G1 S", "N", 4, LOTS.sidewinder.minZ, 1.3, 2.55, "Sidewinder Undertaking", { swing: -1 }),
-  door("livery", "F10 E", "W", LOTS.livery.minX, 43.7, 1.35, 2.6, "Livery", { swing: -1 }),
-  door("mayor", "I10 E", "W", 80, 66.6, 2.7, 2.5, "Mayor's gate", { double: true, gate: true }),
+  door("watson", "I7 E", "W", LOTS.watson.minX, 67.8, 1.45, 2.75, "Watson's Apothecary", { swing: -1 }),
+  door("bolivar", "J7 E", "W", LOTS.bolivar.minX, 75.9, 1.35, 2.7, "Bolivar's Dry Goods", { swing: -1 }),
+  door("saloon", "H7 W", "E", LOTS.saloon.maxX, 59.55, 1.5, 3.05, "Hard Drive Saloon"),
+  door("saloonBack", "J4 E", "W", LOTS.saloonBackshed.minX, 72.0, 1.85, 2.9, "Saloon back door", { swing: -1 }),
+  door("stage", "H7 E", "W", LOTS.stage.minX, 59.95, 1.3, 2.75, "Stagecoach office", { swing: -1 }),
+  door("hotel", "E7 E", "W", LOTS.hotel.minX, 35.9, 2.5, 2.75, "Cactus Bed Hotel", { swing: -1, double: true }),
+  door("doctor", "E7 W", "E", LOTS.doctor.maxX, 36.0, 1.45, 2.85, "Dr. Rodham"),
+  door("bank", "F7 W", "E", LOTS.bank.maxX, 44.1, 1.8, 3.0, "Bank"),
+  door("jail", "L7 W", "E", LOTS.jail.maxX, 93.65, 1.75, 2.95, "Sheriff", { swing: -1 }),
+  door("curio", "L7 E", "W", LOTS.curio.minX, 91.85, 1.55, 2.75, "Curiosities", { double: true }),
+  door("mission", "D7 N", "S", 52, LOTS.mission.maxZ, 4.0, 4.6, "Mission", { double: true }),
+  door("rattler", "H4 W", "E", LOTS.rattler.maxX, 60.27, 1.3, 2.45, "The Rattler"),
+  door("sidewinder", "G1 S", "N", 4.1, LOTS.sidewinder.minZ, 1.5, 3.0, "Sidewinder Undertaking", { swing: -1, glazed: true }),
+  door("livery", "F10 E", "W", LOTS.livery.minX, 44.2, 1.4, 2.9, "Livery", { swing: -1 }),
+  door("mayor", "I10 E", "W", 80, 67.9, 3.1, 3.0, "Mayor's gate", { double: true, gate: true }),
 ];
 
 export function streetDoor(id: string): DoorSpec {
@@ -262,45 +276,46 @@ function win(
 }
 
 export const WINDOWS: Partial<Record<LotName, readonly WindowSpec[]>> = {
-  // saloon: two tall porch panes each side of the door on the H7 half,
-  // the big I7/J7 panes, and the room + stairwell windows upstairs
+  // saloon (film H7 W / I7 W): two big 3×3 panes south of the door on
+  // the ground floor, small panes on the upper storey, Ruby's on Neely
   saloon: [
-    win("E", 57.0, 0.9, 1.0, 2.9, { panes: [2, 3] }),
-    win("E", 61.4, 1.4, 1.0, 2.9, { panes: [3, 3] }),
-    win("E", 65.4, 2.4, 0.95, 2.9, { panes: [4, 3] }),
-    win("E", 70.2, 2.4, 0.95, 2.9, { panes: [4, 3] }),
-    ...[58.6, 63.3, 66.8, 70.2].map((z) => win("E", z, 1.05, 4.9, 6.4, { panes: [2, 3] })),
-    win("E", 73.2, 1.0, 4.9, 6.4, { panes: [2, 3] }), // stairwell top
-    win("N", 38.2, 1.0, 4.9, 6.4, { panes: [2, 3] }), // Ruby's room, on Neely
-    win("W", 63.8, 0.9, 4.9, 6.2, { panes: [2, 2] }),
+    win("E", 64.05, 3.4, 0.9, 3.05, { panes: [3, 3] }),
+    win("E", 71.5, 3.4, 0.9, 3.05, { panes: [3, 3] }),
+    ...[58.6, 63.3, 67.5, 71.6, 75.3].map((z) => win("E", z, 0.9, 5.9, 7.2, { panes: [2, 3] })),
+    win("N", 38.2, 1.0, 5.1, 6.4, { panes: [2, 3] }), // Ruby's room, on Neely
+    win("W", 63.8, 0.9, 5.1, 6.3, { panes: [2, 2] }),
   ],
+  // hotel (film E7 E / F7 E): tall arched panes each side of the door
   hotel: [
-    win("W", 39.2, 1.1, 1.2, 3.0, { arched: true, panes: [2, 3] }),
-    win("W", 45.4, 1.1, 1.2, 3.0, { arched: true, panes: [2, 3] }),
-    ...[34.6, 38.2, 41.8, 45.4].map((z) => win("W", z, 0.95, 4.5, 6.0, { panes: [2, 3] })),
-    ...[59, 66].map((x) => win("S", x, 1.05, 1.3, 3.0, { arched: true, panes: [2, 3] })),
-    ...[58.6, 62.2, 69.8].map((x) => win("S", x, 0.95, 4.5, 6.0, { panes: [2, 3] })),
+    win("W", 39.1, 1.3, 1.05, 3.2, { arched: true, panes: [2, 3] }),
+    win("W", 43.2, 1.3, 1.05, 3.2, { arched: true, panes: [2, 3] }),
+    ...[34.0, 38.2, 42.0, 45.8].map((z) => win("W", z, 0.95, 5.4, 7.2, { panes: [2, 3] })),
+    win("S", 60.1, 1.0, 1.1, 2.85, { arched: true, panes: [2, 3] }),
+    ...[64.6, 68.9].map((x) => win("S", x, 1.0, 5.9, 8.0, { arched: true, panes: [2, 3] })),
   ],
+  // jail (film L7 W): one tall barred pane north of the sign
   jail: [
-    win("E", 90.2, 1.0, 1.15, 2.45, { bars: true }),
+    win("E", 89.8, 1.0, 1.0, 2.83, { bars: true, panes: [2, 3] }),
     win("W", 92.8, 0.9, 1.7, 2.6, { bars: true }), // the cell's blue window on the well yard
   ],
-  bank: [win("E", 40.6, 1.1, 1.05, 2.65, { bars: true }), win("E", 46, 1.1, 1.05, 2.65, { bars: true })],
-  watson: [win("W", 66.6, 1.0, 1.1, 2.6), win("W", 71, 1.0, 1.1, 2.6)],
-  bolivar: [win("W", 74.1, 1.2, 1.1, 2.6, { panes: [2, 2] }), win("W", 78.5, 1.2, 1.1, 2.6, { panes: [2, 2] })],
-  doctor: [win("E", 33.4, 1.05, 1.1, 2.55, { panes: [2, 3] }), win("E", 37.2, 0.85, 1.2, 2.5)],
-  curio: [win("W", 89.6, 1.1, 1.15, 2.6, { panes: [2, 3] }), win("W", 94.4, 1.1, 1.15, 2.6, { panes: [2, 3] })],
-  stage: [win("W", 57.9, 1.1, 1.05, 2.6, { panes: [2, 3] }), win("W", 63.2, 1.0, 1.05, 2.6, { panes: [2, 3] })],
-  rattler: [win("E", 57.9, 1.9, 0.9, 2.7, { panes: [3, 3] })],
-  sidewinder: [
-    win("N", 2.0, 1.1, 1.05, 2.55),
-    win("N", 6.1, 1.1, 1.05, 2.55),
-    win("N", 4, 1.2, 2.78, 3.12, { panes: [3, 1] }), // transom over the door
-  ],
-  livery: [win("W", 40.8, 1.05, 1.1, 2.5), win("W", 46.4, 1.05, 1.1, 2.5)],
+  // bank (film F7 W): two barred panes flanking the door
+  bank: [win("E", 46.5, 1.0, 1.0, 2.85, { bars: true, panes: [1, 3] }), win("E", 41.7, 1.0, 1.0, 2.85, { bars: true, panes: [1, 3] })],
+  // Watson's (film I7 E): tall 2×3 panes either side of the door
+  watson: [win("W", 65.5, 1.1, 1.0, 2.9, { panes: [2, 3] }), win("W", 70.3, 1.1, 1.0, 2.9, { panes: [2, 3] })],
+  // doctor (film E7 W): 2×3 panes, the north one a shade wider
+  doctor: [win("E", 38.27, 1.2, 1.08, 2.87, { panes: [2, 3] }), win("E", 33.6, 1.1, 1.08, 2.87, { panes: [2, 3] })],
+  // Curiosities (film L7 E): narrow red-framed lattices
+  curio: [win("W", 89.25, 0.55, 1.0, 2.6, { panes: [2, 4] }), win("W", 94.35, 0.55, 1.0, 2.6, { panes: [2, 4] })],
+  // stage office (film H7 E)
+  stage: [win("W", 57.6, 0.8, 1.1, 2.75, { panes: [2, 3] }), win("W", 62.4, 0.95, 1.1, 2.75, { panes: [2, 3] })],
+  rattler: [win("E", 58.3, 2.2, 0.69, 3.56, { panes: [2, 3] }), win("E", 62.06, 1.86, 0.69, 3.56, { panes: [2, 3] })],
+  // Sidewinder (film G1 S): two 2×2 panes flanking a glazed double door
+  sidewinder: [win("N", 6.4, 1.35, 1.1, 2.85, { panes: [2, 2] }), win("N", 1.6, 1.35, 1.1, 2.85, { panes: [2, 2] })],
+  livery: [win("W", 41.0, 1.05, 1.4, 2.9), win("W", 46.4, 1.05, 1.4, 2.9)],
+  // mansion (film I10 E / J10 E): shuttered sashes flanking the door bay
   mansion: [
-    ...[59.5, 62, 71, 74].map((z) => win("W", z, 0.95, 1.15, 2.65, { panes: [2, 3] })),
-    ...[59.5, 62, 66.6, 71, 74].map((z) => win("W", z, 0.95, 4.55, 6.05, { panes: [2, 3] })),
+    ...[65.6, 70.3].map((z) => win("W", z, 0.95, 0.8, 2.4, { panes: [2, 3] })),
+    ...[62.5, 65.6, 70.3, 73.2].map((z) => win("W", z, 0.95, 4.5, 5.9, { panes: [2, 3] })),
   ],
   school: [
     win("N", 48.5, 1.0, 1.6, 2.8, { arched: true, panes: [1, 1] }),
@@ -365,7 +380,7 @@ export const LABEL_ZONES: readonly LabelZone[] = [
   zone("Under the mission", rect(44, 5, 60, 18), -8, -0.3),
   zone("The mine", rect(28, 2, 50, 23), -8, -2),
   upper("Hard Drive Saloon — upstairs", LOTS.saloon),
-  zone("Hard Drive Saloon", rect(LOTS.saloonBackshed.minX, 56, LOTS.saloon.maxX, 80)),
+  zone("Hard Drive Saloon", rect(LOTS.saloonBackshed.minX, 55.8, LOTS.saloon.maxX, 80)),
   upper("Cactus Bed Hotel — upstairs", LOTS.hotel),
   zone("Cactus Bed Hotel", LOTS.hotel),
   upper("Mayor's mansion — upstairs", LOTS.mansion),
@@ -373,7 +388,7 @@ export const LABEL_ZONES: readonly LabelZone[] = [
   zone("Sheriff's office", LOTS.jail),
   zone("Curiosities", LOTS.curio),
   zone("Watson's Apothecary", LOTS.watson),
-  zone("Bolivar's Dry Goods", rect(LOTS.bolivar.minX, 72.5, LOTS.bolivarAnnex.maxX, 80)),
+  zone("Bolivar's Dry Goods", rect(LOTS.bolivar.minX, 72.5, 72, 80)),
   zone("Stagecoach office", LOTS.stage),
   zone("Diamondback Bank & Trust", LOTS.bank),
   zone("Dr. Rodham's parlour", rect(LOTS.doctorAnnex.minX, 32, LOTS.doctor.maxX, 38.5)),
@@ -385,6 +400,9 @@ export const LABEL_ZONES: readonly LabelZone[] = [
   zone("Livery", LOTS.livery),
   zone("Shady Acres", LOTS.cemetery),
   zone("Mayor's yard", rect(80, 56, 86, 80)),
+  zone("Mission Street", rect(60, 22, 82, 24), -2, 30),
+  zone("Mission Street", rect(60, 22, 82, 24), -2, 30),
+  zone("Mission Street", rect(60, 22, 82, 24), -2, 30),
   // Streets. The south gate label covers the gate approach N7..O8.
   zone("South gate", rect(36, 104.5, 68, 126), -2, 30),
   zone("Main Street", rect(46, 22, 58, 100), -2, 30),

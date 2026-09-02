@@ -103,7 +103,7 @@ describe("buildings sit off the street", () => {
   it("Main Street column stays open between facades", () => {
     // street x 48..56 (tile 6)
     const west = [LOTS.saloon, LOTS.bank, LOTS.doctor, LOTS.jail];
-    const east = [LOTS.stage, LOTS.watson, LOTS.bolivar, LOTS.curio, LOTS.hotel, LOTS.santaMarta];
+    const east = [LOTS.stage, LOTS.watson, LOTS.bolivar, LOTS.curio, LOTS.hotel];
     for (const lot of west) {
       expect(lot.maxX).toBeLessThanOrEqual(48);
     }
@@ -116,17 +116,18 @@ describe("buildings sit off the street", () => {
     expect(LOTS.stage.minZ).toBe(56);
     expect(LOTS.watson.minZ).toBe(LOTS.stage.maxZ);
     expect(LOTS.bolivar.minZ).toBe(LOTS.watson.maxZ);
-    // K7 east (z 80..88) stays an open alley
-    expect(LOTS.bolivar.maxZ).toBeLessThanOrEqual(80);
+    // K7 east (z 80..88) stays an open alley (the film's porch line is 80.3)
+    expect(LOTS.bolivar.maxZ).toBeLessThanOrEqual(80.5);
     expect(LOTS.curio.minZ).toBeGreaterThanOrEqual(88);
   });
 
   it("saloon spans H7+I7 with the hotel across G7 on rows E+F", () => {
-    expect(LOTS.saloon.minZ).toBe(56);
+    expect(LOTS.saloon.minZ).toBeCloseTo(56, 0);
     expect(LOTS.saloon.maxZ).toBeGreaterThan(72);
-    expect(LOTS.saloon.maxZ).toBeLessThan(76);
+    // the film's porch runs to 77.2 (K7 N), the wall to 77.5
+    expect(LOTS.saloon.maxZ).toBeLessThan(78);
     expect(LOTS.hotel.minZ).toBe(32);
-    expect(LOTS.hotel.maxZ).toBe(48);
+    expect(LOTS.hotel.maxZ).toBeCloseTo(46.9, 1);
   });
 
   it("no fake shops west of I7–K7: that flank is open", () => {
@@ -140,7 +141,8 @@ describe("buildings sit off the street", () => {
 
   it("palisade runs the gate flank and ends before Curiosities", () => {
     expect(PALISADE.x).toBeGreaterThan(56);
-    expect(PALISADE.zSouth).toBe(GATE.z);
+    // the boards run on past the gate line (O6 E / O7 E film)
+    expect(PALISADE.zSouth).toBeGreaterThanOrEqual(GATE.z);
     expect(PALISADE.zNorth).toBeGreaterThanOrEqual(LOTS.curio.maxZ);
   });
 
@@ -181,7 +183,9 @@ describe("lots never collide", () => {
     const corridors: [string, Rect][] = [
       ["Main", { minX: 48, minZ: 24, maxX: 56, maxZ: 120 }],
       ["Neely", { minX: 0, minZ: 48, maxX: 88, maxZ: 56 }],
-      ["Day", { minX: 8, minZ: 80, maxX: 96, maxZ: 88 }],
+      ["Day", { minX: 24, minZ: 80, maxX: 96, maxZ: 88 }],
+      // the grey barn's north end stands 2 m into the K2/K3 tiles (K3 W)
+      ["Day west", { minX: 8, minZ: 80, maxX: 24, maxZ: 86 }],
       ["Mission St", { minX: 24, minZ: 24, maxX: 80, maxZ: 32 }],
       ["west lane", { minX: 24, minZ: 24, maxX: 32, maxZ: 88 }],
       ["Lee", { minX: 72, minZ: 24, maxX: 80, maxZ: 88 }],

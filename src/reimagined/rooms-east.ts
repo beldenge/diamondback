@@ -6,6 +6,7 @@
 import * as THREE from "three";
 import { LOTS, STOREY, WALL_T, streetDoor, winGaps } from "./layout";
 import * as P from "./props";
+import { eggRackTex } from "./textures";
 import type { Ctx } from "./interiors";
 
 const IN = WALL_T;
@@ -32,63 +33,81 @@ function buildStage(c: Ctx): void {
   const z1 = r.maxZ - IN;
   const d = streetDoor("stage");
   const ceilY = 3.3;
-  c.lining(m.woodDoctor, x0, z0, x1, z1, {
+  c.lining(m.linen, x0, z0, x1, z1, {
     ceilY,
     ceil: m.redCeiling,
     wainscot: m.woodSaloon,
     wainscotH: 0.9,
     gaps: { W: [c.gapOf(d, 0.12), ...winGaps("stage", "W")] },
   });
-  // ticket bay: counter under a low arch, lamps on its posts
-  P.counter(b, m, x1 - 1.25, 58.6, x1, 62.4, 1.1, m.woodSaloon, m.woodBlack);
+  // ticket bay (A2 E): a 3.2 m recess under a wooden arch, turned
+  // columns carrying the oil lamps, the company sign on its back wall,
+  // a door in its north cheek and a framed bill on the south
+  const bay0 = 58.9;
+  const bay1 = 62.1;
   const bayX = x1 - 1.35;
-  b.archWall(m.woodSaloon, "z", 58.2, 62.8, bayX, 1.75, ceilY, 60.5, 2.8, 3.15, 0.14, { collide: false });
-  for (const pz of [58.3, 62.7]) {
-    b.box(m.woodSaloon, bayX - 0.07, 1.1, pz - 0.1, bayX + 0.07, 1.75, pz + 0.1, { collide: false });
-    P.wallLantern(b, m, bayX - 0.07, 1.9, pz, "W");
+  P.counter(b, m, x1 - 1.25, bay0, x1, bay1, 1.1, m.woodSaloon, m.woodBlack);
+  b.archWall(m.woodSaloon, "z", bay0, bay1, bayX, 1.75, ceilY, 60.5, 2.6, 3.15, 0.14, { collide: false });
+  for (const pz of [bay0 + 0.1, bay1 - 0.1]) {
+    b.cyl(m.woodSaloon, bayX, pz, 1.1, 2.85, 0.09, { rTop: 0.07, seg: 8 });
+    b.cyl(m.woodSaloon, bayX, pz, 1.1, 1.3, 0.12, { rTop: 0.1, seg: 8 });
+    b.cyl(m.woodSaloon, bayX, pz, 1.75, 1.9, 0.12, { seg: 8 });
+    P.wallLantern(b, m, bayX - 0.07, 2.05, pz, "W");
   }
+  for (const cz of [bay0, bay1]) {
+    b.box(m.linen, bayX, 0, cz - 0.07, x1, ceilY, cz + 0.07);
+    b.box(m.woodSaloon, bayX, 0, cz - 0.075, x1, 0.9, cz + 0.075, { collide: false });
+  }
+  P.fakeDoor(b, m, 62.6, 0, bay0 + 0.07, 0.85, 2.1, "S", { mat: m.woodDark });
+  P.pictureFrame(b, m, 62.6, 2.0, bay1 - 0.07, 0.6, 0.8, "N", "map", { frame: m.woodDark });
   b.decal(
-    c.signMat(["The Great Southwestern", "STAGECOACH Co."], 2.3, 0.85, { bg: "#efeadb", fg: "#241d16", border: "#8a7a52" }),
+    c.signMat(["The Great Southwestern", "STAGECOACH Co."], 1.6, 0.65, { bg: "#efeadb", fg: "#241d16", border: "#8a7a52" }),
     x1 - 0.012,
-    2.05,
+    2.2,
     60.5,
-    2.3,
-    0.85,
+    1.6,
+    0.65,
     "W",
   );
   b.box(m.paper, x1 - 1.1, 1.1, 60.2, x1 - 0.5, 1.11, 60.8, { collide: false }); // tickets
   b.cyl(m.brass, x1 - 0.7, 61.8, 1.1, 1.18, 0.06, { seg: 8 }); // bell
   // north end of the back wall: Lincoln, the route map, Fast Freight
   P.pictureFrame(b, m, x1, 2.3, 56.85, 0.6, 0.8, "W", "portrait", { frame: m.woodDark, px: 96, py: 128 });
-  P.pictureFrame(b, m, x1, 2.45, 57.55, 0.85, 0.65, "W", "map", { frame: m.woodDark });
-  b.decal(c.signMat(["Fast Freight", "CONTRACTED"], 0.8, 0.5, { bg: "#efeadb", fg: "#241d16", border: "#241d16" }), x1 - 0.012, 1.55, 57.55, 0.8, 0.5, "W");
+  P.pictureFrame(b, m, x1, 2.45, 57.75, 0.85, 0.65, "W", "map", { frame: m.woodDark });
+  b.decal(c.signMat(["Fast Freight", "CONTRACTED"], 0.8, 0.5, { bg: "#efeadb", fg: "#241d16", border: "#241d16" }), x1 - 0.012, 1.55, 57.75, 0.8, 0.5, "W");
   // south end: the through-tickets board
   b.decal(
     c.signMat(
       ["THROUGH TICKETS TO:", "Asbestos · Phoenix · Los Osos · Santa Fe", "Rabies · Dry Rot · Albuquerque · Tombstone", "CALIFORNIA AND ALL POINTS SOUTH AND EAST"],
-      1.7,
-      1.05,
+      1.25,
+      0.8,
       { bg: "#c9b98a", fg: "#33261a", border: "#6b5b3c" },
     ),
     x1 - 0.012,
-    2.0,
-    63.75,
-    1.7,
-    1.05,
+    2.05,
+    62.8,
+    1.25,
+    0.8,
     "W",
   );
   // end walls + waiting bench, luggage, barrels
-  b.decal(c.signMat(["ASBESTOS, DETROIT", "AND SANTA FE", "— COACHES —", "The Great Southwestern", "STAGECOACH Co."], 0.85, 1.25, { bg: "#d8cba6", fg: "#33261a", border: "#8a7a52" }), 58.6, 2.1, z0 + 0.012, 0.85, 1.25, "S");
+  b.decal(c.signMat(["ASBESTOS, DETROIT", "AND SANTA FE", "— COACHES —", "The Great Southwestern", "STAGECOACH Co."], 0.85, 1.25, { bg: "#d8cba6", fg: "#33261a", border: "#8a7a52" }), 60.0, 2.1, z0 + 0.012, 0.85, 1.25, "S");
+  P.pictureFrame(b, m, 61.9, 2.2, z0, 0.8, 0.6, "S", "map", { frame: m.woodDark });
+  // the street windows are shuttered from inside (A1 W / A3 W)
+  for (const wz of [57.6, 62.4]) {
+    b.box(m.woodBlack, x0, 1.05, wz - 0.5, x0 + 0.1, 2.8, wz + 0.5, { collide: false });
+    b.box(m.woodDark, x0, 1.05, wz - 0.03, x0 + 0.12, 2.8, wz + 0.03, { collide: false });
+  }
   P.pictureFrame(b, m, 59.0, 2.2, z1, 1.1, 0.8, "N", "flowers", { frame: m.brass });
-  P.bench(b, m, x0 + 0.42, 57.9, 1.6, "E");
+  P.bench(b, m, 60.0, z0 + 0.4, 1.6, "S");
   b.box(m.woodSaloon, x0 + 0.3, 0, 59.2, x0 + 1.3, 0.55, 59.9);
   b.box(m.brass, x0 + 0.3, 0.24, 59.18, x0 + 1.3, 0.32, 59.92, { collide: false });
   b.rotBox(m.leatherRed, x0 + 1.1, 0.24, 57.0, 0.62, 0.44, 0.34, 0.4, { collide: false });
   P.spittoon(b, m, x0 + 0.55, 61.4);
-  P.barrel(b, m, 60.9, 64.1, 0.42, 0.9);
-  P.barrel(b, m, 59.8, 64.25, 0.38, 0.8);
-  P.tableSquare(b, m, 57.4, 64.15, 1.1, 0.6, 0.78);
-  b.cyl(m.brass, 57.4, 64.15, 0.78, 0.98, 0.14, { seg: 8 });
+  P.barrel(b, m, 60.9, 62.7, 0.42, 0.9);
+  P.barrel(b, m, 59.8, 62.75, 0.38, 0.8);
+  P.tableSquare(b, m, 58.5, 62.5, 1.1, 0.6, 0.78);
+  b.cyl(m.brass, 58.5, 62.5, 0.78, 0.98, 0.14, { seg: 8 });
   P.hangLamp(b, m, 59.0, 60.5, ceilY, { drop: 0.7 });
   c.warm(59, 2.7, 60.5, 15, 9);
 }
@@ -114,8 +133,8 @@ function buildWatson(c: Ctx): void {
   });
   P.glassCase(b, m, 58.2, z0 + 0.6, 64.2, z0 + 1.6);
   P.glassCase(b, m, 58.2, z1 - 1.6, 64.2, z1 - 0.6);
-  P.shelfUnit(b, m, 61.2, 1.35, z0, 8.4, 1.75, 0.32, "S", "jars", 3, m.woodSaloon);
-  P.shelfUnit(b, m, 61.2, 1.35, z1, 8.4, 1.75, 0.32, "N", "jars", 3, m.woodSaloon);
+  P.shelfUnit(b, m, 61.6, 1.35, z0, 6.6, 1.75, 0.32, "S", "jars", 3, m.woodSaloon);
+  P.shelfUnit(b, m, 61.6, 1.35, z1, 6.6, 1.75, 0.32, "N", "jars", 3, m.woodSaloon);
   b.cyl(m.marble, 60.8, z0 + 1.1, 1.35, 1.5, 0.09, { seg: 7 }); // mortar
   b.box(m.brass, 62.3, 1.35, z1 - 1.25, 62.7, 1.4, z1 - 0.95, { collide: false }); // scales
   b.cyl(m.brass, 62.5, z1 - 1.1, 1.4, 1.7, 0.02, { seg: 5 });
@@ -131,11 +150,18 @@ function buildWatson(c: Ctx): void {
   P.crate(b, m, x1 - 0.6, 71.5, 0.7, 0.9, 0.3);
   b.decal(c.posterMat("tonic"), x1 - 0.012, 2.05, 68.75, 0.85, 1.15, "W");
   P.pictureFrame(b, m, x1, 2.2, 66.6, 0.6, 0.8, "W", "lady", { frame: m.woodDark, px: 96, py: 128 });
-  b.box(m.woodSaloon, x1 - 0.3, 2.45, z0 + 0.4, x1, 2.55, z1 - 0.4, { collide: false }); // header beam
-  // front: clock, coat rack, chair
-  P.grandfatherClock(b, m, x0, 67.65, "E");
+  // the back alcove opens through a round wooden arch (C2 W)
+  b.archWall(m.woodSaloon, "z", z0, z1, x1 - 1.75, 0, ceilY, (z0 + z1) / 2, 4.4, ceilY - 0.05, 0.16);
+  // street wall (B2 E): dark blue curtains over both windows, a lady's
+  // portrait north of the door and a landscape south of it, the coat rack
+  for (const wz of [65.5, 70.3]) {
+    b.decal(m.curtainBlue, x0 + 0.1, 2.0, wz, 1.2, 2.1, "E", { audit: false });
+    b.box(m.woodDark, x0 + 0.06, 3.02, wz - 0.65, x0 + 0.16, 3.1, wz + 0.65, { collide: false });
+  }
+  P.pictureFrame(b, m, x0, 2.25, 66.7, 0.55, 0.75, "E", "lady", { frame: m.woodDark, px: 96, py: 128 });
+  P.pictureFrame(b, m, x0, 2.25, 68.95, 0.8, 0.6, "E", "landscape", { frame: m.woodDark });
   P.coatRack(b, m, x0 + 0.55, 70.2);
-  P.chair(b, m, 57.6, 67.6, 0.7);
+  P.chair(b, m, 58.7, 67.6, 0.7);
   P.hangLamp(b, m, 61.5, 68.75, ceilY, { drop: 0.8 });
   P.hangLamp(b, m, 64.8, 68.75, ceilY, { drop: 0.7 });
   c.warm(61.5, 2.7, 68.75, 16, 9);
@@ -160,8 +186,34 @@ function buildBolivar(c: Ctx): void {
     gaps: { W: [c.gapOf(d, 0.12), ...winGaps("bolivar", "W")] },
   });
   P.shelfUnit(b, m, 61.6, 1.2, z0, 6.0, 1.9, 0.3, "S", "cans", 3, m.teal);
-  P.shelfUnit(b, m, 61.6, 1.2, z1, 6.0, 1.9, 0.3, "N", "cans", 3, m.teal);
-  P.shelfUnit(b, m, x1, 1.2, 76.25, 5.6, 1.9, 0.3, "W", "cans", 3, m.teal);
+  P.shelfUnit(b, m, 64.5, 1.2, z1, 2.6, 1.9, 0.3, "N", "cans", 3, m.teal);
+  // the south wall's west half (C2 N / D2 N): the red wagon wheel between
+  // two tin plates, a back doorway in the corner with a bill beside it
+  P.spokedWheel(b, m, 60.5, z1 - 0.1, 0.55, { y: 1.45, mat: m.curioRed });
+  for (const px of [59.4, 61.6]) {
+    const plate = new THREE.CylinderGeometry(0.22, 0.22, 0.02, 16);
+    plate.rotateX(Math.PI / 2);
+    plate.translate(px, 2.0, z1 - 0.03);
+    b.mesh(m.white, plate);
+  }
+  P.fakeDoor(b, m, 58.2, 0, z1, 0.95, 2.15, "N", { mat: m.woodDark });
+  b.decal(c.posterMat("notice"), 59.0, 2.2, z1 - 0.012, 0.35, 0.45, "N");
+  P.fakeDoor(b, m, x1, 0, 76.3, 0.95, 2.15, "W", { mat: m.woodDark });
+  b.decal(c.posterMat("notice"), x1 - 0.012, 2.35, 76.3, 0.4, 0.5, "W");
+  b.decal(c.posterMat("circus"), x1 - 0.012, 1.95, 75.3, 0.5, 0.7, "W");
+  P.pictureFrame(b, m, x1, 2.05, 77.75, 0.8, 0.6, "W", "landscape", { frame: m.woodDark });
+  for (const [pz, pr] of [
+    [73.6, 0.22],
+    [74.3, 0.2],
+    [77.0, 0.24],
+    [78.3, 0.2],
+  ] as const) {
+    b.cyl(m.iron, x1 - 0.06, pz, 2.55, 2.61, pr, { seg: 9 });
+  }
+  b.cyl(m.brass, x1 - 0.1, 75.6, 2.35, 2.75, 0.16, { rTop: 0.1, seg: 8 });
+  for (const cz of [73.55, 74.4]) {
+    P.chair(b, m, x1 - 0.3, cz, Math.PI, 1.72); // hung on the wall
+  }
   // the U counter
   P.counter(b, m, 58.3, 74.4, 63.3, 75.3, 0.95, m.teal, m.marble);
   P.counter(b, m, 58.3, 77.3, 63.3, 78.2, 0.95, m.teal, m.marble);
@@ -194,21 +246,26 @@ function buildBolivar(c: Ctx): void {
     b.cyl(m.iron, px, pz, 2.5, 2.58, 0.18, { seg: 9 });
     b.cyl(m.iron, px, pz, 2.58, ceilY, 0.012, { seg: 4 });
   }
-  P.spokedWheel(b, m, 57.5, z0 + 0.45, 0.55, { y: 1.3, mat: m.curioRed });
-  P.stove(b, m, 64.6, 73.4, ceilY);
+  P.spokedWheel(b, m, 58.0, z0 + 0.45, 0.55, { y: 1.3, mat: m.curioRed });
+  P.stove(b, m, 64.7, 79.5, ceilY);
   // apple barrel by the door, the baking powder sign and a wanted bill
-  P.barrel(b, m, 57.3, 78.9, 0.42, 0.8);
+  P.barrel(b, m, 57.9, 74.0, 0.42, 0.8);
   for (const [ax, az] of [
-    [57.2, 78.8],
-    [57.45, 79.05],
-    [57.1, 79.1],
+    [57.8, 73.9],
+    [58.05, 74.15],
+    [57.7, 74.2],
   ] as const) {
     b.sphere(m.curioRed, ax, 0.86, az, 0.11, 6);
   }
-  b.decal(c.signMat(["COUNCE", "BAKING", "POWDER"], 0.7, 1.2, { bg: "#a3261d", fg: "#efe0b0", border: "#5e1713" }), x0 + 0.012, 2.0, 75.2, 0.7, 1.2, "E");
-  b.decal(c.posterMat("wanted"), x0 + 0.012, 1.9, 77.45, 0.65, 0.9, "E");
-  P.chair(b, m, 57.6, 73.6, 0.3);
-  P.hangLamp(b, m, 60.8, 76.3, ceilY, { drop: 0.7 });
+  // street wall (C2 E / D2 E): the baking powder sign south of the door
+  // with a chair under it, the wanted bill north of it
+  b.decal(c.signMat(["COUNCE", "BAKING", "POWDER"], 0.7, 1.2, { bg: "#a3261d", fg: "#efe0b0", border: "#5e1713" }), x0 + 0.012, 2.0, 77.3, 0.7, 1.2, "E");
+  b.decal(c.posterMat("wanted"), x0 + 0.012, 1.9, 74.8, 0.5, 0.7, "E");
+  for (const rz of [74.05, 73.45]) {
+    b.decal(new THREE.MeshLambertMaterial({ map: eggRackTex() }), x0 + 0.012, 1.95, rz, 0.5, 0.5, "E");
+  }
+  P.chair(b, m, 58.15, 77.5, 0.3);
+  P.candleWheel(b, m, 60.8, 76.3, ceilY - 0.75, 0.32, 4, ceilY);
   c.warm(60.8, 2.7, 76.3, 16, 9);
 }
 
@@ -236,50 +293,64 @@ function buildCurio(c: Ctx): void {
   b.box(m.curioRed, x0 + 0.04, 3.1, z1 - 0.14, x1 - 0.04, 3.28, z1 - 0.04, { collide: false });
   b.box(m.curioRed, x1 - 0.14, 3.1, z0 + 0.04, x1 - 0.04, 3.28, z1 - 0.04, { collide: false });
   // black counters under the shelves, shelves of glazed jars
-  b.box(m.woodBlack, 57.2, 0, z0, 62.2, 0.9, z0 + 0.6);
-  b.box(m.woodBlack, 57.2, 0, z1 - 0.6, 62.2, 0.9, z1);
+  b.box(m.woodBlack, 59.2, 0, z0, 63.1, 0.9, z0 + 0.6);
+  b.box(m.woodBlack, 59.2, 0, z1 - 0.6, 63.1, 0.9, z1);
   b.box(m.woodBlack, x1 - 0.6, 0, z0 + 0.6, x1, 0.9, z1 - 0.6);
-  P.shelfUnit(b, m, 59.7, 0.9, z0, 5.0, 2.1, 0.34, "S", "curios", 3, m.woodBlack);
-  P.shelfUnit(b, m, 59.7, 0.9, z1, 5.0, 2.1, 0.34, "N", "curios", 3, m.woodBlack);
-  P.shelfUnit(b, m, x1, 0.9, 89.8, 2.0, 2.1, 0.34, "W", "curios", 3, m.woodBlack);
-  P.shelfUnit(b, m, x1, 0.9, 94.2, 2.0, 2.1, 0.34, "W", "curios", 3, m.woodBlack);
+  P.shelfUnit(b, m, 61.95, 0.9, z0, 2.3, 2.1, 0.34, "S", "curios", 3, m.woodBlack);
+  P.shelfUnit(b, m, 61.95, 0.9, z1, 2.3, 2.1, 0.34, "N", "curios", 3, m.woodBlack);
+  // the back counter (B1 E / B3 E): a candle, incense in a pot, crocks, bills
+  b.cyl(m.cactusDark, 63.55, 89.5, 0.9, 1.2, 0.05, { seg: 6 });
+  b.box(m.ember, 63.53, 1.2, 89.48, 63.57, 1.24, 89.52, { collide: false });
+  b.cyl(m.woodStage, 63.5, 90.3, 0.9, 1.1, 0.1, { seg: 7 });
+  for (const k of [-1, 0, 1]) {
+    b.rotBox(m.woodDark, 63.5 + k * 0.03, 1.35, 90.3 + k * 0.02, 0.012, 0.6, 0.012, 0, { rotZ: 0.12 * k, collide: false });
+  }
+  b.cyl(m.woodStage, 63.5, 93.5, 0.9, 1.3, 0.18, { seg: 8 });
+  b.cyl(m.woodStage, 63.55, 94.15, 0.9, 1.25, 0.16, { seg: 8 });
+  b.decal(c.posterMat("wanted"), x1 - 0.012, 2.2, 89.6, 0.5, 0.7, "W");
+  b.decal(c.posterMat("circus"), x1 - 0.012, 2.1, 90.35, 0.45, 0.65, "W");
+  b.decal(c.posterMat("wanted"), 63.45, 2.2, z0 + 0.012, 0.5, 0.7, "S");
   // the back wall between the shelves: hanging scroll + bills
-  P.pictureFrame(b, m, x1, 2.0, 92.0, 0.7, 1.9, "W", "scroll", { frame: m.curioRed, px: 64, py: 192 });
-  b.decal(c.posterMat("wanted"), x1 - 0.012, 2.1, 91.1, 0.5, 0.7, "W");
-  b.decal(c.posterMat("tonic"), x1 - 0.012, 2.0, 92.9, 0.5, 0.7, "W");
-  b.decal(c.posterMat("wanted2"), x0 + 0.012, 2.2, 90.7, 0.5, 0.7, "E");
-  b.decal(c.posterMat("circus"), x0 + 0.012, 2.2, 93.3, 0.5, 0.7, "E");
+  // the back wall (B2 E): a dark door hung with a landscape, bills
+  // beside it; the scroll hangs by the street door (A2 W / B2 W)
+  P.fakeDoor(b, m, x1, 0, 92.0, 1.0, 2.2, "W", { mat: m.woodBlack, frame: m.curioRed });
+  P.pictureFrame(b, m, x1 - 0.07, 1.6, 92.0, 0.42, 0.55, "W", "landscape", { frame: m.woodDark });
+  b.decal(c.posterMat("wanted"), x1 - 0.012, 2.1, 91.15, 0.5, 0.7, "W");
+  b.decal(c.posterMat("tonic"), x1 - 0.012, 2.0, 93.4, 0.5, 0.7, "W");
+  P.pictureFrame(b, m, x0, 2.0, 90.35, 0.7, 1.9, "E", "scroll", { frame: m.curioRed, px: 64, py: 192 });
+  b.decal(c.posterMat("wanted2"), x0 + 0.012, 2.2, 93.0, 0.5, 0.7, "E");
+  b.decal(c.posterMat("circus"), x0 + 0.012, 2.2, 93.65, 0.5, 0.7, "E");
   // red fretwork screens in front of the side bays
-  P.latticeScreen(b, m, 61.3, z0 + 0.62, 61.3, 90.7, 2.7);
-  P.latticeScreen(b, m, 61.3, 93.3, 61.3, z1 - 0.62, 2.7);
+  P.latticeScreen(b, m, 62.6, z0 + 0.62, 62.6, 90.7, 2.7);
+  P.latticeScreen(b, m, 62.6, 93.3, 62.6, z1 - 0.62, 2.7);
   // vases, the skull, incense, a bowl on a stand
-  for (const vx of [58.0, 59.0, 60.0]) {
+  for (const vx of [60.2, 61.2, 62.2]) {
     P.vase(b, m, vx, 0.9, z1 - 0.3, 0.24, 0.75, m.white);
   }
-  b.sphere(m.bone, 61.4, 1.06, z0 + 0.3, 0.16, 8);
-  b.box(m.bone, 61.28, 0.9, z0 + 0.2, 61.52, 0.98, z0 + 0.4, { collide: false });
-  P.tableSquare(b, m, 57.7, 89.5, 0.7, 0.5, 0.7, m.woodBlack, m.woodBlack);
+  b.sphere(m.bone, 62.6, 1.06, z0 + 0.3, 0.16, 8);
+  b.box(m.bone, 62.48, 0.9, z0 + 0.2, 62.72, 0.98, z0 + 0.4, { collide: false });
+  P.tableSquare(b, m, 59.6, 89.5, 0.7, 0.5, 0.7, m.woodBlack, m.woodBlack);
   for (let i = 0; i < 4; i += 1) {
-    b.rotBox(m.woodDark, 57.6 + i * 0.06, 0.95, 89.5, 0.012, 0.5, 0.012, 0, { rotZ: 0.08 * (i - 1.5), collide: false });
+    b.rotBox(m.woodDark, 59.5 + i * 0.06, 0.95, 89.5, 0.012, 0.5, 0.012, 0, { rotZ: 0.08 * (i - 1.5), collide: false });
   }
-  b.cyl(m.brass, 57.5, 94.4, 0, 0.55, 0.06, { seg: 6 });
-  b.cyl(m.brass, 57.5, 94.4, 0.55, 0.62, 0.3, { rTop: 0.34, seg: 10 });
+  b.cyl(m.brass, 59.4, 94.4, 0, 0.55, 0.06, { seg: 6 });
+  b.cyl(m.brass, 59.4, 94.4, 0.55, 0.62, 0.3, { rTop: 0.34, seg: 10 });
   // lanterns and gilt bats
-  P.paperLantern(b, m, 59.4, 2.35, 89.9, ceilY);
-  P.paperLantern(b, m, 59.4, 2.35, 94.1, ceilY);
-  P.paperLantern(b, m, 57.6, 2.5, 92.0, ceilY);
+  P.paperLantern(b, m, 61.0, 2.35, 89.9, ceilY);
+  P.paperLantern(b, m, 61.0, 2.35, 94.1, ceilY);
+  P.paperLantern(b, m, 59.6, 2.5, 92.0, ceilY);
   for (const [bx, bz] of [
-    [58.6, 89.2],
-    [60.6, 95.0],
-    [58.5, 92.0],
+    [60.4, 89.2],
+    [62.2, 95.0],
+    [60.5, 92.0],
   ] as const) {
     b.rotBox(m.brass, bx - 0.14, ceilY - 0.03, bz, 0.26, 0.02, 0.14, 0.4, { collide: false });
     b.rotBox(m.brass, bx + 0.14, ceilY - 0.03, bz, 0.26, 0.02, 0.14, -0.4, { collide: false });
     b.sphere(m.brass, bx, ceilY - 0.04, bz, 0.05, 6);
   }
-  c.warm(59.4, 2.3, 89.9, 8, 6);
-  c.warm(59.4, 2.3, 94.1, 8, 6);
-  c.warm(57.6, 2.4, 92, 6, 5);
+  c.warm(61.0, 2.3, 89.9, 8, 6);
+  c.warm(61.0, 2.3, 94.1, 8, 6);
+  c.warm(59.6, 2.4, 92, 6, 5);
 }
 
 /* ------------------------------------------------------------------ */
@@ -353,49 +424,70 @@ function buildHotel(c: Ctx): void {
   P.sconce(b, m, stairX + 0.16, 4.2, 36.0, "E");
   b.box(m.woodDark, stairX + 0.1, 0.92, 39.4, stairX + 0.2, 1.0, 40.3, { collide: false });
 
-  /* ---- lobby ---- */
-  P.counter(b, m, 58.0, z0 + 0.4, 63.2, z0 + 1.4, 1.1, m.woodSaloon, m.woodDark);
-  b.box(m.white, 60.0, 1.1, z0 + 0.7, 60.9, 1.16, z0 + 1.2, { collide: false }); // ledger
-  b.sphere(m.brass, 62.3, 1.22, z0 + 0.9, 0.09, 8);
-  b.cyl(m.brass, 58.6, z0 + 0.9, 1.1, 1.5, 0.04, { seg: 6 });
-  b.box(m.glassWarm, 58.52, 1.5, z0 + 0.82, 58.68, 1.68, z0 + 0.98, { collide: false });
-  P.pictureFrame(b, m, 60.6, 2.15, z0, 1.6, 0.8, "S", "keys", { frame: m.woodDark, px: 128, py: 64 });
-  P.pictureFrame(b, m, 57.4, 2.25, z0, 0.95, 0.7, "S", "map", { frame: m.woodDark });
-  P.coatRack(b, m, 57.0, z0 + 1.1);
-  P.sconce(b, m, 63.0, 2.3, z0 + 0.06, "S");
-  // wagon-wheel chandelier
-  P.spokedWheel(b, m, 60.0, 36.6, 1.0, { y: 1.95, lean: Math.PI / 2, mat: m.woodDark });
+  /* ---- lobby (A1 E / A1 N / B2 N) ---- */
+  // the desk is an L in the north-east corner: a short run along the
+  // north wall, the long run along the PRIVATE partition with the
+  // register and the bell, a high back counter behind it
+  P.counter(b, m, 58.9, z0 + 0.4, 62.3, z0 + 1.2, 1.1, m.woodSaloon, m.woodDark);
+  P.counter(b, m, 61.5, z0 + 1.2, 62.3, 36.3, 1.1, m.woodSaloon, m.woodDark);
+  b.box(m.woodDark, 62.75, 0, 33.0, partX - 0.2, 1.35, 36.4);
+  b.box(m.white, 61.62, 1.1, 34.0, 61.9, 1.14, 34.6, { collide: false }); // the register, open
+  b.box(m.white, 61.92, 1.1, 34.0, 62.2, 1.14, 34.6, { collide: false });
+  b.cyl(m.brass, 61.9, 35.7, 1.1, 1.22, 0.085, { rTop: 0.03, seg: 8 }); // the bell
+  b.cyl(m.brass, 59.4, z0 + 0.8, 1.1, 1.5, 0.04, { seg: 6 });
+  b.box(m.glassWarm, 59.32, 1.5, z0 + 0.72, 59.48, 1.68, z0 + 0.88, { collide: false });
+  P.shelfUnit(b, m, partX - 0.2, 1.35, 34.5, 0.95, 0.72, 0.3, "W", "books", 2, m.woodDark);
+  // north wall: the map, a landscape in the corner, the coat rack, a lamp
+  P.pictureFrame(b, m, 58.6, 2.25, z0, 0.95, 0.7, "S", "map", { frame: m.woodDark });
+  P.pictureFrame(b, m, 62.0, 2.35, z0, 0.9, 0.95, "S", "landscape", { frame: m.woodDark });
+  P.coatRack(b, m, 58.5, z0 + 1.6);
+  P.sconce(b, m, 60.6, 2.3, z0 + 0.06, "S");
+  // the wagon-wheel chandelier with its six chimneys
+  P.spokedWheel(b, m, 62.3, 36.5, 1.0, { y: 1.7, lean: Math.PI / 2, mat: m.woodDark });
   for (let i = 0; i < 6; i += 1) {
     const a = (i / 6) * Math.PI * 2;
-    b.box(m.glassWarm, 60 + Math.cos(a) * 0.95 - 0.04, 2.98, 36.6 + Math.sin(a) * 0.95 - 0.04, 60 + Math.cos(a) * 0.95 + 0.04, 3.2, 36.6 + Math.sin(a) * 0.95 + 0.04, { collide: false });
+    const lx = 62.3 + Math.cos(a) * 0.9;
+    const lz = 36.5 + Math.sin(a) * 0.9;
+    b.cyl(m.brass, lx, lz, 2.7, 2.78, 0.05, { seg: 6 });
+    b.sphere(m.lampGlass, lx, 2.85, lz, 0.065, 8);
+    b.cyl(m.lampGlass, lx, lz, 2.88, 3.05, 0.04, { rTop: 0.03, seg: 6 });
   }
-  b.cyl(m.iron, 60, 36.6, 2.96, slabY, 0.02, { seg: 5 });
-  // clock and bills on the street wall south of the door
-  P.grandfatherClock(b, m, x0, 36.6, "E");
-  b.decal(c.posterMat("circus"), x0 + 0.012, 2.3, 38.2, 0.55, 0.75, "E");
-  // the PRIVATE partition: house rules + the painted door
+  b.cyl(m.iron, 62.3, 36.5, 2.7, slabY, 0.015, { seg: 5 });
+  // the street wall (A2 W): the clock at the south end, REPENT and
+  // Martash bills between it and the door
+  P.grandfatherClock(b, m, x0, 40.1, "E");
+  b.decal(c.posterMat("martash"), x0 + 0.012, 2.3, 38.25, 0.55, 0.75, "E");
+  b.decal(c.posterMat("repent"), x0 + 0.012, 2.3, 37.6, 0.5, 0.7, "E");
+  // the PRIVATE partition: the house rules, the painted door
   b.decal(
     c.signMat(
       ["THE CACTUS BED", "Gold nuggets and pesos accepted", "No spurs in bed · No shooting the lamps", "No blue talk in the lobby", "Settle up Saturdays"],
-      1.5,
-      1.15,
+      1.85,
+      1.2,
       { bg: "#6d5136", fg: "#e6dcba", border: "#4a3826" },
     ),
     partX - 0.1 - 0.012,
-    2.1,
-    34.4,
-    1.5,
-    1.15,
+    2.15,
+    35.8,
+    1.85,
+    1.2,
     "W",
   );
-  P.fakeDoor(b, m, partX - 0.1, 0, 36.9, 1.1, 2.2, "W", { label: "PRIVATE", plate: { bg: "#e6dcba", fg: "#33261a" } });
-  P.shelfUnit(b, m, partX - 0.1, 0, 38.9, 1.4, 1.6, 0.35, "W", "books", 3, m.woodSaloon);
-  b.flat(m.rug, 57.3, 34.6, 62.8, 39.4, 0.05, { texWorld: 1.6 });
-  c.warm(60, 3.0, 36.6, 18, 11);
+  P.fakeDoor(b, m, partX - 0.1, 0, 37.6, 1.1, 2.2, "W", { label: "PRIVATE", plate: { bg: "#e6dcba", fg: "#33261a" } });
+  b.flat(m.rug, 58.3, 34.6, 62.8, 39.4, 0.05, { texWorld: 1.6 });
+  c.warm(62.3, 3.0, 36.5, 18, 11);
 
   /* ---- dining ---- */
+  // the arched street windows hang with red drapes (B3 W); a landscape on
+  // the lobby partition (C3 N)
+  for (const wz of [39.1, 43.2]) {
+    P.curtain(b, m, x0, 0.9, wz - 0.4, 0.75, 2.4, "E");
+    P.curtain(b, m, x0, 0.9, wz + 0.4, 0.75, 2.4, "E");
+    b.box(m.woodDark, x0, 3.2, wz - 0.85, x0 + 0.16, 3.38, wz + 0.85, { collide: false });
+  }
+  P.pictureFrame(b, m, 65.8, 2.3, dineZ + 0.1, 1.3, 0.95, "S", "landscape", { frame: m.woodDark });
   P.tableRound(b, m, 59.6, 43.6, 0.8);
-  P.chair(b, m, 58.7, 44.3, 2.3);
+  P.chair(b, m, 58.9, 44.3, 2.3);
   P.chair(b, m, 60.5, 42.9, -0.8);
   P.chair(b, m, 60.3, 44.5, -2.4);
   P.tableRound(b, m, 63.6, 45.0, 0.75);
@@ -506,10 +598,11 @@ function buildHotel(c: Ctx): void {
     ceil: m.woodSaloon,
     gaps: { E: [c.gapOf(roomDoor, 0.08)], W: upperW, S: upperS },
   });
-  P.bed(b, m, 57.15, 45.3, 1.4, 2.1, "N", m.rug, { y0: up });
+  P.bed(b, m, 58.75, 45.3, 1.4, 2.1, "N", m.rug, { y0: up });
   P.curtain(b, m, x0, up + 0.4, 44.55, 0.5, 2.5, "E");
   P.curtain(b, m, x0, up + 0.4, 46.25, 0.5, 2.5, "E");
   P.washstand(b, m, 62.4, room3z + 0.1, "S", up);
+  P.pictureFrame(b, m, 59.8, up + 2.1, room3z + 0.1, 1.0, 0.75, "S", "landscape", { frame: m.woodDark });
   P.coatRack(b, m, 63.2, 47.0, up);
   P.chair(b, m, 61.8, 44.3, 2.5, up);
   P.tableSquare(b, m, 58.7, 47.2, 0.6, 0.5, 0.72, undefined, undefined, up);
@@ -523,8 +616,8 @@ function buildHotel(c: Ctx): void {
   c.lining(m.wpHotel, x0, 36.6, corX - 0.1, 40.4, { y0: up, floor: null, ceilY: upCeil, ceil: m.woodSaloon, gaps: { W: upperW } });
   c.lining(m.wpHotel, x0, 40.6, corX - 0.1, room3z - 0.1, { y0: up, floor: null, ceilY: upCeil, ceil: m.woodSaloon, gaps: { W: upperW } });
   c.lining(m.wpHotel, stairX + 0.1, room3z + 0.1, x1, z1, { y0: up, floor: null, ceilY: upCeil, ceil: m.woodSaloon, gaps: { S: upperS } });
-  P.bed(b, m, 57.2, 34.4, 1.4, 2.0, "N", m.quiltGreen, { y0: up });
-  P.bed(b, m, 57.2, 38.5, 1.4, 2.0, "N", m.rug, { y0: up });
+  P.bed(b, m, 58.75, 34.4, 1.4, 2.0, "N", m.quiltGreen, { y0: up });
+  P.bed(b, m, 58.75, 38.5, 1.4, 2.0, "N", m.rug, { y0: up });
   P.bed(b, m, 70.6, 45.4, 1.3, 2.0, "N", m.quiltGreen, { y0: up });
 }
 
@@ -537,50 +630,67 @@ function buildLivery(c: Ctx): void {
   const { b, m } = c;
   const r = LOTS.livery;
   const x0 = r.minX + IN;
-  const z1 = r.maxZ - IN;
+  const z1 = 47.05; // the office's south partition: the film's office is two tiles deep
   const partX = 85.5;
   const partZ = 40;
   const d = streetDoor("livery");
   const ceilY = 3.2;
   c.partZ(m.woodStage, partZ, z1, partX, 0, ceilY);
   c.partX(m.woodStage, x0, partX, partZ, 0, ceilY);
+  c.partX(m.woodStage, x0, partX, z1 + 0.1, 0, ceilY);
   c.lining(m.woodStage, x0, partZ + 0.1, partX - 0.1, z1, {
     ceilY,
     gaps: { W: [c.gapOf(d, 0.12), ...winGaps("livery", "W")] },
   });
+  // shades down over both street windows (D3 E)
+  P.blind(b, m, x0, 2.0, 41.0, 1.6, 2.0, "E");
+  P.blind(b, m, x0, 2.0, 46.35, 1.3, 2.0, "E");
   P.desk(b, m, 83.0, z1 - 0.55, 1.7, 0.85, m.woodMid);
   P.chair(b, m, 83.0, z1 - 1.4, -Math.PI / 2);
   b.box(m.paper, 82.6, 0.8, z1 - 0.7, 83.1, 0.81, z1 - 0.4, { collide: false });
   b.cyl(m.iron, 83.5, z1 - 0.5, 0.8, 0.9, 0.04, { seg: 6 });
+  // over the desk (D2 N): a certificate, a shelf with a blue bottle, the
+  // Martash bill, the clock, a slate; the sign above them all
   b.decal(c.signMat(["Harness and Saddlery"], 1.9, 0.42, { bg: "#241d16", fg: "#dfb44e" }), 83.0, 2.55, z1 - 0.012, 1.9, 0.42, "N");
-  P.pictureFrame(b, m, 81.4, 2.2, z1, 0.9, 0.7, "N", "landscape", { frame: m.woodDark });
-  b.cyl(m.woodDark, 84.6, z1 - 0.05, 2.25, 2.32, 0.22, { seg: 14 });
-  b.decal(m.paper, 84.6, 2.28, z1 - 0.112, 0.36, 0.36, "N");
-  P.stove(b, m, 81.6, 41.0, ceilY);
+  P.pictureFrame(b, m, 81.2, 2.25, z1, 0.6, 0.5, "N", "certificate", { frame: m.woodDark });
+  b.box(m.woodDark, 81.7, 1.95, z1 - 0.25, 82.5, 2.0, z1 - 0.02, { collide: false }); // shelf
+  b.cyl(m.winBlue, 82.1, z1 - 0.13, 2.0, 2.28, 0.05, { seg: 6 }); // a blue bottle
+  b.decal(c.posterMat("martash"), 83.0, 1.9, z1 - 0.012, 0.5, 0.7, "N");
+  P.wallClock(b, m, 84.35, 2.3, z1, "N", 0.22);
+  b.box(m.woodBlack, 84.65, 1.45, z1 - 0.05, 85.35, 2.45, z1 - 0.01, { collide: false }); // slate
+  // north wall (D2 S): a slate at the west end, horseshoes, a landscape,
+  // the lamp, the stove in the north-east corner with the bench before it
+  b.box(m.woodBlack, 80.45, 1.5, partZ + 0.1, 81.35, 2.5, partZ + 0.15, { collide: false });
+  P.stove(b, m, 84.9, 40.9, ceilY);
   for (const [hx, hz, f] of [
-    [82.8, partZ + 0.1, "S"],
-    [84.4, partZ + 0.1, "S"],
+    [81.8, partZ + 0.1, "S"],
+    [82.25, partZ + 0.1, "S"],
     [x0, 42.4, "E"],
     [x0, 45.2, "E"],
+    [partX - 0.1, 42.5, "W"],
+    [partX - 0.1, 42.95, "W"],
   ] as const) {
-    b.decal(c.signMat(["U"], 0.3, 0.3, { bg: "#a98e66", fg: "#3a3630" }), hx + (f === "E" ? 0.012 : 0), 2.1, hz + (f === "S" ? 0.012 : 0), 0.3, 0.3, f);
+    b.decal(c.signMat(["U"], 0.3, 0.3, { bg: "#a98e66", fg: "#3a3630" }), hx + (f === "E" ? 0.012 : f === "W" ? -0.012 : 0), 2.1, hz + (f === "S" ? 0.012 : 0), 0.3, 0.3, f);
   }
-  P.pictureFrame(b, m, 83.6, 2.2, partZ + 0.1, 1.0, 0.75, "S", "landscape", { frame: m.woodDark });
-  P.sconce(b, m, 84.7, 2.3, partZ + 0.16, "S");
+  P.pictureFrame(b, m, 83.1, 2.2, partZ + 0.1, 1.0, 0.75, "S", "landscape", { frame: m.woodDark });
+  P.sconce(b, m, 84.2, 2.3, partZ + 0.16, "S");
+  // the PRIVATE partition (D2 W): a landscape north of the door, a
+  // certificate south of it
   P.fakeDoor(b, m, partX - 0.1, 0, 43.7, 1.15, 2.3, "W", { label: "PRIVATE", plate: { bg: "#e6dcba", fg: "#33261a" }, mat: m.woodMid });
-  b.decal(c.posterMat("wanted2"), partX - 0.1 - 0.012, 1.6, 46.0, 0.8, 1.05, "W");
+  P.pictureFrame(b, m, partX - 0.1, 2.15, 45.6, 0.8, 0.6, "W", "certificate", { frame: m.woodDark });
+  P.pictureFrame(b, m, partX - 0.1, 2.2, 41.5, 0.9, 0.7, "W", "landscape", { frame: m.woodDark });
   b.box(m.woodDark, partX - 0.16, 1.85, 41.0, partX - 0.1, 1.97, 42.3, { collide: false });
   for (let i = 0; i < 6; i += 1) {
     b.box(m.brass, partX - 0.22, 1.89, 41.1 + i * 0.22, partX - 0.16, 1.93, 41.14 + i * 0.22, { collide: false });
   }
   // saddle on its rack, bench, barrel, milk can
-  b.box(m.woodDark, 84.2, 0, 42.3, 84.4, 0.85, 43.7);
-  b.box(m.woodDark, 85.0, 0, 42.3, 85.2, 0.85, 43.7);
-  b.box(m.woodDark, 84.2, 0.8, 42.9, 85.2, 0.92, 43.1, { collide: false });
-  b.rotBox(m.woodMid, 84.7, 1.02, 43, 1.0, 0.22, 0.75, 0, { collide: false });
-  b.rotBox(m.leatherRed, 84.7, 1.14, 43, 0.7, 0.1, 0.55, 0, { collide: false });
-  P.bench(b, m, 81.6, 46.0, 1.5, "N");
-  P.barrel(b, m, 80.9, 46.9, 0.4, 0.85);
+  b.box(m.woodDark, 80.7, 0, 45.0, 80.9, 0.85, 46.4);
+  b.box(m.woodDark, 81.5, 0, 45.0, 81.7, 0.85, 46.4);
+  b.box(m.woodDark, 80.7, 0.8, 45.6, 81.7, 0.92, 45.8, { collide: false });
+  b.rotBox(m.woodMid, 81.2, 1.02, 45.7, 1.0, 0.22, 0.75, 0, { collide: false });
+  b.rotBox(m.leatherRed, 81.2, 1.14, 45.7, 0.7, 0.1, 0.55, 0, { collide: false });
+  P.bench(b, m, 82.6, partZ + 0.45, 1.5, "S");
+  P.barrel(b, m, 85.0, 42.2, 0.4, 0.85);
   b.cyl(m.white, 84.9, 46.9, 0, 0.55, 0.16, { seg: 8 });
   P.hangLamp(b, m, 83, 43.7, ceilY, { drop: 0.7 });
   c.warm(83, 2.6, 43.7, 14, 9);

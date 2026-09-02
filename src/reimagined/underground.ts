@@ -13,6 +13,7 @@ import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import { Builder, aabb, type Aabb } from "./geometry";
 import { SHAFT } from "./layout";
 import type { Mats } from "./materials";
+import * as P from "./props";
 import { glyphTex, thunderbirdTex } from "./textures";
 import type { PointLightSpec } from "./interiors";
 import { wallX, wallZ, type Gap } from "./town";
@@ -47,7 +48,7 @@ const SPIRAL = { rIn: 0.5, rOut: SHAFT.r - 0.12, steps: 24, turns: 2 };
 
 const R: Rooms = {
   ante: [47.4, 8.5, 56.6, 16.5],
-  hub: [42, 18, 62, 38],
+  hub: [46.25, 22.25, 57.75, 33.75],
   snake: [68, 24, 86, 32],
   tbird: [48, 40.6, 56, 58],
   flute: [26, 23, 36, 33],
@@ -71,7 +72,7 @@ export function buildUnderground(m: Mats): UndergroundResult {
   };
 
   const glyph = (
-    kind: "figures" | "spiral" | "snake" | "bird" | "stele",
+    kind: "figures" | "spiral" | "snake" | "bird" | "stele" | "spider" | "dancers",
     x: number,
     y: number,
     z: number,
@@ -84,19 +85,30 @@ export function buildUnderground(m: Mats): UndergroundResult {
 
   /** Arch corner fillets inside a doorway gap. */
   const archX = (from: number, to: number, z: number, top: number): void => {
-    b.box(m.caveRed, from, top - 0.4, z - 0.3, from + 0.38, top, z + 0.3, { collide: false });
-    b.box(m.caveRed, to - 0.38, top - 0.4, z - 0.3, to, top, z + 0.3, { collide: false });
+    const w = (to - from) * 0.16;
+    b.box(m.caveRed, from, top - 0.5, z - 0.3, from + w, top, z + 0.3, { collide: false });
+    b.box(m.caveRed, to - w, top - 0.5, z - 0.3, to, top, z + 0.3, { collide: false });
+    b.box(m.caveRed, from + w, top - 0.22, z - 0.3, from + 2 * w, top, z + 0.3, { collide: false });
+    b.box(m.caveRed, to - 2 * w, top - 0.22, z - 0.3, to - w, top, z + 0.3, { collide: false });
   };
   const archZ = (from: number, to: number, x: number, top: number): void => {
-    b.box(m.caveRed, x - 0.3, top - 0.4, from, x + 0.3, top + 0, from + 0.38, { collide: false });
-    b.box(m.caveRed, x - 0.3, top - 0.4, to - 0.38, x + 0.3, top, to, { collide: false });
+    const w = (to - from) * 0.16;
+    b.box(m.caveRed, x - 0.3, top - 0.5, from, x + 0.3, top, from + w, { collide: false });
+    b.box(m.caveRed, x - 0.3, top - 0.5, to - w, x + 0.3, top, to, { collide: false });
+    b.box(m.caveRed, x - 0.3, top - 0.22, from + w, x + 0.3, top, from + 2 * w, { collide: false });
+    b.box(m.caveRed, x - 0.3, top - 0.22, to - 2 * w, x + 0.3, top, to - w, { collide: false });
   };
 
   const floorSlab = (x0: number, z0: number, x1: number, z1: number): void => {
     b.box(m.caveFloor, x0 - 0.4, FLOOR - 0.35, z0 - 0.4, x1 + 0.4, FLOOR, z1 + 0.4);
   };
-  const ceil = (x0: number, z0: number, x1: number, z1: number, y: number): void => {
-    b.box(m.caveRed, x0 - 0.4, y, z0 - 0.4, x1 + 0.4, y + 0.4, z1 + 0.4);
+  const ceil = (x0: number, z0: number, x1: number, z1: number, y: number, mat: THREE.Material = m.caveRed): void => {
+    b.box(mat, x0 - 0.4, y, z0 - 0.4, x1 + 0.4, y + 0.4, z1 + 0.4);
+  };
+  /** A wide stone bowl of coals on the floor, its light dim for the niches. */
+  const bowl = (x: number, z: number, y = FLOOR, lit = true): void => {
+    P.fireBowl(b, m, x, z, y);
+    lights.push({ x, y: y + 0.7, z, color: 0xff7a35, intensity: lit ? 5 : 2.5, distance: lit ? 6.5 : 4 });
   };
 
   /* ---------- the shaft: ring wall + the spiral stair ---------- */
@@ -189,8 +201,8 @@ export function buildUnderground(m: Mats): UndergroundResult {
     b.box(m.caveRed, x0 - 0.4, cy, SHAFT.z - hr, SHAFT.x - hr, cy + 0.4, SHAFT.z + hr);
     b.box(m.caveRed, SHAFT.x + hr, cy, SHAFT.z - hr, x1 + 0.4, cy + 0.4, SHAFT.z + hr);
     wallX(b, m.caveRed, x0, x1, z0, FLOOR, cy, [], 0.5);
-    wallX(b, m.caveRed, x0, x1, z1, FLOOR, cy, [doorway(52)], 0.5);
-    archX(50.6, 53.4, z1, FLOOR + 2.7);
+    wallX(b, m.caveRed, x0, x1, z1, FLOOR, cy, [doorway(52, 2.8, FLOOR + 3.2)], 0.5);
+    archX(50.6, 53.4, z1, FLOOR + 3.2);
     wallZ(b, m.caveRed, z0, z1, x0, FLOOR, cy, [doorway(12.5, 2.4, FLOOR + 2.5)], 0.5);
     wallZ(b, m.caveRed, z0, z1, x1, FLOOR, cy, [], 0.5);
     flame(48.2, 9.3);
@@ -199,71 +211,136 @@ export function buildUnderground(m: Mats): UndergroundResult {
     flame(55.8, 15.7);
     glyph("spiral", x1 - 0.28, FLOOR + 1.9, 12.5, 1.5, 1.5, "W");
     glyph("figures", 52, FLOOR + 1.9, z0 + 0.28, 2.0, 2.0, "S");
-    // corridor south to the hub
-    floorSlab(50.6, 16.5, 53.4, 18);
-    ceil(50.6, 16.1, 53.4, 18, FLOOR + 2.9);
-    wallZ(b, m.caveRed, 16.5, 18, 50.6, FLOOR, FLOOR + 2.9, [], 0.5);
-    wallZ(b, m.caveRed, 16.5, 18, 53.4, FLOOR, FLOOR + 2.9, [], 0.5);
     // corridor west to the mine
     floorSlab(44, 11.1, 47.4, 13.9);
-    ceil(44, 11.1, 47.4, 13.9, FLOOR + 2.6);
-    wallX(b, m.caveRed, 44, 47.4, 11.1, FLOOR, FLOOR + 2.6, [], 0.5);
-    wallX(b, m.caveRed, 44, 47.4, 13.9, FLOOR, FLOOR + 2.6, [], 0.5);
+    ceil(44, 11.1, 47.4, 13.9, FLOOR + 2.6, m.caveDark);
+    wallX(b, m.caveDark, 44, 47.4, 11.1, FLOOR, FLOOR + 2.6, [], 0.5);
+    wallX(b, m.caveDark, 44, 47.4, 13.9, FLOOR, FLOOR + 2.6, [], 0.5);
   }
 
-  /* ---------- the sundial room (hub) ---------- */
+  /* ---------- the sundial chamber (hub) ---------- */
   {
+    // _HUB: an 11.5 m chamber whose every wall is a pointed arch between two
+    // deep blind niches, tunnels running out of the arches; the dial is a
+    // flat stone table on a carved pedestal (the spider with the glowing
+    // eyes), two fire bowls before each face of it and one before each niche
     const [x0, z0, x1, z1] = R.hub;
+    const cx = (x0 + x1) / 2;
+    const cz = (z0 + z1) / 2;
+    const H = FLOOR + 5.4;
+    const ARCH = FLOOR + 3.6;
+    const NICHE = FLOOR + 3.0;
+    const NOFF = 3.6;
     floorSlab(x0, z0, x1, z1);
-    ceil(x0, z0, x1, z1, FLOOR + 4.5);
-    wallX(b, m.caveRed, x0, x1, z0, FLOOR, FLOOR + 4.5, [doorway(52)], 0.5);
-    archX(50.6, 53.4, z0, FLOOR + 2.7);
-    wallX(b, m.caveRed, x0, x1, z1, FLOOR, FLOOR + 4.5, [doorway(52)], 0.5);
-    archX(50.6, 53.4, z1, FLOOR + 2.7);
-    wallZ(b, m.caveRed, z0, z1, x0, FLOOR, FLOOR + 4.5, [doorway(28)], 0.5);
-    archZ(26.6, 29.4, x0, FLOOR + 2.7);
-    wallZ(b, m.caveRed, z0, z1, x1, FLOOR, FLOOR + 4.5, [doorway(28)], 0.5);
-    archZ(26.6, 29.4, x1, FLOOR + 2.7);
-    // carved jambs beside each arch + petroglyph panels
-    for (const [gx, gz, f] of [
-      [47.6, z0 + 0.28, "S"],
-      [56.4, z0 + 0.28, "S"],
-      [47.6, z1 - 0.28, "N"],
-      [56.4, z1 - 0.28, "N"],
+    ceil(x0, z0, x1, z1, H);
+    const side = (axis: "x" | "z", fixed: number, inward: 1 | -1): void => {
+      const mid = axis === "x" ? cx : cz;
+      const face = fixed + inward * 0.25;
+      const outer = fixed - inward * 0.25;
+      const gaps = [doorway(mid, 2.8, ARCH), doorway(mid - NOFF, 1.8, NICHE), doorway(mid + NOFF, 1.8, NICHE)];
+      const f: "N" | "S" | "E" | "W" = axis === "x" ? (inward > 0 ? "S" : "N") : inward > 0 ? "E" : "W";
+      const p = 0.16;
+      // a box given as u along the wall and w across it (any order)
+      const bx = (mat: THREE.Material, u0: number, u1: number, y0: number, y1: number, w0: number, w1: number, collide = true): void => {
+        const ua = Math.min(u0, u1);
+        const ub = Math.max(u0, u1);
+        const wa = Math.min(w0, w1);
+        const wb = Math.max(w0, w1);
+        if (axis === "x") {
+          b.box(mat, ua, y0, wa, ub, y1, wb, { collide });
+        } else {
+          b.box(mat, wa, y0, ua, wb, y1, ub, { collide });
+        }
+      };
+      const dec = (kind: "figures" | "stele", u: number, y: number, w: number, h: number, off: number): void => {
+        if (axis === "x") {
+          glyph(kind, u, y, face + inward * off, w, h, f);
+        } else {
+          glyph(kind, face + inward * off, y, u, w, h, f);
+        }
+      };
+      if (axis === "x") {
+        wallX(b, m.caveRed, x0, x1, fixed, FLOOR, H, gaps, 0.5);
+        archX(mid - 1.4, mid + 1.4, fixed, ARCH);
+        archX(mid - NOFF - 0.9, mid - NOFF + 0.9, fixed, NICHE);
+        archX(mid + NOFF - 0.9, mid + NOFF + 0.9, fixed, NICHE);
+      } else {
+        wallZ(b, m.caveRed, z0, z1, fixed, FLOOR, H, gaps, 0.5);
+        archZ(mid - 1.4, mid + 1.4, fixed, ARCH);
+        archZ(mid - NOFF - 0.9, mid - NOFF + 0.9, fixed, NICHE);
+        archZ(mid + NOFF - 0.9, mid + NOFF + 0.9, fixed, NICHE);
+      }
+      // niches: a metre-deep recess beyond the wall, black at the back,
+      // a bowl of coals before each; a carved panel in each corner
+      const D = 1.0;
+      for (const s of [-1, 1]) {
+        const u = mid + s * NOFF;
+        bx(m.caveDark, u - 1.2, u + 1.2, FLOOR, H, outer - inward * D, outer - inward * (D + 0.3));
+        bx(m.caveRed, u - 1.2, u - 0.9, FLOOR, H, outer, outer - inward * D);
+        bx(m.caveRed, u + 0.9, u + 1.2, FLOOR, H, outer, outer - inward * D);
+        bx(m.caveFloor, u - 1.2, u + 1.2, FLOOR - 0.35, FLOOR, outer, outer - inward * (D + 0.3));
+        bx(m.caveRed, u - 1.2, u + 1.2, NICHE, NICHE + 0.5, outer, outer - inward * (D + 0.3), false);
+        if (axis === "x") {
+          bowl(u, face + inward * 0.9, FLOOR, false);
+        } else {
+          bowl(face + inward * 0.9, u, FLOOR, false);
+        }
+        dec("figures", mid + s * (NOFF + 1.45), FLOOR + 1.9, 0.9, 2.0, 0.03);
+        // the arch surround: proud jambs carved with glyph bands
+        bx(m.caveRed, mid + s * 1.42, mid + s * 1.9, FLOOR, ARCH + 0.4, face, face + inward * p);
+        dec("stele", mid + s * 1.66, FLOOR + 1.75, 0.44, 3.4, p + 0.012);
+      }
+      bx(m.caveRed, mid - 1.9, mid + 1.9, ARCH + 0.02, ARCH + 0.4, face, face + inward * p, false);
+      if (axis === "x") {
+        b.rotBox(m.caveRed, mid, ARCH + 0.55, face + inward * p * 0.5, 0.55, 0.55, p, 0, { rotZ: Math.PI / 4, collide: false });
+      } else {
+        b.rotBox(m.caveRed, face + inward * p * 0.5, ARCH + 0.55, mid, p, 0.55, 0.55, 0, { rotX: Math.PI / 4, collide: false });
+      }
+    };
+    side("x", z0, 1);
+    side("x", z1, -1);
+    side("z", x0, 1);
+    side("z", x1, -1);
+    // the dial: the spider pedestal under a flat stone table with a raised rim
+    b.box(m.caveFloor, cx - 0.65, FLOOR, cz - 0.65, cx + 0.65, FLOOR + 1.25, cz + 0.65);
+    glyph("spider", cx, FLOOR + 0.66, cz - 0.66, 1.1, 1.0, "N");
+    glyph("spider", cx, FLOOR + 0.66, cz + 0.66, 1.1, 1.0, "S");
+    glyph("spider", cx - 0.66, FLOOR + 0.66, cz, 1.1, 1.0, "W");
+    glyph("spider", cx + 0.66, FLOOR + 0.66, cz, 1.1, 1.0, "E");
+    b.cyl(m.caveFloor, cx, cz, FLOOR + 1.25, FLOOR + 1.6, 1.15, { rTop: 1.32, seg: 20, collide: true });
+    b.cyl(m.iron, cx, cz, FLOOR + 1.6, FLOOR + 1.62, 1.2, { seg: 20 });
+    const rim = new THREE.TorusGeometry(1.26, 0.06, 6, 24);
+    rim.rotateX(Math.PI / 2);
+    rim.translate(cx, FLOOR + 1.6, cz);
+    b.mesh(m.caveRed, rim);
+    for (const [bx, bz] of [
+      [cx - 1.0, cz - 2.0],
+      [cx + 1.0, cz - 2.0],
+      [cx - 1.0, cz + 2.0],
+      [cx + 1.0, cz + 2.0],
+      [cx - 2.0, cz - 1.0],
+      [cx - 2.0, cz + 1.0],
+      [cx + 2.0, cz - 1.0],
+      [cx + 2.0, cz + 1.0],
     ] as const) {
-      glyph("figures", gx, FLOOR + 1.95, gz, 2.1, 2.4, f);
+      bowl(bx, bz);
     }
-    glyph("snake", x1 - 0.28, FLOOR + 1.95, 24, 2.1, 2.4, "W");
-    glyph("bird", x0 + 0.28, FLOOR + 1.95, 33, 2.1, 2.4, "E");
-    glyph("spiral", x0 + 0.28, FLOOR + 1.95, 23, 1.7, 1.7, "E");
-    glyph("stele", x1 - 0.28, FLOOR + 1.95, 33.5, 1.6, 2.2, "W");
-    // the sundial: pedestal, wide dish, gnomon
-    b.cyl(m.wellStone, 52, 28, FLOOR, FLOOR + 1.1, 0.8, { seg: 12, collide: true });
-    b.cyl(m.wellStone, 52, 28, FLOOR + 1.1, FLOOR + 1.42, 2.1, { rTop: 2.3, seg: 16, collide: true });
-    b.cyl(m.caveFloor, 52, 28, FLOOR + 1.42, FLOOR + 1.46, 2.05, { seg: 16 });
-    b.rotBox(m.caveFloor, 52.55, FLOOR + 1.85, 28, 1.25, 0.75, 0.12, 0.6, { rotZ: 0.5, collide: false });
-    // flames around the dial + at the corners
-    flame(50.1, 26.2);
-    flame(53.9, 26.2);
-    flame(50.1, 29.8);
-    flame(53.9, 29.8);
-    flame(43.3, 19.3, FLOOR, true);
-    flame(60.7, 19.3, FLOOR, true);
-    flame(43.3, 36.7, FLOOR, true);
-    flame(60.7, 36.7, FLOOR, true);
-    // corridors out east / south / west
-    floorSlab(62, 26.6, 68, 29.4);
-    ceil(62, 26.6, 68, 29.4, FLOOR + 2.9);
-    wallX(b, m.caveRed, 62, 68, 26.6, FLOOR, FLOOR + 2.9, [], 0.5);
-    wallX(b, m.caveRed, 62, 68, 29.4, FLOOR, FLOOR + 2.9, [], 0.5);
-    floorSlab(50.6, 38, 53.4, 40.6);
-    ceil(50.6, 38, 53.4, 40.6, FLOOR + 2.9);
-    wallZ(b, m.caveRed, 38, 40.6, 50.6, FLOOR, FLOOR + 2.9, [], 0.5);
-    wallZ(b, m.caveRed, 38, 40.6, 53.4, FLOOR, FLOOR + 2.9, [], 0.5);
-    floorSlab(36, 26.6, 42, 29.4);
-    ceil(36, 26.6, 42, 29.4, FLOOR + 2.9);
-    wallX(b, m.caveRed, 36, 42, 26.6, FLOOR, FLOOR + 2.9, [], 0.5);
-    wallX(b, m.caveRed, 36, 42, 29.4, FLOOR, FLOOR + 2.9, [], 0.5);
+    // the four tunnels: 2.8 m wide under 3.4 m, unlit black rock
+    const tunnel = (ax0: number, az0: number, ax1: number, az1: number, alongX: boolean): void => {
+      floorSlab(ax0, az0, ax1, az1);
+      ceil(ax0, az0, ax1, az1, FLOOR + 3.4, m.caveDark);
+      if (alongX) {
+        wallX(b, m.caveDark, ax0, ax1, az0, FLOOR, FLOOR + 3.4, [], 0.5);
+        wallX(b, m.caveDark, ax0, ax1, az1, FLOOR, FLOOR + 3.4, [], 0.5);
+      } else {
+        wallZ(b, m.caveDark, az0, az1, ax0, FLOOR, FLOOR + 3.4, [], 0.5);
+        wallZ(b, m.caveDark, az0, az1, ax1, FLOOR, FLOOR + 3.4, [], 0.5);
+      }
+    };
+    tunnel(cx - 1.4, 16.5, cx + 1.4, z0, false);
+    tunnel(cx - 1.4, z1, cx + 1.4, 40.6, false);
+    tunnel(x1, cz - 1.4, 68, cz + 1.4, true);
+    tunnel(36, cz - 1.4, x0, cz + 1.4, true);
   }
 
   /* ---------- snake trial (east) ---------- */
@@ -273,41 +350,48 @@ export function buildUnderground(m: Mats): UndergroundResult {
     ceil(x0, z0, x1, z1, FLOOR + 3.9);
     wallX(b, m.caveRed, x0, x1, z0, FLOOR, FLOOR + 3.9, [], 0.5);
     wallX(b, m.caveRed, x0, x1, z1, FLOOR, FLOOR + 3.9, [], 0.5);
-    wallZ(b, m.caveRed, z0, z1, x0, FLOOR, FLOOR + 3.9, [doorway(28)], 0.5);
-    archZ(26.6, 29.4, x0, FLOOR + 2.7);
+    wallZ(b, m.caveRed, z0, z1, x0, FLOOR, FLOOR + 3.9, [doorway(28, 2.8, FLOOR + 3.4)], 0.5);
+    archZ(26.6, 29.4, x0, FLOOR + 3.4);
     wallZ(b, m.caveRed, z0, z1, x1, FLOOR, FLOOR + 3.9, [], 0.5);
     // dais with steps up to the great snake head
     b.stairs(m.caveFloor, 80.4, 25.6, 4.8, 0.9, 1.3, "E", FLOOR, 3);
     b.box(m.caveFloor, 81.7, FLOOR, 25.4, x1, FLOOR + 0.9, 30.6);
-    // the great head: dark skull, black open mouth, eyes, fangs, coil
+    // the great head (B3 N / B2 N): a domed skull over a wide black mouth,
+    // orange eyes, fangs down from the upper jaw, the coil rising behind
     const hy = FLOOR + 0.9;
-    b.box(m.caveFloor, 83.0, hy + 1.0, 25.9, 85.9, hy + 2.6, 30.1); // skull
-    b.rotBox(m.caveFloor, 82.9, hy + 1.35, 28, 2.2, 0.55, 3.6, 0, { rotZ: 0.16, collide: false }); // snout
-    b.rotBox(m.caveFloor, 83.0, hy + 0.2, 28, 2.4, 0.45, 3.3, 0, { rotZ: -0.14, collide: false }); // jaw
-    b.decal(m.iron, 82.2, hy + 0.78, 28, 2.35, 0.95, "W"); // mouth shadow
-    b.sphere(m.flame, 82.7, hy + 2.15, 26.7, 0.19, 7);
-    b.sphere(m.flame, 82.7, hy + 2.15, 29.3, 0.19, 7);
-    for (const fz of [26.9, 28, 29.1]) {
-      b.cone(m.bone, 82.35, fz, hy + 0.85, hy + 1.35, 0.1, 6);
+    const skull = new THREE.SphereGeometry(1.6, 18, 12);
+    skull.scale(1.25, 0.8, 1.2);
+    skull.translate(84.4, hy + 2.2, 28);
+    b.mesh(m.caveFloor, skull);
+    b.box(m.caveFloor, 82.6, hy + 1.55, 25.9, 85.9, hy + 2.3, 30.1); // upper jaw
+    b.box(m.caveFloor, 82.7, hy, 25.9, 85.9, hy + 0.45, 30.1); // lower jaw
+    b.box(m.black, 82.75, hy + 0.45, 26.3, 85.5, hy + 1.55, 29.7, { collide: false }); // the mouth
+    b.sphere(m.ember, 83.0, hy + 2.35, 26.8, 0.22, 8);
+    b.sphere(m.ember, 83.0, hy + 2.35, 29.2, 0.22, 8);
+    for (const fz of [26.7, 27.35, 28, 28.65, 29.3]) {
+      const fang = new THREE.ConeGeometry(0.09, 0.55, 6);
+      fang.rotateX(Math.PI);
+      fang.translate(82.7, hy + 1.27, fz);
+      b.mesh(m.bone, fang);
     }
-    for (const fz of [27.45, 28.55]) {
-      b.cone(m.bone, 82.35, fz, hy + 0.35, hy + 0.8, 0.1, 6);
+    for (const fz of [27.0, 29.0]) {
+      b.cone(m.bone, 82.7, fz, hy + 0.45, hy + 0.9, 0.08, 6);
     }
-    b.cyl(m.caveFloor, 84.8, 28, hy + 2.6, hy + 3.1, 1.2, { seg: 10 }); // coil above
+    b.cyl(m.caveFloor, 85.0, 28, hy + 2.9, hy + 3.5, 1.3, { rTop: 0.9, seg: 12 }); // coil above
     // flame posts flanking the dais + candle rows along the aisle
     for (const pz of [24.9, 31.1]) {
       b.box(m.woodSaloon, 81.2 - 0.12, FLOOR, pz - 0.12, 81.2 + 0.12, FLOOR + 1.9, pz + 0.12);
       flame(81.2, pz, FLOOR + 1.9, true);
     }
     for (const fx of [71, 75, 79]) {
-      flame(fx, 25.2);
-      flame(fx, 30.8);
+      bowl(fx, 25.2, FLOOR, false);
+      bowl(fx, 30.8, FLOOR, false);
     }
-    // steles + dancing figures on the long walls
-    glyph("stele", 73, FLOOR + 2.0, z0 + 0.28, 1.7, 2.3, "S");
-    glyph("stele", 79, FLOOR + 2.0, z1 - 0.28, 1.7, 2.3, "N");
-    glyph("figures", 76.2, FLOOR + 1.9, z1 - 0.28, 2.2, 2.4, "N");
-    glyph("snake", 70.5, FLOOR + 1.9, z0 + 0.28, 2.2, 2.4, "S");
+    // steles by the head, black dancing figures down the long walls (B2 E / B3 E)
+    glyph("stele", 79.0, FLOOR + 2.0, z0 + 0.28, 1.7, 2.3, "S");
+    glyph("stele", 79.0, FLOOR + 2.0, z1 - 0.28, 1.7, 2.3, "N");
+    glyph("dancers", 74.5, FLOOR + 2.0, z0 + 0.28, 2.6, 2.6, "S");
+    glyph("dancers", 74.5, FLOOR + 2.0, z1 - 0.28, 2.6, 2.6, "N");
     lights.push({ x: 83, y: hy + 1.8, z: 28, color: 0xff5a25, intensity: 10, distance: 9 });
   }
 
@@ -315,9 +399,9 @@ export function buildUnderground(m: Mats): UndergroundResult {
   {
     const [x0, z0, x1, z1] = R.tbird;
     floorSlab(x0, z0, x1, z1);
-    ceil(x0, z0, x1, z1, FLOOR + 3.9);
-    wallX(b, m.caveTeal, x0, x1, z0, FLOOR, FLOOR + 3.9, [doorway(52)], 0.5);
-    archX(50.6, 53.4, z0, FLOOR + 2.7);
+    ceil(x0, z0, x1, z1, FLOOR + 3.9, m.caveTeal);
+    wallX(b, m.caveTeal, x0, x1, z0, FLOOR, FLOOR + 3.9, [doorway(52, 2.8, FLOOR + 3.4)], 0.5);
+    archX(50.6, 53.4, z0, FLOOR + 3.4);
     wallX(b, m.caveTeal, x0, x1, z1, FLOOR, FLOOR + 3.9, [], 0.5);
     wallZ(b, m.caveTeal, z0, z1, x0, FLOOR, FLOOR + 3.9, [], 0.5);
     wallZ(b, m.caveTeal, z0, z1, x1, FLOOR, FLOOR + 3.9, [], 0.5);
@@ -330,70 +414,88 @@ export function buildUnderground(m: Mats): UndergroundResult {
     b.flat(m.leatherRed, 51.1, z0 + 0.6, 52.9, 55.4, FLOOR + 0.02);
     // shrine: pedestal column, glowing thunderbird disc, spiked ring
     b.box(m.caveTeal, 51.1, FLOOR, 55.4, 52.9, FLOOR + 1.0, 56.9);
-    b.box(m.caveRed, 51.55, FLOOR + 1.0, 55.9, 52.45, FLOOR + 3.9, 56.5);
-    b.decal(new THREE.MeshBasicMaterial({ map: thunderbirdTex() }), 52, FLOOR + 2.35, 55.85, 1.35, 1.35, "N");
+    b.box(m.caveRed, 51.25, FLOOR + 1.0, 55.9, 52.75, FLOOR + 3.9, 56.5);
+    const disc = new THREE.CylinderGeometry(0.72, 0.72, 0.06, 20);
+    disc.rotateX(Math.PI / 2);
+    disc.translate(52, FLOOR + 2.35, 55.88);
+    b.mesh(m.black, disc);
+    b.decal(new THREE.MeshBasicMaterial({ map: thunderbirdTex(), transparent: true }), 52, FLOOR + 2.35, 55.84, 1.35, 1.35, "N");
     for (let i = 0; i < 8; i += 1) {
       const a = (i / 8) * Math.PI * 2;
       b.cone(m.iron, 52 + Math.cos(a) * 0.85, 55.8, FLOOR + 2.35 + Math.sin(a) * 0.85 - 0.09, FLOOR + 2.35 + Math.sin(a) * 0.85 + 0.09, 0.07, 4);
     }
     lights.push({ x: 52, y: FLOOR + 2.4, z: 55.2, color: 0x55e0e0, intensity: 10, distance: 8 });
-    // flanking pillars + horned torch posts
-    for (const px of [50, 54]) {
-      b.box(m.caveTeal, px - 0.35, FLOOR, 56.8, px + 0.35, FLOOR + 3.9, 57.5);
-    }
-    for (const [tx, tz] of [
-      [x0 + 0.9, 45],
-      [x1 - 0.9, 45],
-      [x0 + 0.9, 51],
-      [x1 - 0.9, 51],
+    // black stone columns under bone capitals: two at the shrine, two down
+    // the room (B3 N / B4 N); three bowls of coals at the shrine's foot
+    for (const [px, pz] of [
+      [50, 57.15],
+      [54, 57.15],
+      [49.4, 49.5],
+      [54.6, 49.5],
     ] as const) {
-      b.box(m.woodSaloon, tx - 0.11, FLOOR, tz - 0.11, tx + 0.11, FLOOR + 1.8, tz + 0.11);
-      flame(tx, tz, FLOOR + 1.8, true);
-      b.rotBox(m.bone, tx - 0.2, FLOOR + 2.1, tz, 0.4, 0.08, 0.08, 0.5, { rotZ: 0.6, collide: false });
-      b.rotBox(m.bone, tx + 0.2, FLOOR + 2.1, tz, 0.4, 0.08, 0.08, -0.5, { rotZ: -0.6, collide: false });
+      b.cyl(m.iron, px, pz, FLOOR, FLOOR + 3.3, 0.38, { seg: 10, collide: true });
+      b.sphere(m.bone, px, FLOOR + 3.5, pz, 0.45, 8);
     }
-    glyph("bird", x0 + 0.28, FLOOR + 2.0, 48, 2.0, 2.2, "E");
-    glyph("figures", x1 - 0.28, FLOOR + 2.0, 48, 2.0, 2.2, "W");
+    for (const [bx, bz] of [
+      [50.4, 54.6],
+      [52, 54.85],
+      [53.6, 54.6],
+    ] as const) {
+      bowl(bx, bz);
+    }
+    bowl(x0 + 0.9, 46.5, FLOOR, false);
+    bowl(x1 - 0.9, 46.5, FLOOR, false);
   }
 
   /* ---------- flute room (west) ---------- */
   {
+    // _FLUTE B4: a black cavern. The altar rises at the west end between
+    // two obelisks with a dark arch behind it, stone benches and two more
+    // obelisks stand about the floor, the entry is a carved portal.
     const [x0, z0, x1, z1] = R.flute;
     floorSlab(x0, z0, x1, z1);
-    ceil(x0, z0, x1, z1, FLOOR + 3.9);
-    wallX(b, m.caveRed, x0, x1, z0, FLOOR, FLOOR + 3.9, [], 0.5);
-    wallX(b, m.caveRed, x0, x1, z1, FLOOR, FLOOR + 3.9, [], 0.5);
-    wallZ(b, m.caveRed, z0, z1, x0, FLOOR, FLOOR + 3.9, [], 0.5);
-    wallZ(b, m.caveRed, z0, z1, x1, FLOOR, FLOOR + 3.9, [doorway(28)], 0.5);
-    // grand carved portal on the entry: jamb pillars + glyph band above
-    archZ(26.6, 29.4, x1, FLOOR + 2.7);
+    ceil(x0, z0, x1, z1, FLOOR + 5.2, m.caveDark);
+    wallX(b, m.caveDark, x0, x1, z0, FLOOR, FLOOR + 5.2, [], 0.5);
+    wallX(b, m.caveDark, x0, x1, z1, FLOOR, FLOOR + 5.2, [], 0.5);
+    wallZ(b, m.caveDark, z0, z1, x0, FLOOR, FLOOR + 5.2, [], 0.5);
+    wallZ(b, m.caveDark, z0, z1, x1, FLOOR, FLOOR + 5.2, [doorway(28, 2.8, FLOOR + 3.4)], 0.5);
+    archZ(26.6, 29.4, x1, FLOOR + 3.4);
     for (const gz of [26.1, 29.9]) {
-      b.box(m.caveFloor, x1 - 0.45, FLOOR, gz - 0.35, x1 + 0.45, FLOOR + 3.2, gz + 0.35);
+      b.box(m.caveRed, x1 - 0.45, FLOOR, gz - 0.35, x1 + 0.45, FLOOR + 4.6, gz + 0.35);
+      glyph("stele", x1 - 0.46, FLOOR + 2.3, gz, 0.6, 4.4, "W");
     }
-    glyph("spiral", x1 + 0.47, FLOOR + 3.3, 28, 1.2, 1.0, "E");
-    // altar at the west end: steps, platform, niche, urns, flute
+    b.box(m.caveRed, x1 - 0.45, FLOOR + 3.4, 25.75, x1 + 0.45, FLOOR + 4.6, 30.25, { collide: false });
+    glyph("spiral", x1 - 0.46, FLOOR + 4.0, 28, 1.1, 1.1, "W");
+    // altar: steps up to a platform, a black arch in the wall behind, the
+    // flute on its stone, urns of fire either side
     b.stairs(m.caveFloor, 29.4, 26.2, 3.6, 0.75, 1.1, "W", FLOOR, 3);
     b.box(m.caveFloor, x0, FLOOR, 25.8, 28.3, FLOOR + 0.75, 30.2);
-    b.decal(new THREE.MeshLambertMaterial({ map: glyphTex("spiral") }), x0 + 0.28, FLOOR + 2.2, 28, 1.6, 1.8, "E");
-    b.box(m.caveRed, x0 + 0.2, FLOOR + 0.75, 26.6, x0 + 1.1, FLOOR + 3.0, 29.4, { collide: false });
+    b.box(m.caveRed, x0 + 0.2, FLOOR + 0.75, 26.4, x0 + 1.0, FLOOR + 4.0, 29.6, { collide: false });
+    b.box(m.black, x0 + 0.6, FLOOR + 0.75, 27.1, x0 + 1.01, FLOOR + 3.0, 28.9, { collide: false });
+    archZ(27.1, 28.9, x0 + 1.0, FLOOR + 3.0);
     b.cyl(m.wellStone, 27.4, 28, FLOOR + 0.75, FLOOR + 1.45, 0.32, { seg: 8 });
     b.rotBox(m.bone, 27.4, FLOOR + 1.52, 28, 0.9, 0.07, 0.07, 0.4, { collide: false }); // the flute
     for (const uz of [26.4, 29.6]) {
       b.cyl(m.caveFloor, 28.7, uz, FLOOR + 0.75, FLOOR + 1.35, 0.3, { rTop: 0.38, seg: 8 });
       flame(28.7, uz, FLOOR + 1.35);
     }
-    // benches + standing steles
-    for (const bz of [26.3, 29.7]) {
-      b.box(m.caveFloor, 30.6, FLOOR, bz - 0.45, 33.6, FLOOR + 0.5, bz + 0.45);
-    }
-    for (const [sx, sz] of [
-      [31.2, 24.1],
-      [34.4, 31.9],
+    for (const [ox, oz, oh] of [
+      [28.6, 25.0, 4.6],
+      [28.6, 31.0, 4.6],
+      [31.6, 24.2, 4.2],
+      [34.2, 31.8, 4.2],
     ] as const) {
-      b.box(m.caveRed, sx - 0.3, FLOOR, sz - 0.3, sx + 0.3, FLOOR + 3.1, sz + 0.3);
+      b.cyl(m.caveRed, ox, oz, FLOOR, FLOOR + oh, 0.42, { rTop: 0.16, seg: 8, collide: true });
+      b.box(m.caveFloor, ox - 0.5, FLOOR, oz - 0.5, ox + 0.5, FLOOR + 0.3, oz + 0.5);
     }
-    glyph("figures", 31, FLOOR + 1.9, z0 + 0.28, 2.0, 2.2, "S");
-    glyph("spiral", 33, FLOOR + 1.9, z1 - 0.28, 1.6, 1.6, "N");
+    for (const [bx, bz] of [
+      [30.8, 26.3],
+      [30.8, 29.7],
+      [33.4, 25.4],
+      [33.4, 30.6],
+    ] as const) {
+      b.box(m.caveFloor, bx - 1.2, FLOOR, bz - 0.4, bx + 1.2, FLOOR + 0.5, bz + 0.4);
+    }
   }
 
   /* ---------- the mine (timber tunnels off the antechamber) ---------- */
@@ -402,20 +504,20 @@ export function buildUnderground(m: Mats): UndergroundResult {
     const cz = 12.5;
     // west arm + north/south arms
     floorSlab(30, 11.1, 44, 13.9);
-    ceil(30, 11.1, 44, 13.9, FLOOR + 2.6);
-    wallX(b, m.caveFloor, 30, 44, 11.1, FLOOR, FLOOR + 2.6, [], 0.5);
-    wallX(b, m.caveFloor, 30, 44, 13.9, FLOOR, FLOOR + 2.6, [], 0.5);
-    wallZ(b, m.caveFloor, 4, 11.1, 38.6, FLOOR, FLOOR + 2.6, [], 0.5);
-    wallZ(b, m.caveFloor, 4, 11.1, 41.4, FLOOR, FLOOR + 2.6, [], 0.5);
-    wallZ(b, m.caveFloor, 13.9, 21, 38.6, FLOOR, FLOOR + 2.6, [], 0.5);
-    wallZ(b, m.caveFloor, 13.9, 21, 41.4, FLOOR, FLOOR + 2.6, [], 0.5);
+    ceil(30, 11.1, 44, 13.9, FLOOR + 2.6, m.caveDark);
+    wallX(b, m.caveDark, 30, 44, 11.1, FLOOR, FLOOR + 2.6, [], 0.5);
+    wallX(b, m.caveDark, 30, 44, 13.9, FLOOR, FLOOR + 2.6, [], 0.5);
+    wallZ(b, m.caveDark, 4, 11.1, 38.6, FLOOR, FLOOR + 2.6, [], 0.5);
+    wallZ(b, m.caveDark, 4, 11.1, 41.4, FLOOR, FLOOR + 2.6, [], 0.5);
+    wallZ(b, m.caveDark, 13.9, 21, 38.6, FLOOR, FLOOR + 2.6, [], 0.5);
+    wallZ(b, m.caveDark, 13.9, 21, 41.4, FLOOR, FLOOR + 2.6, [], 0.5);
     floorSlab(38.6, 4, 41.4, 21);
-    ceil(38.6, 4, 41.4, 11.1, FLOOR + 2.6);
-    ceil(38.6, 13.9, 41.4, 21, FLOOR + 2.6);
+    ceil(38.6, 4, 41.4, 11.1, FLOOR + 2.6, m.caveDark);
+    ceil(38.6, 13.9, 41.4, 21, FLOOR + 2.6, m.caveDark);
     // end caps
-    wallZ(b, m.caveFloor, 11.1, 13.9, 30, FLOOR, FLOOR + 2.6, [], 0.5);
-    wallX(b, m.caveFloor, 38.6, 41.4, 4, FLOOR, FLOOR + 2.6, [], 0.5);
-    wallX(b, m.caveFloor, 38.6, 41.4, 21, FLOOR, FLOOR + 2.6, [], 0.5);
+    wallZ(b, m.caveDark, 11.1, 13.9, 30, FLOOR, FLOOR + 2.6, [], 0.5);
+    wallX(b, m.caveDark, 38.6, 41.4, 4, FLOOR, FLOOR + 2.6, [], 0.5);
+    wallX(b, m.caveDark, 38.6, 41.4, 21, FLOOR, FLOOR + 2.6, [], 0.5);
     // timber frames down each tunnel
     const frame = (x: number, z: number, alongX: boolean): void => {
       if (alongX) {
@@ -437,10 +539,14 @@ export function buildUnderground(m: Mats): UndergroundResult {
     // rubble + candles + an ore cart at the west dead end
     b.sphere(m.mesa, 30.8, FLOOR + 0.3, 12.1, 0.55, 7);
     b.sphere(m.mesa, 31.4, FLOOR + 0.2, 13.2, 0.4, 7);
-    flame(33, 11.7);
-    flame(37, 13.3);
-    flame(40.7, 6.4);
-    flame(39.3, 17.6);
+    for (const fx of [33.3, 35.9, 38.5, 41.3]) {
+      bowl(fx, 11.65, FLOOR, false);
+      bowl(fx, 13.35, FLOOR, false);
+    }
+    for (const fz of [6.9, 9.4, 16.7]) {
+      bowl(39.15, fz, FLOOR, false);
+      bowl(40.85, fz, FLOOR, false);
+    }
     b.box(m.woodSaloon, 39.2, FLOOR + 0.35, 18.6, 40.8, FLOOR + 1.1, 20.2);
     for (const [wx2, wz2] of [
       [39.35, 18.9],

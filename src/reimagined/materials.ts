@@ -11,6 +11,9 @@ import {
   planksV,
   shingleTex,
   sunFaceTex,
+  sunFanTex,
+  hideTex,
+  antlerTex,
   tileRoofTex,
   wallpaperTex,
   windowTex,
@@ -18,6 +21,24 @@ import {
 
 function lam(opts: THREE.MeshLambertMaterialParameters): THREE.MeshLambertMaterial {
   return new THREE.MeshLambertMaterial(opts);
+}
+
+/**
+ * Materials whose glow changes with the sky: painted letters dim to
+ * moonlight, lantern glass and lit windows come up at night (_NITE stills).
+ */
+const NIGHT_MATS: { mat: THREE.MeshLambertMaterial; day: number; night: number }[] = [];
+
+export function registerNight(mat: THREE.MeshLambertMaterial, day: number, night: number): THREE.MeshLambertMaterial {
+  NIGHT_MATS.push({ mat, day, night });
+  mat.emissiveIntensity = day;
+  return mat;
+}
+
+export function applyNightMats(night: boolean): void {
+  for (const e of NIGHT_MATS) {
+    e.mat.emissiveIntensity = night ? e.night : e.day;
+  }
 }
 
 function texMat(tex: THREE.Texture): THREE.MeshLambertMaterial {
@@ -40,6 +61,7 @@ export interface Mats {
   woodGray: THREE.MeshLambertMaterial;
   woodWhite: THREE.MeshLambertMaterial;
   woodMid: THREE.MeshLambertMaterial;
+  woodOffice: THREE.MeshLambertMaterial;
   woodDark: THREE.MeshLambertMaterial;
   barnDark: THREE.MeshLambertMaterial;
   rattlerGreen: THREE.MeshLambertMaterial;
@@ -79,6 +101,7 @@ export interface Mats {
   glassCold: THREE.MeshLambertMaterial;
   glassWarm: THREE.MeshLambertMaterial;
   glassClear: THREE.MeshLambertMaterial;
+  glassLit: THREE.MeshLambertMaterial;
   lampGlow: THREE.MeshBasicMaterial;
   mesa: THREE.MeshLambertMaterial;
   caveRed: THREE.MeshLambertMaterial;
@@ -111,6 +134,20 @@ export interface Mats {
   redCeiling: THREE.MeshLambertMaterial;
 
   sunFace: THREE.MeshLambertMaterial;
+  sunFanN: THREE.MeshLambertMaterial;
+  sunFanS: THREE.MeshLambertMaterial;
+  pumpkin: THREE.MeshLambertMaterial;
+  crateLight: THREE.MeshLambertMaterial;
+  hide: THREE.MeshLambertMaterial;
+  antler: THREE.MeshLambertMaterial;
+  bronze: THREE.MeshLambertMaterial;
+  lanternGlass: THREE.MeshLambertMaterial;
+  lampGlass: THREE.MeshLambertMaterial;
+  sunStone: THREE.MeshLambertMaterial;
+  curtainBlue: THREE.MeshLambertMaterial;
+  caveDark: THREE.MeshLambertMaterial;
+  ember: THREE.MeshBasicMaterial;
+  black: THREE.MeshBasicMaterial;
 }
 
 let cached: Mats | null = null;
@@ -135,6 +172,7 @@ export function getMats(): Mats {
     woodGray: texMat(planksH(PAL.woodGray, 26)),
     woodWhite: texMat(planksV(PAL.woodWhite, 27)),
     woodMid: texMat(planksV(PAL.woodMid, 28)),
+    woodOffice: texMat(planksV(PAL.woodOffice, 34)),
     woodDark: lam({ color: PAL.woodDark }),
     barnDark: texMat(planksH(PAL.barnDark, 29)),
     rattlerGreen: texMat(planksV(PAL.rattlerGreen, 30)),
@@ -142,9 +180,9 @@ export function getMats(): Mats {
     fenceGray: texMat(planksV(PAL.fenceGray, 32, 20, 0.8)),
     palisade: texMat(palisadeTex(PAL.palisade, 33)),
 
-    adobeJail: texMat(adobeTex(PAL.adobeJail, 41, PAL.brickMayor, 3)),
-    adobeMission: texMat(adobeTex(PAL.adobeMission, 42, PAL.adobePink, 5)),
-    brickBank: texMat(brickTex(PAL.brickBank, "#54382a", 43)),
+    adobeJail: texMat(adobeTex(PAL.adobeJail, 41, "#7a4e3e", 4)),
+    adobeMission: texMat(adobeTex(PAL.adobeMission, 42, "#9a6a4a", 4)),
+    brickBank: texMat(brickTex(PAL.brickBank, "#3a2a1e", 43)),
     brickCream: texMat(brickTex(PAL.brickCream, "#b7ab8c", 44)),
     brickMayor: texMat(brickTex(PAL.brickMayor, "#5d3d30", 45)),
     wellStone: texMat(adobeTex(PAL.wellStone, 46)),
@@ -160,8 +198,8 @@ export function getMats(): Mats {
     iron: lam({ color: PAL.iron }),
     brass: lam({ color: PAL.brass }),
     bone: lam({ color: "#ded4b8" }),
-    cactus: lam({ color: "#6d7c46" }),
-    cactusDark: lam({ color: "#55643a" }),
+    cactus: lam({ color: "#7a8848" }),
+    cactusDark: lam({ color: "#5c6838" }),
     curtainRed: lam({ color: PAL.curtainRed }),
     teal: lam({ color: PAL.teal }),
     marble: texMat(adobeTex(PAL.marble, 55)),
@@ -181,6 +219,11 @@ export function getMats(): Mats {
       side: THREE.DoubleSide,
     }),
     lampGlow: new THREE.MeshBasicMaterial({ color: "#ffd9a0" }),
+    glassLit: registerNight(
+      lam({ color: "#c3d6e2", transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide, emissive: "#ff9a30", emissiveIntensity: 0 }),
+      0,
+      2.2,
+    ),
     mesa: texMat(adobeTex(PAL.mesa, 58)),
     caveRed: texMat(adobeTex("#5a2c20", 71, "#73402c", 8)),
     caveTeal: texMat(adobeTex("#2c4a44", 72, "#1f352f", 6)),
@@ -189,7 +232,7 @@ export function getMats(): Mats {
     tbirdGlow: new THREE.MeshBasicMaterial({ color: "#66eaea" }),
 
     winCold: lam({ map: winColdTex }),
-    winWarm: lam({ map: winWarmTex, emissive: "#c07828", emissiveIntensity: 0.75 }),
+    winWarm: registerNight(lam({ map: winWarmTex, emissive: "#ffb040", emissiveMap: winWarmTex, emissiveIntensity: 0.15 }), 0.15, 0.95),
     winBlue: lam({ color: "#7a9cf0", emissive: "#4a6ad0", emissiveIntensity: 0.9 }),
 
     slate: lam({ color: "#2f2e2c" }),
@@ -213,7 +256,21 @@ export function getMats(): Mats {
     bankInner: texMat(brickTex(PAL.bankInner, "#46301f", 69)),
     redCeiling: lam({ color: PAL.redCeiling }),
 
-    sunFace: lam({ map: sunFaceTex() }),
+    sunFace: lam({ map: sunFaceTex(), alphaTest: 0.3 }),
+    sunFanN: lam({ map: sunFanTex(true), alphaTest: 0.3, emissive: "#dfd4ac", emissiveIntensity: 0.3 }),
+    sunFanS: lam({ map: sunFanTex(false), alphaTest: 0.3, emissive: "#dfd4ac", emissiveIntensity: 0.3 }),
+    pumpkin: lam({ color: "#c8641e" }),
+    crateLight: texMat(planksH("#b89a70", 21)),
+    hide: lam({ map: hideTex(), alphaTest: 0.3 }),
+    antler: lam({ map: antlerTex(), alphaTest: 0.3 }),
+    bronze: lam({ color: "#6a4e34" }),
+    lanternGlass: registerNight(lam({ color: "#4a3c28", emissive: "#ffb040", emissiveIntensity: 0.12 }), 0.12, 0.45),
+    sunStone: lam({ color: "#a89c8c" }),
+    curtainBlue: lam({ color: "#2a3660" }),
+    caveDark: texMat(adobeTex("#2a1410", 71, "#3a1c14", 8)),
+    ember: new THREE.MeshBasicMaterial({ color: "#e0601c" }),
+    black: new THREE.MeshBasicMaterial({ color: "#060403" }),
+    lampGlass: registerNight(lam({ color: "#5a4a30", emissive: "#ffc860", emissiveIntensity: 0.05 }), 0.05, 1.2),
   };
   return cached;
 }

@@ -17,6 +17,7 @@ import { Sky } from "./sky";
 import { parseSpawn } from "./spawn";
 import { buildTown } from "./town";
 import { FountainSecret, buildUnderground } from "./underground";
+import { auditDecor } from "./audit";
 
 const REACH = 4.2;
 
@@ -60,6 +61,9 @@ export class ReimaginedGame {
   /** Debug `still=1`: no start shade; clicks work without pointer lock. */
   private still = false;
 
+  /** Problems the dressing audit found at build time (read via `window.reimagined`). */
+  readonly decorReport: string[] = [];
+
   private detach: (() => void)[] = [];
 
   constructor(search: string) {
@@ -76,9 +80,9 @@ export class ReimaginedGame {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     // The film projects with focal 310 on a 512-wide still: 79° across,
-    // 46° tall. A 58° vertical field keeps that feel at 16:9 without
-    // the fisheye stretch a wider lens gives the porches.
-    this.camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.1, 900);
+    // 46° tall. Holding the film's 79° across a 16:9 window means a
+    // 50° vertical field, so the facades keep the stills' proportions.
+    this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 900);
     this.camera.rotation.order = "YXZ";
 
     const mats = getMats();
@@ -100,6 +104,8 @@ export class ReimaginedGame {
       ...interiors.builder.colliders,
       ...under.builder.colliders,
     ];
+    // dressing audit for the dev handle: signs off walls, over openings, on each other
+    this.decorReport = auditDecor([town.builder, interiors.builder, under.builder]);
 
     for (const spec of [...STREET_DOORS, ...INTERIOR_DOORS]) {
       const door = new SwingDoor(spec, mats);

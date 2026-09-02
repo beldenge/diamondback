@@ -48,10 +48,10 @@ export const INTERIOR_DOORS: readonly DoorSpec[] = [
   { id: "salUp4", pose: "salupper A1 N", side: "S", x: 36.7, y: STOREY, z: 62.5, width: 1.1, height: 2.3, swing: 1, label: "Room 4 — Ruby" },
   { id: "salUp1", pose: "salupper A3 E", side: "W", x: 38.3, y: STOREY, z: 69.9, width: 1.05, height: 2.3, swing: -1, label: "Room 1 — Oona" },
   { id: "hotRoom", pose: "hotupper C4 W", side: "E", x: 64, y: STOREY, z: 45.3, width: 1.15, height: 2.3, swing: 1, label: "Room 3" },
-  { id: "mayorFront", pose: "mayhall C4 S", side: "W", x: 86, y: 0, z: 66.6, width: 1.5, height: 2.6, swing: 1, label: "Mansion door", glazed: true },
-  { id: "mayorStudy", pose: "mayhall C3 W", side: "S", x: 89.5, y: 0, z: 64.4, width: 1.3, height: 2.5, swing: 1, label: "Study" },
-  { id: "mayorDine", pose: "mayhall C3 E", side: "N", x: 89.5, y: 0, z: 68.8, width: 1.6, height: 2.5, swing: -1, label: "Dining room", double: true },
-  { id: "mayorBed", pose: "mayupper B1 N", side: "S", x: 93, y: STOREY, z: 62.7, width: 1.2, height: 2.4, swing: 1, label: "Bedroom" },
+  { id: "mayorFront", pose: "mayhall C4 S", side: "W", x: 86, y: 0, z: 67.9, width: 1.5, height: 2.6, swing: 1, label: "Mansion door", glazed: true },
+  { id: "mayorStudy", pose: "mayhall C3 W", side: "S", x: 89.5, y: 0, z: 65.7, width: 1.6, height: 2.5, swing: 1, label: "Study", double: true },
+  { id: "mayorDine", pose: "mayhall C3 E", side: "N", x: 89.5, y: 0, z: 70.1, width: 1.6, height: 2.5, swing: -1, label: "Dining room", double: true },
+  { id: "mayorBed", pose: "mayupper B1 N", side: "S", x: 89.6, y: STOREY, z: 64.0, width: 1.2, height: 2.4, swing: 1, label: "Bedroom" },
 ];
 
 export function interiorDoor(id: string): DoorSpec {

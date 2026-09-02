@@ -5,9 +5,10 @@
 import { wishXZ } from "./coords";
 import type { Aabb } from "./geometry";
 
-export const EYE_HEIGHT = 1.62;
+/** The film lens: SET camZ 62 of a 256-unit tile → 62/256 × TILE. */
+export const EYE_HEIGHT = (62 / 256) * 8;
 const BODY_RADIUS = 0.38;
-const BODY_HEIGHT = 1.78;
+const BODY_HEIGHT = 2.05;
 const STEP_UP = 0.42;
 const WALK_SPEED = 4.4;
 const SPRINT_SPEED = 7.6;

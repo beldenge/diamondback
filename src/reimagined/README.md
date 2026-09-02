@@ -40,14 +40,68 @@ guide only. `dfextract/out/**` is never edited.
   and windows are placed on the result. Where a SET was filmed with
   its door on the wrong wall for the street it faces (jail, Watson’s,
   Bolivar’s, livery, Sidewinder, the mansion) the plan is turned, not
-  mirrored, so the room reads the same on entry.
+  mirrored, so the room reads the same on entry. The two exceptions
+  are the mansion’s study and dining room: their own stills are mirror
+  images of the hall’s (the hall fixes both side doors at its west
+  end, which only works if those rooms are flipped east–west), so
+  they are laid out mirrored — fireplace and the witch painting on the
+  street wall, the curtained windows on the partition.
+- **Accuracy pass.** Every room, the underground and the night town
+  were re-checked against the stills with a film-camera harness: the
+  lens sits 2 m behind the tile centre opposite the facing (a quarter
+  tile in interiors), eye 1.9375, vertical FOV `2·atan(132/310)`,
+  aspect 512/264, so a 1024×528 render overlays the still 1:1 at 2×.
+  Interior SET grids are mapped onto our lot-fitted rooms (or their
+  walkable spans when a SET stops short of a dais or the stairs). The
+  `auditDecor` report (`window.reimagined.decorReport`) must be empty:
+  every decal backed within 0.3 m, ≥85 % covered, clear of openings
+  and of other decals.
+- What the stills fixed: interior lamps are oil lamps on chains and
+  brass parlour sconces (no cone shades); offices keep their shades
+  down (`P.blind`); the saloon’s street windows hang with drapes and
+  the café doors stand between turned posts; the hotel desk is an L
+  under a wagon-wheel chandelier; the jail’s single lantern hangs over
+  the desk and the barred window is shuttered inside; the hub is an
+  11.5 m chamber of pointed arches between metre-deep niches around a
+  spider pedestal and a flat stone dial, its tunnels black; the snake
+  head is a domed skull over a black mouth; the thunderbird shrine
+  stands between black stone columns; the flute cavern is black with
+  obelisks. Night keeps the moonlit level low; the saloon’s and
+  hotel’s real panes glow through their own glass (`glassLit`, an
+  emissive swap on the clear glass — no opaque decals over the
+  windows), and the stars stay on at night by the user’s request even
+  though the `_NITE` stills show none.
+- Later fixes from walking the town: the saloon stair turns at the
+  bottom (three steps south from the room to a low landing in the
+  south-east corner, then the long flight west along the south wall,
+  with the railed passage over it that `_SALUPPER` A4 E shows); the
+  street signs are two boards on the lamp post, each lying along its
+  own street and reaching from the post toward the crossing; the range
+  rail at Lee’s south end has the gateway K10 S shows and the rail
+  closing Neely’s east end has its gate standing open (G11 E shows the
+  leaf swung back); the mansion’s street fence has a panel between
+  every pair of pillars; the board wall that used to cross Lee at the
+  store yard’s line is cut back to the yard (K10 N and J10 S show the
+  street running on between the mansion and the range) and the range
+  keeps only the rails either side of its banner gate — nothing
+  encloses it; the yard cart behind the Rattler is the two-wheel tip
+  cart of J4 W; the gate WARNING board sits a metre into the lane on a
+  centred post standing behind it, so it clears the gate post from the
+  spawn. The saloon’s long flight is `hollow` (thin risers over a soffit
+  plank, full-height colliders) so the piano fits under its high end as
+  B4 S shows. The plank wall at the south gate stops where O7 E / O8 E
+  show its east end and never runs south of the gate line; the rail
+  fence by the shed west of the gate is the user-approved one running
+  north at x 40. Cart and wagon props place their parts with three.js’s own rotateY
+  sense (local +x → (cos θ, −sin θ)); a helper with the opposite sign
+  scatters wheels and shafts at any angle that is not a multiple of 90°.
 - Interiors nest **inside** the exterior footprints; upper floors
-  stack at `STOREY` with real stairs — the saloon’s rise **west** along
-  the south wall from the south-east corner (D6 W in the film) to a
-  corridor over the bar with rooms 1–3 facing east and Ruby’s room 4
-  across the north end; the hotel’s enclosed stair rises north beside
-  the PRIVATE partition to a landing, corridor and your room 3 on the
-  street corner. Label zones carry a Y band so an upstairs never
+  stack at `STOREY` with real stairs — the saloon’s turn up from the
+  room in the south-east corner and rise **west** along the south wall
+  (D6 W in the film) to a corridor over the bar with rooms 1–3 facing
+  east and Ruby’s room 4 across the north end; the hotel’s enclosed
+  stair rises north beside the PRIVATE partition to a landing, corridor
+  and your room 3 on the street corner. Label zones carry a Y band so an upstairs never
   steals the ground-floor name.
 - The mission patio is `_COURT`’s 3×3 ring around the fountain, with
   five-bay arcades of real round arches (`Builder.archWall`, an

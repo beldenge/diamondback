@@ -8,14 +8,17 @@ export interface SpawnPose {
 }
 
 /**
- * Default spawn: the south gate, SET tile O7 (6,14), standing a few
- * metres south of the hanging DIAMONDBACK sign, facing north into
- * Main Street. Never the world origin.
+ * Default spawn: the south gate, SET tile O7 (6,14), facing north into
+ * Main Street. The film's draw lens sits 64 units (2 m) behind the
+ * walker's feet, so the pose stands that far south of the tile centre
+ * and the first frame matches the O7 N still. Never the world origin.
  */
+export const LENS_SETBACK = (64 / 256) * TILE;
+
 export const DEFAULT_SPAWN: SpawnPose = {
   x: tileCenter(6, 14).x,
   y: 0,
-  z: tileCenter(6, 14).z + 2.6,
+  z: tileCenter(6, 14).z + LENS_SETBACK,
   yaw: FACING_YAW.N,
 };
 
