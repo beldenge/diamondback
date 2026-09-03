@@ -1,5 +1,5 @@
 /**
- * Dust: Reimagined — a 3D free-roam of Diamondback. URL-only mode
+ * Dust: Reimagined — a 3D free-roam of Diamondback
  * (`/?mode=reimagined`): pointer-lock FPS, empty town, clickable doors,
  * `N` day/night. Esc releases the look; Esc again returns to the
  * chooser. Isolated from the stills walker: no VM, no SET playback.

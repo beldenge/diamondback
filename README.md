@@ -2,7 +2,7 @@
 
 Browser rebuild of *Dust: A Tale of the Wired West*, plus a DreamFactory extractor.
 
-Non-commercial fan reconstruction. Not a port of CyberFlix’s engine C. Playable client is Three.js. Game logic will run extracted DreamFactory tokens in a TypeScript VM. https://diamondback.town is a title chooser: **Dust: Resurrected**, **Dust: Unlocked**, and **The Picture Show**.
+Non-commercial fan reconstruction. Not a port of CyberFlix’s engine C. Playable client is Three.js. Game logic will run extracted DreamFactory tokens in a TypeScript VM. https://diamondback.town is a title chooser: **Dust: Resurrected**, **Dust: Unlocked**, **Dust: Reimagined**, and **The Picture Show**.
 
 Hosted: **https://diamondback.town** (GitHub Pages + CloudFront extract).
 
@@ -20,11 +20,13 @@ npm test
 npm run dev
 ```
 
-Open http://localhost:5173 — title chooser (three cards). Cards switch in-page; they do not reload the document. Vite serves stills from `dfextract/out/` at `/extract/…`.
+Open http://localhost:5173 — title chooser (four cards). Cards switch in-page; they do not reload the document. Vite serves stills from `dfextract/out/` at `/extract/…`.
 
 **Dust: Resurrected** (`/?mode=resurrected`): the VM game (Day 1 night through Day 5 endings). Original dashboard, CST sprites, PUP talking-heads. Skull HUD is the extracted `score` flat (Save / Open / Quit / Credits). Saves live in the browser (`localStorage`) and download a `.rtd` JSON; Open can import that file. `/?mode=resurrected&continue=1` restores the latest slot. Needs a full extract (PUP/CST/FLT/PRP, not just SET stills). Boot skips intros unless `&intro=1`. Playback notes: [`src/play/README.md`](src/play/README.md).
 
 **Dust: Unlocked** (`/?mode=unlocked`): same PlayGame / VM as Resurrected, sandbox policy. Empty of story casts, every door open (`debugging`), minigame NPCs (Leroy at the range, Bolivar at the store, Dell at D7, Kid at G6, saloon blackjack/poker tables), farm animals including horses (not the dog). Bank sign cracks the safe; apoth bottles open compounding. `N` day/night; `?clock=1|2|3`. Afternoon by default so shops and tables are up. Needs the same full extract as Resurrected (PUP/CST/FLT/PRP, not just SET stills).
+
+**Dust: Reimagined** (`/?mode=reimagined`): 3D free-roam of Diamondback. Pointer-lock FPS, empty town, clickable swing doors, `N` day/night. Esc releases the look; Esc again returns to the chooser. Isolated from Resurrected / Unlocked — no VM, no SET stills. Details: [`src/reimagined/README.md`](src/reimagined/README.md).
 
 **The Picture Show** (`/?mode=movies`): extracted `playmovie` reels in the browser (not `movplay.py`). Opening is selected first. `/?mode=movies&reel=intro3` picks another. Not INVEN inspectables or stairs. **Underground** is the Yunni cave payoffs (fountain, skeleton, snake, flute, chest, tumble). **Coming attractions** lists the CD `INFO/` attract reels (Jump Raven, Lunicus, Skull Cracker, Titanic).
 

@@ -1,9 +1,9 @@
 # Dust: Reimagined
 
 A separate 3D free-roam of Diamondback. Pointer-lock FPS, empty town,
-clickable swing doors, `N` day/night. **URL-only**: `/?mode=reimagined`.
-No card on the title chooser; no aliases (`renewed`, `free`, … land on
-the chooser). Isolated from Dust: Resurrected / Unlocked / The Picture
+clickable swing doors, `N` day/night. Title-chooser card and
+`/?mode=reimagined`. No aliases (`renewed`, `free`, … land on the
+chooser). Isolated from Dust: Resurrected / Unlocked / The Picture
 Show — no VM, no SET walker, no stills HUD, no NPCs, no items, and no
 extract fetches at runtime.
 

@@ -8,14 +8,14 @@ const indexHtml = readFileSync(
 );
 
 describe("reimagined routing surface", () => {
-  it("has NO card on the title chooser", () => {
-    // the chooser keeps exactly its three cards
+  it("has a card on the title chooser", () => {
     expect(indexHtml).toContain('href="?mode=resurrected"');
     expect(indexHtml).toContain('href="?mode=unlocked"');
     expect(indexHtml).toContain('href="?mode=movies"');
-    expect(indexHtml).not.toContain('href="?mode=reimagined"');
-    expect(indexHtml).not.toMatch(/landing-card[^>]*reimagined/i);
-    expect(indexHtml.match(/landing-card"/g)?.length).toBe(3);
+    expect(indexHtml).toContain('href="?mode=reimagined"');
+    expect(indexHtml).toContain("Dust: Reimagined");
+    expect(indexHtml).toContain("/landing/reimagined.jpg");
+    expect(indexHtml.match(/landing-card"/g)?.length).toBe(4);
   });
 
   it("keeps reimagined in the boot-hidden script so a direct URL boots clean", () => {

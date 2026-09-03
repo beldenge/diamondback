@@ -9,7 +9,7 @@ still or graph is wrong, fix `dfextract/` and re-extract, or this walker.
 Dust: Unlocked (`/?mode=unlocked`) and Dust: Resurrected share this
 stills walker inside `PlayGame`. Unlocked is a sandbox policy on that
 host, not a second implementation. The 3D free-roam, Dust: Reimagined
-(`/?mode=reimagined`, URL-only), is a separate build in
+(`/?mode=reimagined`), is a separate build in
 [`src/reimagined/`](../../reimagined/README.md) — it shares nothing
 with this walker at runtime. The title chooser lives at `/`.
 

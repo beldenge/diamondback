@@ -9,7 +9,7 @@
 - This will not be released commercially.
 - Interpret extracted DreamFactory **tokens** at runtime (TypeScript VM). Do not hand-port 541 scripts into JSON graphs. Do not port `DF.EXE` C.
 - **Never edit generated extract/decompile output.** `dfextract/out/` and `dustdecompile/out/` are produced by those Python tools. If a dumped script, still, sprite, or JSON is wrong, fix the generator and re-run. If the dump is faithful and the remake looks wrong, fix `src/`. Do not patch `out/**` (including `Script.txt` / `Script.json` literals) to paper over a playback bug.
-- `https://diamondback.town` is a title chooser. **Dust: Resurrected** (`/?mode=resurrected`) is the VM story. **Dust: Unlocked** (`/?mode=unlocked`) is the same PlayGame / VM with a sandbox policy (empty of story casts, all doors, minigame NPCs, farm animals except the dog). **The Picture Show** (`/?mode=movies`) is extracted full-screen reels. Chooser cards switch in-page (no document reload).
+- `https://diamondback.town` is a title chooser. **Dust: Resurrected** (`/?mode=resurrected`) is the VM story. **Dust: Unlocked** (`/?mode=unlocked`) is the same PlayGame / VM with a sandbox policy (empty of story casts, all doors, minigame NPCs, farm animals except the dog). **Dust: Reimagined** (`/?mode=reimagined`) is a separate 3D free-roam of Diamondback. **The Picture Show** (`/?mode=movies`) is extracted full-screen reels. Chooser cards switch in-page (no document reload).
 - Do not build save/load in the first VM slice (format is `*.rtd`, still unknown).
 
 ## 3. Tech Stack & Principles
@@ -101,6 +101,7 @@ Default run (`/`) is the title chooser. Modes:
 |---|---|---|
 | **Dust: Resurrected** | `/?mode=resurrected` | VM game (Day 1 night through Day 5 endings + credits). Skull `score` flat is Save/Open/Quit. `&intro=1` plays openings in-game. `&continue=1` loads the browser save |
 | **Dust: Unlocked** | `/?mode=unlocked` | Same engine as Resurrected; no story casts, all doors, minigame NPCs (range, checkers, tables; Dell / Kid / bounty / gang via top-bar portraits), farm animals including horses (not the dog), bank safe / apoth compounding, extracted underground Yunni cave |
+| **Dust: Reimagined** | `/?mode=reimagined` | Separate 3D free-roam of Diamondback (pointer-lock FPS, empty town, swinging doors). No VM, no SET stills. [`src/reimagined/README.md`](src/reimagined/README.md) |
 | **The Picture Show** | `/?mode=movies` | Browser reel player (`timeline.json` + PNG/WAV). Opening is selected first. Coming attractions is CD `INFO/` ads. Not inspect MOVs |
 
 - `npm test` — unit tests (time, SET graph / HQ lookup, doors)
@@ -123,6 +124,7 @@ Default run (`/`) is the title chooser. Modes:
 
 | Date | Decision |
 |---|---|
+| 2026-09-02 | Dust: Reimagined has a title-chooser card (`/?mode=reimagined`). Still no aliases (`renewed`, `free`, … land). Isolated 3D free-roam; not the stills walker. |
 | 2026-08-30 | Group A cues fire in the rec still window, not only on an exact rec start. Cross-scene A hold can park a line between recs (DESEREND goodbye rec+32 at 807, held to 809). Continuation B still schedules at buffer end. |
 | 2026-08-30 | Linear playmovie does not abort on rec+0x16==1. That kind ends a hotspot dest segment (SAFEBOX take → rec 31). DESEREND/INTRO3/d1nd2m use it at scene ends; the town goodbye is later stills in `deserend.mov`. Other `*end` reels chain `finalend.mov`; desert does not. |
 | 2026-08-30 | MOV group B is a PCM-chained playlist, not rec+32. INTRO2 bed 365 sits between stills 363 and 366; rec-start-only cues killed the hum. Rec-window fire and onended-then-playFx stuttered the ~6 s / ~12 s joins. Skip continuation B on the rec; schedule the next clip at the previous buffer end. Rec+32 A stays exact. |

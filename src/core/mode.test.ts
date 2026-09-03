@@ -38,6 +38,7 @@ describe("needsUnlockedSpoilerWarning", () => {
   it("does not gate other chooser titles or a direct Unlocked URL", () => {
     expect(needsUnlockedSpoilerWarning("landing", "resurrected", false)).toBe(false);
     expect(needsUnlockedSpoilerWarning("landing", "movies", false)).toBe(false);
+    expect(needsUnlockedSpoilerWarning("landing", "reimagined", false)).toBe(false);
     expect(needsUnlockedSpoilerWarning("landing", "landing", false)).toBe(false);
     expect(needsUnlockedSpoilerWarning("unlocked", "unlocked", false)).toBe(false);
     expect(needsUnlockedSpoilerWarning("resurrected", "unlocked", false)).toBe(false);
