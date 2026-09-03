@@ -31,7 +31,7 @@ class TestMovplayBinary(unittest.TestCase):
 
     def test_has_dust_opcode_table(self) -> None:
         names = {op.name for op in recover_opcodes(self.image)}
-        self.assertEqual(len(names), 304)
+        self.assertEqual(len(names), 307)
         self.assertTrue(
             {"singlesound", "dualsound", "multiplesound", "playtheme", "playmovie"}
             <= names

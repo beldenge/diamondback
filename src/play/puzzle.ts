@@ -59,27 +59,91 @@ export function hitFlatButton(hits: readonly FlatHit[], x: number, y: number): F
 }
 
 /**
- * Dust `findword`: 1-based split on `sep`. Empty slots count (SALGAMES
- * `putword (…, "")` during shuffle). Do not collapse consecutive seps.
+ * Dust `findword` (DF.EXE `FUN_004071c0`). 1-based word `index`. An empty
+ * `sep` returns the index-th character. Otherwise the scan runs over
+ * positions `1 … len − seplen + 1`; a separator ends a word, and reaching
+ * the last position also ends the word *at that position*, so an
+ * unterminated final word loses its last character (`"abc"` → `"ab"`).
+ * Dust lists always carry a trailing separator (`putword` appends one).
+ * Empty slots count (SALGAMES `putword (…, "")` during shuffle). Past the
+ * end is `""`. Separator matching is case-insensitive.
  */
 export function findWord(list: string, sep: string, index: number): string {
-  const parts = list.split(sep);
-  return parts[Math.trunc(index) - 1] ?? "";
+  const n = Math.trunc(index);
+  if (sep.length === 0) {
+    if (n >= 1 && n <= list.length) {
+      return list.charAt(n - 1);
+    }
+    return "";
+  }
+  const lower = list.toLowerCase();
+  const want = sep.toLowerCase();
+  const last = list.length - sep.length + 1;
+  if (last < 1) {
+    return "";
+  }
+  let remaining = n;
+  let start = 1;
+  for (let i = 1; i <= last; i += 1) {
+    const match = lower.startsWith(want, i - 1);
+    if (match || i >= last) {
+      remaining -= 1;
+      if (remaining < 1) {
+        return list.slice(start - 1, i - 1);
+      }
+      start = i + sep.length;
+    }
+  }
+  return "";
 }
 
 /**
- * Dust `putword`: replace the 1-based slot, keeping holes. Shuffle does
- * `putword (list, " ", n, "")` then writes the swap; dropping empties
- * shrinks the 52-card deck so hand two has nothing to deal.
+ * Dust `putword` (DF.EXE `FUN_004074a0`). With an empty `sep` it inserts
+ * `word` at character `index` (append when `index = len + 1`, `""` when
+ * out of range). With a separator it first appends `sep` to `list`, then
+ * replaces word `index`; a missing slot yields `""`. Keeps holes so the
+ * SALGAMES shuffle does not shrink the deck.
  */
 export function putWord(list: string, sep: string, index: number, word: string): string {
-  const parts = list.split(sep);
-  const i = Math.max(1, Math.trunc(index)) - 1;
-  while (parts.length <= i) {
-    parts.push("");
+  const n = Math.trunc(index);
+  if (sep.length === 0) {
+    if (n >= 1 && n <= list.length) {
+      return list.slice(0, n - 1) + word + list.slice(n - 1);
+    }
+    if (n === list.length + 1) {
+      return list + word;
+    }
+    return "";
   }
-  parts[i] = word;
-  return parts.join(sep);
+  const text = list + sep;
+  const lower = text.toLowerCase();
+  const want = sep.toLowerCase();
+  const last = text.length - sep.length + 1;
+  let remaining = n;
+  let start = 1;
+  for (let i = 1; i <= last; i += 1) {
+    if (lower.startsWith(want, i - 1)) {
+      remaining -= 1;
+      if (remaining < 1) {
+        return text.slice(0, start - 1) + word + text.slice(i - 1);
+      }
+      start = i + sep.length;
+    }
+  }
+  return "";
+}
+
+/**
+ * Dust `stringtonum`: `sscanf ("%ld")` — leading whitespace and a sign,
+ * digits until the first non-digit, else 0.
+ */
+export function dustStringToNum(text: string): number {
+  const m = /^\s*([+-]?\d+)/.exec(text);
+  if (!m) {
+    return 0;
+  }
+  const value = Number.parseInt(m[1]!, 10);
+  return Number.isFinite(value) ? value | 0 : 0;
 }
 
 /** Dust `substring`: 1-based index, or -1 if missing (boot uses `= 1`, cards use `>= 0`). */

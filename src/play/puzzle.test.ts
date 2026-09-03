@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  dustStringToNum,
   findWord,
   hitFlatButton,
   isMenuFlat,
@@ -35,6 +36,37 @@ describe("saloon game helpers", () => {
     expect(findWord(list, " ", 2)).toBe("kd");
     expect(findWord(list, " ", 3)).toBe("ah");
     expect(findWord(list, " ", 4)).toBe("");
+  });
+
+  it("findword matches DF.EXE FUN_004071c0 on unterminated lists", () => {
+    // Reaching the last scan position ends the word there, so a final
+    // word with no trailing separator loses its last character.
+    expect(findWord("abc", " ", 1)).toBe("ab");
+    expect(findWord("2h 3h", " ", 2)).toBe("3");
+    expect(findWord("5 2 6,", ",", 1)).toBe("5 2 6");
+    expect(findWord("", " ", 1)).toBe("");
+    expect(findWord("a  b ", " ", 2)).toBe("");
+    expect(findWord("A,b,", ",", 1)).toBe("A");
+    expect(findWord("708", "", 4)).toBe("");
+  });
+
+  it("putword appends the separator first and empties out-of-range slots", () => {
+    expect(putWord("a b", " ", 2, "c")).toBe("a c ");
+    // The appended separator makes an empty third slot, which is filled.
+    expect(putWord("a b ", " ", 3, "c")).toBe("a b c ");
+    expect(putWord("a b ", " ", 4, "c")).toBe("");
+    expect(putWord("a b ", " ", 1, "")).toBe(" b  ");
+    expect(putWord("abc", "", 2, "X")).toBe("aXbc");
+    expect(putWord("abc", "", 4, "X")).toBe("abcX");
+    expect(putWord("abc", "", 5, "X")).toBe("");
+  });
+
+  it("stringtonum is sscanf %ld", () => {
+    expect(dustStringToNum("42")).toBe(42);
+    expect(dustStringToNum(" -7x")).toBe(-7);
+    expect(dustStringToNum("+3")).toBe(3);
+    expect(dustStringToNum("x1")).toBe(0);
+    expect(dustStringToNum("")).toBe(0);
   });
 
   it("substring is 1-based so boot `= 1` and cards `>= 0` both work", () => {

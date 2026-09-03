@@ -274,6 +274,33 @@ export const PUPPET_IDLE_SPEAK_MIN_TICKS = 240;
 /** Dust `delay` / `puppetevent` ticks. Same 60 Hz as visemes. */
 export const PUPPET_TICK_HZ = VISEME_HZ;
 
+/** `waitEvent` result for a click on the talking head (replay the last lines). */
+export const PUPPET_PICTURE_CLICK = -3;
+
+/** PUP `idle.json`: header +0x83a / +0x84a idle timer bounds in 60 Hz ticks. */
+export interface PupIdleRanges {
+  min_ticks: number[];
+  max_ticks: number[];
+  player_voice?: number;
+}
+
+/** DF.EXE `FUN_0040b060`: `(rand15 * n) / 0x7fff + 1` → 1…n. */
+export function dustRandom(n: number, rand15: number): number {
+  let r = rand15 & 0x7fff;
+  if (r === 0x7fff) {
+    r = 0x7ffe;
+  }
+  return Math.trunc((r * Math.trunc(n)) / 0x7fff) + 1;
+}
+
+/**
+ * DF.EXE `FUN_00431330`: each `idle N` timer waits `min + random (max − min)`
+ * ticks, re-rolled after every play.
+ */
+export function pupIdleIntervalTicks(minTicks: number, maxTicks: number, rand15: number): number {
+  return Math.trunc(minTicks) + dustRandom(Math.trunc(maxTicks) - Math.trunc(minTicks), rand15);
+}
+
 /**
  * Engine idle tracks on a live `puppetevent` wait. DF.EXE `0x431330`
  * looks up these four names and gives each its own timer.
@@ -402,13 +429,20 @@ export class PuppetUi {
   private paintGen = 0;
   /** Bumped when layer indices / extras change so a rest blit cannot land after idle. */
   private paintPose = 0;
-  /** Speech bar on. Audio and visemes keep running when this is off. */
-  private captionsOn = true;
+  /**
+   * Speech bar on. Dust `puppetparam (7)` — **off** by default, the
+   * score-flat check box turns it on. Audio and visemes keep running.
+   */
+  private captionsOn = false;
+  /** Dust `puppetgrab`: leave the PUP Background layer off the canvas. */
+  private grab = true;
 
   constructor() {
     this.root = document.createElement("div");
     this.root.id = "puppet-ui";
     this.root.hidden = true;
+    // Dust `puppetparam (7)` starts at 0, so the speech bar starts hidden.
+    this.root.classList.toggle("hide-captions", !this.captionsOn);
     this.canvas = document.createElement("canvas");
     this.canvas.id = "puppet-layers";
     const ctx = this.canvas.getContext("2d", { alpha: true });
@@ -417,6 +451,21 @@ export class PuppetUi {
     }
     this.ctx = ctx;
     this.ctx.imageSmoothingEnabled = false;
+    // DF.EXE `FUN_00431680`: while `puppetevent` waits, a click on the
+    // picture (not a bevel) replays the lines spoken since the last event.
+    this.canvas.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || !this.eventWait || this.talking) {
+        return;
+      }
+      const rect = this.canvas.getBoundingClientRect();
+      const y = ((event.clientY - rect.top) / Math.max(1, rect.height)) * STAGE_HEIGHT;
+      if (y >= STAGE_HEIGHT - HUD_BAND) {
+        return;
+      }
+      event.stopPropagation();
+      voices.unlock();
+      this.finishWait(PUPPET_PICTURE_CLICK);
+    });
     this.line = document.createElement("div");
     this.line.id = "puppet-line";
     this.line.hidden = true;
@@ -517,9 +566,28 @@ export class PuppetUi {
   }
 
   toggleCaptions(): boolean {
-    this.captionsOn = !this.captionsOn;
-    this.root.classList.toggle("hide-captions", !this.captionsOn);
+    this.setCaptions(!this.captionsOn);
     return this.captionsOn;
+  }
+
+  /** Dust `puppetparam (7, on)`. */
+  setCaptions(on: boolean): void {
+    this.captionsOn = on;
+    this.root.classList.toggle("hide-captions", !this.captionsOn);
+  }
+
+  get captions(): boolean {
+    return this.captionsOn;
+  }
+
+  /** Dust `puppetgrab (on)`: with grab on the Background layer is not drawn. */
+  setGrab(on: boolean): void {
+    if (this.grab === on) {
+      return;
+    }
+    this.grab = on;
+    this.paintPose += 1;
+    this.schedulePaint();
   }
 
   addBevel(choice: BevelChoice): void {
@@ -596,6 +664,7 @@ export class PuppetUi {
     wavUrl: string | undefined,
     viseme: VisemeLine | undefined,
     ident?: string,
+    noAudioHoldSec?: number,
   ): Promise<void> {
     this.stopFidget();
     this.setLine(text);
@@ -613,7 +682,11 @@ export class PuppetUi {
       duration = await voices.play(wavUrl);
     }
     this.applyViseme(voices.currentTime());
-    const hold = speakHangSec(duration, viseme?.ticks, ident);
+    // DF.EXE `FUN_0042fb70`: a line with no audio holds `len/2 + 60` ticks.
+    const hold =
+      !wavUrl && noAudioHoldSec !== undefined
+        ? noAudioHoldSec
+        : speakHangSec(duration, viseme?.ticks, ident);
     this.speakTimer = setTimeout(() => this.finishSpeak(), hold * 1000);
     await done;
     this.root.classList.remove("speaking");
@@ -789,7 +862,7 @@ export class PuppetUi {
     this.ctx.clearRect(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
     const rest = sheet.rest ?? {};
     for (const { name, img, place, url } of loaded) {
-      if (name === "Background" && this.backdropIsFlat(url, img)) {
+      if (name === "Background" && (this.grab || this.backdropIsFlat(url, img))) {
         continue;
       }
       const dest = layerBlitDest(place, this.layerAt.get(name) ?? rest[name]);

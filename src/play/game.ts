@@ -163,6 +163,9 @@ import {
 } from "./movies";
 import { playMovieClip, unlockVoices, voices } from "./speech";
 
+/** DF.EXE main loop: event 8 (HQ still) needs 20 idle ticks of the 60 Hz clock. */
+const HQ_IDLE_MS = (20 * 1000) / 60;
+
 const CURSORS: Record<string, string> = {
   arrow: "/rsrc/cursors/arrow.cur",
   touch: "/rsrc/cursors/touch.cur",
@@ -257,6 +260,11 @@ export class PlayGame implements WorldView {
    */
   private talking = false;
   private readonly heldKeys = new Set<string>();
+  /** performance.now() of the last key / pointer event (HQ reveal gate). */
+  private lastInputMs = 0;
+  private hqTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Walk key held back while an idle `makeloop` pump owns the VM. */
+  private pendingKey: { arg: string; repeat: boolean } | null = null;
 
   private booting = true;
   private visible = true;
@@ -443,6 +451,9 @@ export class PlayGame implements WorldView {
       this.lastDayClock = clock === 3 ? 2 : clock;
     }
     this.host.view = this;
+    // Same debug handle as `window.reimagined`, for driving play mode from
+    // the console instead of synthesising events.
+    (window as unknown as { play?: PlayGame }).play = this;
     // The host *is* the OpcodeHost. A { call, lookup } wrapper drops
     // `ensureObject`, so sendtoactor never loads Leroy/dog Script.json.
     this.vm = new VM(this.host);
@@ -477,6 +488,7 @@ export class PlayGame implements WorldView {
     window.addEventListener("keyup", (event) => this.heldKeys.delete(event.code));
     window.addEventListener("blur", () => {
       this.heldKeys.clear();
+      this.pendingKey = null;
       this.host.stillDown = false;
     });
     window.addEventListener("resize", () => this.layoutStage());
@@ -1377,6 +1389,9 @@ export class PlayGame implements WorldView {
       // owns it via `scriptBusy`. Tick must not start a second runQueued
       // during `forceupdate` (scriptPump > 0 used to sneak past the host
       // guard) — that ate the second blackjack card on hand two.
+      // Drain before starting the next pump: `runQueued` sets `scriptBusy`
+      // synchronously, so a drain after it would never see a free VM.
+      this.drainPendingKey();
       if (idlePumpAllowed(this.talking, this.host.scriptBusy)) {
         void this.host.runQueued(this.vm);
       }
@@ -1760,6 +1775,7 @@ export class PlayGame implements WorldView {
     if (!this.visible) {
       return;
     }
+    this.lastInputMs = performance.now();
     if (event.button === 2 && this.onRange()) {
       event.preventDefault();
       const point = this.stageFromPointer(event);
@@ -1980,12 +1996,14 @@ export class PlayGame implements WorldView {
     if (!this.visible) {
       return;
     }
+    this.lastInputMs = performance.now();
     this.host.resumeBed();
     if (event.altKey || event.ctrlKey || event.metaKey || this.booting) {
       return;
     }
     if (event.code === "KeyC" && !event.repeat) {
-      this.ui.toggleCaptions();
+      // Same switch as the score-flat check box (Dust `puppetparam (7)`).
+      this.host.setPuppetParam(7, this.host.puppetParam(7) ? 0 : 1);
       event.preventDefault();
       return;
     }
@@ -2032,10 +2050,21 @@ export class PlayGame implements WorldView {
       return;
     }
     event.preventDefault();
-    if (this.busy && !this.talking && this.scriptsReady) {
+    if (!this.scriptsReady) {
       return;
     }
-    if (this.inputBlocked() || !this.scriptsReady) {
+    // Taps that land during a filmstrip are dropped: `currentscene
+    // ("strait")` no-ops while the strip index is live (DF.EXE `0x40d920`).
+    if (this.busy && !this.talking) {
+      return;
+    }
+    if (this.inputBlocked()) {
+      // An idle `makeloop` pump is not a reason to lose the key. DF.EXE
+      // parks input in a 16-slot queue (`FUN_00435260`) and dispatches it
+      // on a later main-loop pass, so hold the newest one instead.
+      if (!this.busy && !this.flats.open && this.host.scriptBusy) {
+        this.pendingKey = { arg, repeat: event.repeat };
+      }
       return;
     }
     this.dispatchWalkKey(arg, event.repeat);
@@ -2157,10 +2186,11 @@ export class PlayGame implements WorldView {
     }
     this.syncHud();
     this.host.noticeCamera();
-    // Dest is current (`0x40e0e1`) and index is idle. Standing HQ is a
-    // blit, not a sixth timed plate — do not wait on it or its Z.
+    // Dest is current (`0x40e0e1`) and index is idle. The standing HQ is
+    // a later blit (DF.EXE event 8: 20 ticks after the last input), so
+    // the fifth plate stays up for now.
     const gen = this.hqGen;
-    this.revealDestHq(false);
+    this.layoutActors();
     void this.afterStillMove(tileStep, gen, fromScene);
   }
 
@@ -2202,23 +2232,59 @@ export class PlayGame implements WorldView {
     this.layoutActors();
   }
 
-  private async afterStillMove(tileStep: boolean, gen: number, fromScene: string): Promise<void> {
-    if (tileStep) {
-      await this.host.onLeave(this.vm, fromScene);
-      if (this.hqGen !== gen) {
-        return;
-      }
-      await this.host.onArrive(this.vm);
-    }
+  private async afterStillMove(_tileStep: boolean, gen: number, _fromScene: string): Promise<void> {
+    // DF.EXE `FUN_0040dd90`: `openscene ()` when the fifth plate lands, for
+    // turns as well as walks. `closescene ()` already ran when the script
+    // issued `currentscene ("strait" | "left" | "right")`.
+    await this.host.onArrive(this.vm);
     if (this.hqGen !== gen) {
       return;
     }
     this.preloadNeighbors();
     this.continueWalk();
-    if (this.hqGen !== gen || this.busy || this.talking || this.anim) {
+    this.scheduleHqReveal(gen);
+  }
+
+  /**
+   * DF.EXE main loop: event 8 fires once no input event arrived for 20
+   * ticks (1/3 s); the SET then swaps in the standing HQ still
+   * (`FUN_0040d660`). A held key keeps repeating and never shows it.
+   */
+  private scheduleHqReveal(gen: number): void {
+    if (this.hqTimer !== null) {
+      clearTimeout(this.hqTimer);
+      this.hqTimer = null;
+    }
+    const wait = Math.max(0, this.lastInputMs + HQ_IDLE_MS - performance.now());
+    this.hqTimer = setTimeout(() => {
+      this.hqTimer = null;
+      if (this.hqGen !== gen) {
+        return;
+      }
+      if (this.busy || this.talking || this.anim) {
+        this.scheduleHqReveal(gen);
+        return;
+      }
+      this.revealDestHq(true);
+    }, wait);
+  }
+
+  /** Dust `currentdir ()` says "moving" while a filmstrip is on screen. */
+  isMoving(): boolean {
+    return this.busy || this.anim !== null;
+  }
+
+  /** Dispatch the key an idle pump held back, once the VM is free again. */
+  private drainPendingKey(): void {
+    const pending = this.pendingKey;
+    if (!pending) {
       return;
     }
-    this.revealDestHq(true);
+    if (this.inputBlocked() || !this.scriptsReady) {
+      return;
+    }
+    this.pendingKey = null;
+    this.dispatchWalkKey(pending.arg, pending.repeat);
   }
 
   private continueWalk(): void {

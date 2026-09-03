@@ -4,14 +4,26 @@ Recover structure from Dust's engine binaries (`DF.EXE`, `MOVPLAY.EXE`,
 `CHECKERS.DLL`, the Win16 launcher) so a remake agent can implement the
 same behaviour without guessing.
 
-This is **not** a Ghidra wrapper, and it does **not** auto-translate x86
-into TypeScript. It inventories the PE/NE files, parses Dust’s packed
-opcode table out of `DF.EXE` (not Titanic’s 4.0 list), and writes a
-handbook of working protocols (dialogue, clicks, plugins, travel).
+It inventories the PE/NE files, parses Dust’s packed opcode table out of
+`DF.EXE` (not Titanic’s 4.0 list), and writes a handbook of working
+protocols (dialogue, clicks, plugins, travel). It does **not**
+auto-translate x86 into TypeScript.
+
+`ghidra/` holds a headless Ghidra script (`ExportDecomp.java`) that dumps
+the decompiled C, a function table, strings and data refs for each
+binary, plus `fn.py` to pull one function out of that dump. The VM
+semantics in [`docs/vm.md`](docs/vm.md) were read out of it:
+
+```
+<ghidra>/support/analyzeHeadless <proj> DustProj -import DF.EXE \n  -scriptPath dustdecompile/ghidra -postScript ExportDecomp.java out/ghidra/DF
+python dustdecompile/ghidra/fn.py DF 0x417b90
+```
 
 What we proved, how, and vs prior work:
 [`docs/findings.md`](docs/findings.md).
 Agent rulebook: [`docs/handbook.md`](docs/handbook.md).
+VM semantics recovered with Ghidra (types, precedence, statements, hooks,
+timing, dialogue, mixer, save layout): [`docs/vm.md`](docs/vm.md).
 
 Isolated from `src/` on purpose, same idea as `dfextract/`. Do not import
 this from the browser client.

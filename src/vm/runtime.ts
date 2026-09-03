@@ -268,7 +268,13 @@ export class VM {
       return this.sendNamed(lower, args);
     }
     const values: Value[] = [];
-    for (const arg of args) {
+    for (const [i, arg] of args.entries()) {
+      // `visualeffect (wipeleft, 30)`: the transition is an opcode token used
+      // as a bare name (DF.EXE reads the id). Pass its name through.
+      if (i === 0 && lower === "visualeffect" && (arg.type === "var" || arg.type === "call")) {
+        values.push(arg.name);
+        continue;
+      }
       values.push(await this.evalExpr(arg));
     }
     const chain = this.host.lookupChain?.(name, this);

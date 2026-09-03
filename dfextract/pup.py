@@ -262,6 +262,7 @@ def write_pup_extract(
         if df is not None:
             visemes = visemes_from_dialogue(df, extract.dialogue)
             write_viseme_files(out_dir / "AUDIO", visemes)
+            write_pup_idle(df.containers[0].data, out_dir)
 
     if write_audio:
         if df is None:
@@ -399,6 +400,7 @@ def write_pup_play_sidecars(
     visemes = visemes_from_dialogue(df, extract.dialogue)
     write_viseme_files(out_dir / "AUDIO", visemes, write_blob=write_blob)
     write_script_manifest(out_dir, extract.scripts)
+    write_pup_idle(df.containers[0].data, out_dir)
     rest, rest_layers = rest_pose_from_visemes(visemes)
     layers = pup_layer_records(df)
     frames_dir = out_dir / "FRAMES"
@@ -449,6 +451,28 @@ def _read_dialogue(header: bytes) -> list[DialogueLine]:
             )
         )
     return lines
+
+
+def pup_idle_ranges(header: bytes) -> dict[str, object]:
+    """`puppetevent` idle timers from the PUP header (DF.EXE `FUN_00431330`).
+
+    Four minimums at +0x83a and four maximums at +0x84a, in 60 Hz ticks.
+    Each timer waits `min + random (max - min)` ticks, then plays the line
+    named `idle 1` … `idle 4`. `player_voice` is the +0x20 flag that would
+    let a bevel click speak the player's line (0 in every Dust PUP).
+    """
+    if len(header) < 0x85a:
+        return {"min_ticks": [0, 0, 0, 0], "max_ticks": [0, 0, 0, 0], "player_voice": 0}
+    mins = list(struct.unpack_from("<iiii", header, 0x83A))
+    maxs = list(struct.unpack_from("<iiii", header, 0x84A))
+    flag = struct.unpack_from("<h", header, 0x20)[0]
+    return {"min_ticks": mins, "max_ticks": maxs, "player_voice": flag}
+
+
+def write_pup_idle(header: bytes, out_dir: Path) -> None:
+    (out_dir / "idle.json").write_text(
+        json.dumps(pup_idle_ranges(header), indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def _read_scripts(df: DFFile) -> list[PupScript]:

@@ -49,6 +49,9 @@ import {
   dustIdleInterval,
   dustTick,
   PUPPET_IDLE_CLIPS,
+  PUPPET_PICTURE_CLICK,
+  pupIdleIntervalTicks,
+  type PupIdleRanges,
   PUPPET_IDLE_SPEAK_MIN_TICKS,
   puppetIdleCaption,
   puppetIdleDurationUnits,
@@ -86,6 +89,7 @@ import {
   pointHitsReaderBorder,
   pointInMacRect,
   putWord,
+  dustStringToNum,
   shopFileOf,
   substringIndex,
   upsertPuzzleLabel,
@@ -295,6 +299,8 @@ export interface WorldView {
   world: string;
   graph: SetGraph;
   walk(kind: "strait" | "left" | "right"): void;
+  /** True while a SET filmstrip (walk or turn) is playing — Dust `currentdir ()` = "moving". */
+  isMoving?(): boolean;
   setPose(world: string, pose: WalkerPose): Promise<void>;
   /** Unlocked N: swap court/school day↔night stills; keep pose. */
   swapLighting?(): Promise<void>;
@@ -473,8 +479,26 @@ export class DustHost implements OpcodeHost {
   savePort: SavePort = defaultSavePort();
   /** Dust `wavevolume` 0–9. Score slider and `menuvolume`. */
   waveVolume = 5;
-  /** Dust `puppetparam`. Index 7 is the score-flat subtitle check. */
+  /**
+   * Dust `puppetparam` (DF.EXE `FUN_00430480`). 7 is the subtitle switch
+   * (default **off**, the score-flat check box), 8 disables the four
+   * `puppetevent` idle timers.
+   */
   private puppetParams: number[] = [];
+  /** Dust `puppetgrab`: skip the PUP Background layer (SET still shows). */
+  puppetGrab = true;
+  /** Per PUP folder `idle.json`: header +0x83a/+0x84a idle timer ranges. */
+  private puppetIdleRanges = new Map<string, PupIdleRanges>();
+  /**
+   * `puppetspeak` lines since the last `puppetevent` (DF.EXE keeps 3).
+   * A click on the talking head replays them.
+   */
+  private spokenSinceEvent: string[] = [];
+  /** SND folder and 0…255 level of the playing bed, for `themevol`. */
+  private bedFolder = "";
+  private bedVolume = 255;
+  /** `singlesound` must not restart a clip that is still playing. */
+  private readonly fxEnds = new Map<string, number>();
   /** Unlocked `?clock=` (default afternoon). Story ignores this. */
   sandboxClock: ClockSlot | undefined;
   /** Top-bar spawns. Re-placed after `initall` / N; fight scouts drop on `closefight`. */
@@ -795,14 +819,32 @@ export class DustHost implements OpcodeHost {
           this.framerateValue = num(args[0]);
         }
         return this.framerateValue;
-      case "puppetgrab":
       case "keyaborts":
       case "menuvisible":
-      case "visualeffect":
         if (isPuzzleStage(this.currentStageName)) {
           this.syncPuzzleView();
         }
         return 0;
+      case "puppetgrab":
+        // DF.EXE `FUN_0042f3e0`: with grab on, the PUP Background layer
+        // (0) is never loaded — the SET still stays behind the head.
+        this.puppetGrab = truthyArg(args[0]);
+        this.ui.setGrab?.(this.puppetGrab);
+        return 0;
+      case "visualeffect": {
+        // DF.EXE `FUN_00433270`: redraw, one walk/loop pump, then the
+        // transition (`plain`, `wipeleft`, …) over `n` ticks (1…1000).
+        if (isPuzzleStage(this.currentStageName)) {
+          this.syncPuzzleView();
+        }
+        await this.pumpOnce(ctx);
+        const effect = str(args[0]).toLowerCase();
+        const ticks = Math.min(1000, Math.max(1, Math.trunc(num(args[1] ?? 1))));
+        if (effect && effect !== "plain" && effect !== "0") {
+          await sleep(dustTicksToMs(ticks));
+        }
+        return 0;
+      }
       case "clut": {
         const which = str(args[0]).toLowerCase();
         if (which === "black") {
@@ -860,7 +902,10 @@ export class DustHost implements OpcodeHost {
         this.closeTrack(str(args[0]));
         return 0;
       case "haltsound":
+        // DF.EXE `FUN_004027d0 (1, 1, 0, 0)`: both effect channels, one-shots too.
         this.stopLoopSounds();
+        voices.stopAllFx();
+        this.fxEnds.clear();
         return 0;
       case "haltvoice":
         this.currentVoice = "none";
@@ -1071,15 +1116,13 @@ export class DustHost implements OpcodeHost {
         const p = playerWorldPoint(this.view.pose);
         return Math.hypot(obj.x - p.x, obj.y - p.y);
       }
-      case "propscript": {
-        const who = str(args[0] || ctx.me || ctx.target);
-        const hook = ctx.frame()?.procName ?? "";
-        const proc = this.index.lookup([`prop:${who.toLowerCase()}`], hook);
-        if (proc) {
-          await ctx.inObject("prop", who.toLowerCase(), () => ctx.runProc(proc));
-        }
+      case "propscript":
+      case "puppetscript":
+      case "actorscript":
+        // Authoring-tool hooks (open the script editor). DF.EXE
+        // `FUN_004143d0` / `FUN_00430060` / `FUN_00426e60` only clear `result ()`.
+        ctx.lastResult = "";
         return 0;
-      }
       case "actorinstance":
         this.instanceActor(str(args[0]), str(args[1]));
         return 0;
@@ -1118,12 +1161,21 @@ export class DustHost implements OpcodeHost {
       case "puppetparam": {
         const index = Math.trunc(num(args[0]));
         if (args.length >= 2) {
-          this.puppetParams[index] = num(args[1]);
+          this.setPuppetParam(index, num(args[1]));
         }
-        return this.puppetParams[index] ?? 0;
+        return this.puppetParam(index);
       }
-      case "themevol":
+      case "themevol": {
+        // DF.EXE `FUN_00403840`: 0…255 for every clip of that SND file.
+        // The bed is the only per-track channel the remake keeps.
+        const track = sndFolderFromFile(str(args[0]));
+        const vol = Math.max(0, Math.min(255, Math.trunc(num(args[1]))));
+        if (this.bedFolder && this.bedFolder === track) {
+          this.bedVolume = vol;
+          voices.setFxVolume(this.bedStop, bedGain(vol));
+        }
         return 0;
+      }
       case "soundvol":
         this.soundVolumes.set(str(args[0]).toLowerCase(), num(args[1]));
         return 0;
@@ -1174,11 +1226,13 @@ export class DustHost implements OpcodeHost {
         }
         return this.currentVoice;
       case "currenttheme":
-        if (args.length && this.trackFolder === "_NIGHT") {
-          return "nightwind3";
-        }
-        if (args.length && this.trackFolder === "_TOWN") {
-          return "daymusic5";
+        // DF.EXE `FUN_00403f90`: `currenttheme (2)` is the theme's SND file
+        // name (`saloonsep.snd`); otherwise the playing clip, or "None".
+        if (num(args[0]) === 2) {
+          if (this.currentTheme === "none" || !this.bedFolder) {
+            return "none";
+          }
+          return `${this.bedFolder.replace(/^_/, "").toLowerCase()}.snd`;
         }
         return this.currentTheme;
       case "currentsound":
@@ -1198,6 +1252,14 @@ export class DustHost implements OpcodeHost {
       }
       case "singlesound":
       case "dualsound":
+        // DF.EXE `FUN_00402b90`: a clip that is still playing is not
+        // restarted (equal mixer index). `multiplesound` does restart it.
+        if (this.fxPlaying(str(args[0]))) {
+          return 0;
+        }
+        void this.playFx(str(args[0]), false);
+        this.noteFx(str(args[0]));
+        return 0;
       case "multiplesound":
         // Fire-and-forget. Awaiting fetch/decode here held `scriptBusy`
         // and froze every actor `makeloop` (dog look, horse head/tail).
@@ -1212,16 +1274,7 @@ export class DustHost implements OpcodeHost {
         return 0;
       case "forceupdate":
         // EXE `0x433740`: one walk/display pump, not a `makeloop` drain.
-        this.scriptPump += 1;
-        try {
-          const started = performance.now();
-          this.advanceActorsOnce();
-          this.view?.refreshActors();
-          await this.runQueued(ctx, true);
-          await waitGameFrame(this.framerateValue, started);
-        } finally {
-          this.scriptPump -= 1;
-        }
+        await this.pumpOnce(ctx);
         return 0;
       case "makeloop":
         this.makeLoop(str(args[0]), str(args[1]), str(args[2]), num(args[3]));
@@ -1239,7 +1292,8 @@ export class DustHost implements OpcodeHost {
       case "numtostring":
         return String(Math.trunc(num(args[0])));
       case "stringtonum":
-        return num(args[0]);
+        // DF.EXE `FUN_0040b5a0`: sscanf %ld.
+        return dustStringToNum(str(args[0]));
       case "findword":
         return findWord(str(args[0]), str(args[1]), num(args[2]));
       case "plugin":
@@ -1289,6 +1343,10 @@ export class DustHost implements OpcodeHost {
         if (hook) {
           await ctx.inObject("cast", stem, () => ctx.runProc(hook));
         }
+        // DF.EXE `FUN_004268c0`: then `openactor ()` on each actor. That is
+        // where bird2…5 / bounty2…5 / horse2…3 / kidgang2…5 are instanced
+        // and Watson gets `actorspeed 8`.
+        await this.runOpenActors(ctx, stem);
         return 0;
       }
       case "closecastfile":
@@ -1297,11 +1355,12 @@ export class DustHost implements OpcodeHost {
       case "openshopfile": {
         const shop = str(args[0]).replace(/\.prp$/i, "").toLowerCase();
         await this.openShop(str(args[0]));
-        await this.flushOpenProps(ctx);
+        // DF.EXE `FUN_00413e20`: `openshop ()` first, then every prop's `openprop ()`.
         const hook = this.index.lookup([`shop:${shop}`], "openshop");
         if (hook) {
           await ctx.inObject("shop", shop, () => ctx.runProc(hook));
         }
+        await this.flushOpenProps(ctx);
         return 0;
       }
       case "closeshopfile":
@@ -1309,18 +1368,28 @@ export class DustHost implements OpcodeHost {
         return 0;
       case "openstagefile":
         await this.openStage(str(args[0]));
-        // Engine shows the default flat (`openflat` → mainpanel `noface`).
-        await this.activateFlat(ctx, this.currentFlatName);
-        // Same hook as `openset` / `opencast`. CRACK parks `spin`; SCORP
-        // starts the drawer `trigger`. NEW.FLT has no `openstage`.
+        // DF.EXE `FUN_00415d30`: `openstage ()` first (CRACK parks `spin`;
+        // SCORP starts the drawer `trigger`), then flat 0's `openflat ()`
+        // (mainpanel `noface`). NEW.FLT has no `openstage`.
         {
           const hook = this.index.lookup(["stage"], "openstage");
           if (hook) {
             await ctx.inObject("stage", this.currentStageName, () => ctx.runProc(hook));
           }
         }
+        await this.activateFlat(ctx, this.currentFlatName);
         return 0;
       case "closestagefile":
+        // DF.EXE `FUN_00415e70`: `closestage ()` then `"<flat>", closeflat ()`
+        // (credits restore the theme, sundial / tumble close their SND).
+        if (this.currentStageName && this.currentStageName !== "none") {
+          const stage = this.currentStageName;
+          await ctx.inObject("stage", stage, () => ctx.evalCall("closestage", []));
+          const flat = (this.currentFlatName || "").toLowerCase();
+          if (flat && flat !== "none") {
+            await ctx.inObject("flat", flat, () => ctx.evalCall("closeflat", []));
+          }
+        }
         this.closeStage();
         return 0;
       case "opensetfile": {
@@ -1371,8 +1440,9 @@ export class DustHost implements OpcodeHost {
         }
         return 0;
       case "closesetfile":
-        await ctx.inObject("scene", this.currentScene, () => ctx.evalCall("closescene", []));
+        // DF.EXE `FUN_00422470`: `closeset ()`, then `closescene ()`.
         await ctx.inObject("set", "", () => ctx.evalCall("closeset", []));
+        await ctx.inObject("scene", this.currentScene, () => ctx.evalCall("closescene", []));
         this.currentSet = "none";
         this.currentSetFile = "";
         return 0;
@@ -1420,7 +1490,7 @@ export class DustHost implements OpcodeHost {
         return this.currentFlatName;
       case "currentscene":
         if (args.length) {
-          return await this.handleScene(str(args[0]));
+          return await this.handleScene(ctx, str(args[0]));
         }
         return this.currentScene;
       case "currentdir":
@@ -1428,15 +1498,26 @@ export class DustHost implements OpcodeHost {
         if (args.length) {
           const dir = parseDir(str(args[0]));
           if (dir) {
+            const turns = Boolean(this.view && this.view.pose.facing !== dir);
+            // DF.EXE `FUN_00423270`: a real facing change runs `closescene ()`
+            // before and `openscene ()` after; the same facing is a no-op.
+            if (turns) {
+              await this.onLeave(ctx);
+            }
             this.currentDir = dir;
-            if (this.view && this.view.pose.facing !== dir) {
+            if (this.view && turns) {
               await this.view.setPose(this.view.world, {
                 ...this.view.pose,
                 facing: dir,
               });
+              await this.onArrive(ctx);
             }
           }
           return str(args[0]);
+        }
+        // DF.EXE `FUN_00423600`: "moving" while a filmstrip plays.
+        if (this.view?.isMoving?.()) {
+          return "moving";
         }
         return dirWord(this.currentDir);
       case "setvisible":
@@ -1563,10 +1644,23 @@ export class DustHost implements OpcodeHost {
       case "actorhitbox":
       case "currentcd":
         return this.actorHitbox(args, ctx);
-      case "variable":
-        return this.actorField(ctx, args, "variable", (actor, value) => {
-          actor.variable = num(value);
-        });
+      case "variable": {
+        // DF.EXE `FUN_004070e0` / `FUN_00433e40`: the variable *named* by the
+        // string (locals, then globals). `variable (me, 1)` in the bounty /
+        // kid-gang casts writes `global bounty1…5` / `kidgang1…5`.
+        const name = str(args[0] ?? ctx.me);
+        if (args.length >= 2) {
+          const frame = ctx.frame();
+          if (frame?.locals.has(name)) {
+            frame.locals.set(name, args[1]);
+          } else {
+            ctx.globals.set(name, args[1]);
+            ctx.globalNames.add(name);
+          }
+          return 0;
+        }
+        return ctx.getVar(name);
+      }
       case "rowcoltoscene":
       case "sendtopostfx":
         return this.rowColToScene(num(args[0]), num(args[1]));
@@ -1652,35 +1746,86 @@ export class DustHost implements OpcodeHost {
         if (this.skipSpeech) {
           return 0;
         }
+        // DF.EXE `FUN_0042fb70` keeps the last three lines for face-click replay.
+        this.spokenSinceEvent = [...this.spokenSinceEvent, str(args[0])].slice(-3);
         await this.speak(str(args[0]));
         return 0;
-      case "puppetscript": {
-        const name = str(args[0]).toLowerCase();
-        const proc = this.index.lookup([`puppet:${name}`], name);
-        if (proc) {
-          await ctx.runProc(proc);
-        }
-        return 0;
-      }
-      case "puppetevent":
+      case "puppetevent": {
         this.skipSpeech = false;
-        if (this.bevels.length === 0) {
+        const limit = num(args[0] ?? -1);
+        if (this.bevels.length === 0 && limit < 0) {
           return -1;
         }
-        return this.waitPuppetEvent(ctx, num(args[0] ?? -1));
-      case "actorscript": {
-        const who = str(args[0] || ctx.me || ctx.target);
-        const hook = ctx.frame()?.procName ?? "";
-        const proc = this.index.lookup([`actor:${who.toLowerCase()}`], hook);
-        if (proc) {
-          await ctx.inObject("actor", who.toLowerCase(), () => ctx.runProc(proc));
+        try {
+          return await this.waitPuppetEvent(ctx, limit);
+        } finally {
+          // DF.EXE `FUN_0042fab0`: the replay list is cleared on return.
+          this.spokenSinceEvent = [];
         }
-        return 0;
       }
       default:
+        if (ENGINE_HOOKS.has(op)) {
+          // DF.EXE `FUN_00418b70`: a missing hook procedure is not an error.
+          return 0;
+        }
         ctx.unimplemented.add(name);
         this.view?.log(`unimplemented ${name}`);
         return 0;
+    }
+  }
+
+  /**
+   * One `FUN_0040fe00` pump: step walks / balls / loop timers, refresh,
+   * then wait out the rest of one `framerate` game frame.
+   */
+  private async pumpOnce(ctx: VM): Promise<void> {
+    this.scriptPump += 1;
+    try {
+      const started = performance.now();
+      this.advanceActorsOnce();
+      this.view?.refreshActors();
+      await this.runQueued(ctx, true);
+      await waitGameFrame(this.framerateValue, started);
+    } finally {
+      this.scriptPump -= 1;
+    }
+  }
+
+  puppetParam(index: number): number {
+    return this.puppetParams[index] ?? 0;
+  }
+
+  /** `puppetparam (i, v)`. 7 is the subtitle switch the score flat toggles. */
+  setPuppetParam(index: number, value: number): void {
+    this.puppetParams[index] = value;
+    if (index === 7) {
+      this.ui.setCaptions?.(value !== 0);
+    }
+  }
+
+  /** A one-shot effect started by `singlesound` that has not ended yet. */
+  private fxPlaying(name: string): boolean {
+    const end = this.fxEnds.get(name.toLowerCase());
+    return end !== undefined && performance.now() < end;
+  }
+
+  /** DF.EXE `FUN_004268c0`: after `opencast ()`, every actor gets `openactor ()`. */
+  private async runOpenActors(ctx: VM, stem: string): Promise<void> {
+    const bag = this.castBags.get(stem);
+    if (!bag) {
+      return;
+    }
+    const names = bag.folders.length ? bag.folders : Object.keys(bag.sprites);
+    const keys = names.map((folder) => folder.toLowerCase());
+    // The CST is one file in Dust, so this costs nothing there. Here each
+    // actor script is its own fetch — load them together, then run the
+    // hooks in cast order (only six actors define `openactor`).
+    await Promise.all(keys.map((key) => this.ensureActor(key)));
+    for (const key of keys) {
+      if (!this.index.lookup([`actor:${key}`], "openactor")) {
+        continue;
+      }
+      await ctx.inObject("actor", key, () => ctx.evalCall("openactor", []));
     }
   }
 
@@ -2276,27 +2421,45 @@ export class DustHost implements OpcodeHost {
     }
   }
 
-  private async handleScene(arg: string): Promise<string> {
+  private async handleScene(ctx: VM, arg: string): Promise<string> {
     const lower = arg.toLowerCase();
-    if (lower === "strait" || lower === "left" || lower === "right") {
-      this.view?.walk(lower === "strait" ? "strait" : lower);
+    if (lower === "strait" || lower === "left" || lower === "right" || lower === "backwards") {
+      // DF.EXE `FUN_00421f30`: `closescene ()` runs before the strip, even
+      // when the move is rejected; `openscene ()` fires when the fifth
+      // plate lands (`FUN_0040dd90`), for turns as well as walks.
+      await this.onLeave(ctx);
+      if (lower !== "backwards") {
+        this.view?.walk(lower === "strait" ? "strait" : lower);
+      }
       return this.currentScene;
     }
-    this.currentScene = lower.startsWith("scene") ? lower : `scene ${lower}`;
+    const wanted = lower.startsWith("scene") ? lower : `scene ${lower}`;
     const graph = this.view?.graph;
-    if (graph && this.view) {
-      const pose = this.poseFromSceneName(graph, this.currentScene);
-      if (pose && graph.cameraTiles.has(tileKey(pose.x, pose.y))) {
-        try {
-          await this.view.setPose(this.view.world, {
-            ...pose,
-            facing: parseDir(String(this.currentDir)) ?? this.view.pose.facing,
-          });
-        } catch {
-          this.view.log(`still missing for ${this.currentScene}`);
-        }
+    const pose = graph ? this.poseFromSceneName(graph, wanted) : undefined;
+    const canJump = Boolean(graph && this.view && pose && graph.cameraTiles.has(tileKey(pose.x, pose.y)));
+    const moves =
+      canJump && this.view && pose
+        ? this.view.pose.x !== pose.x || this.view.pose.y !== pose.y
+        : wanted !== this.currentScene;
+    if (!moves) {
+      this.currentScene = wanted;
+      return this.currentScene;
+    }
+    // DF.EXE `FUN_00421f30`: `closescene ()` on the old tile, jump, then
+    // `openscene ()` on the new one. Same tile is a no-op.
+    await this.onLeave(ctx);
+    this.currentScene = wanted;
+    if (canJump && graph && this.view && pose) {
+      try {
+        await this.view.setPose(this.view.world, {
+          ...pose,
+          facing: parseDir(String(this.currentDir)) ?? this.view.pose.facing,
+        });
+      } catch {
+        this.view.log(`still missing for ${this.currentScene}`);
       }
     }
+    await this.onArrive(ctx);
     return this.currentScene;
   }
 
@@ -2568,7 +2731,9 @@ export class DustHost implements OpcodeHost {
       line.viseme = viseme;
     }
     const caption = puppetIdleCaption(ident, line?.text ?? ident);
-    await this.ui.speak(caption, line?.wav, viseme ?? line?.viseme, ident);
+    // DF.EXE `FUN_0042fb70`: a line with no audio holds `len/2 + 60` ticks.
+    const holdSec = line?.wav ? undefined : (caption.length / 2 + 60) / 60;
+    await this.ui.speak(caption, line?.wav, viseme ?? line?.viseme, ident, holdSec);
   }
 
   /** Blink/gesture: visemes only. `waitEvent` stays live so bevels work. */
@@ -2606,9 +2771,15 @@ export class DustHost implements OpcodeHost {
     const startTick = dustTick(this.nowMs());
     const deadline =
       limitTicks > 0 ? startTick + limitTicks : Number.POSITIVE_INFINITY;
-    const tracks = PUPPET_IDLE_CLIPS.flatMap((ident) => {
+    // DF.EXE `FUN_00431330`: four timers from the PUP header (+0x83a mins,
+    // +0x84a maxes, ticks), `min + random (max − min)`, re-rolled per play.
+    // `puppetparam (8)` disables them. Without `idle.json` fall back to the
+    // clip-length heuristic.
+    const ranges = this.puppetIdleRanges.get(this.currentPuppetFolder);
+    const idlesOff = this.puppetParam(8) !== 0;
+    const tracks = PUPPET_IDLE_CLIPS.flatMap((ident, slot) => {
       const line = this.puppetLines.get(ident);
-      if (!line && !this.cachedViseme(ident)) {
+      if (idlesOff || (!line && !this.cachedViseme(ident))) {
         return [];
       }
       const kind = puppetIdleKind(ident, line?.text ?? "");
@@ -2616,13 +2787,19 @@ export class DustHost implements OpcodeHost {
       const visemeTicks = this.cachedViseme(ident)?.ticks ?? 0;
       const duration = puppetIdleDurationUnits(wavSec, visemeTicks, kind);
       const rand15 = Math.floor(this.rng() * 0x8000);
+      const range = ranges
+        ? { min: ranges.min_ticks[slot] ?? 0, max: ranges.max_ticks[slot] ?? 0 }
+        : undefined;
       return [
         {
           ident,
           kind,
-          interval: dustIdleInterval(duration, rand15),
+          interval: range
+            ? pupIdleIntervalTicks(range.min, range.max, rand15)
+            : dustIdleInterval(duration, rand15),
           last: startTick,
           duration,
+          range,
         },
       ];
     });
@@ -2632,10 +2809,12 @@ export class DustHost implements OpcodeHost {
       floorSpeak: boolean,
     ): void => {
       track.last = now;
-      track.interval = dustIdleInterval(
-        track.duration,
-        Math.floor(this.rng() * 0x8000),
-      );
+      const rand15 = Math.floor(this.rng() * 0x8000);
+      if (track.range) {
+        track.interval = pupIdleIntervalTicks(track.range.min, track.range.max, rand15);
+        return;
+      }
+      track.interval = dustIdleInterval(track.duration, rand15);
       if (floorSpeak && track.kind === "speak") {
         track.interval = Math.max(track.interval, PUPPET_IDLE_SPEAK_MIN_TICKS);
       }
@@ -2693,6 +2872,19 @@ export class DustHost implements OpcodeHost {
         ? puppetTicksToMs(sliceTicks)
         : undefined;
       const picked = await this.ui.waitEvent(sliceMs);
+      if (picked === PUPPET_PICTURE_CLICK) {
+        // DF.EXE `FUN_00431680`: a click on the face replays the lines
+        // spoken since the last event (up to three).
+        for (const line of this.spokenSinceEvent) {
+          this.skipSpeech = false;
+          await this.speak(line);
+          if (this.skipSpeech) {
+            break;
+          }
+        }
+        this.skipSpeech = false;
+        continue;
+      }
       if (picked !== undefined) {
         return picked;
       }
@@ -3150,6 +3342,7 @@ export class DustHost implements OpcodeHost {
     const gen = ++this.soundGen;
     const url = this.soundUrl(name);
     const dur = Math.max(0.25, voices.bufferDuration(url) || 0.55);
+    this.fxEnds.set(key, performance.now() + dur * 1000);
     setTimeout(() => {
       if (gen === this.soundGen && this.currentSoundName === key) {
         this.currentSoundName = "none";
@@ -3934,8 +4127,15 @@ export class DustHost implements OpcodeHost {
       this.puppetLineBags.set(folder, lines);
       this.puppetWavs.set(folder, wavs);
       this.puppetIdents.set(folder, idents);
+      const idle = await fetchJson<PupIdleRanges>(extractUrl(`${folder}/idle.json`)).catch(
+        () => null,
+      );
+      if (idle?.min_ticks?.length === 4 && idle.max_ticks?.length === 4) {
+        this.puppetIdleRanges.set(folder, idle);
+      }
       this.loadedPuppets.add(stem);
     }
+    this.spokenSinceEvent = [];
     this.installPuppetScripts(stem);
     this.puppetSheet = this.puppetSheets.get(folder) ?? null;
     const wavs = this.wavsFor(folder);
@@ -4025,13 +4225,16 @@ export class DustHost implements OpcodeHost {
     const url = this.soundUrl(name);
     this.stopBed();
     this.stopLoopSounds();
+    this.bedFolder = this.trackFolder;
+    this.bedVolume = 255;
     const gen = ++this.bedGen;
-    void voices.playFx(url, 0.45, true).then((stop) => {
+    void voices.playFx(url, bedGain(this.bedVolume), true).then((stop) => {
       if (gen !== this.bedGen) {
         stop();
         return;
       }
       this.bedStop = stop;
+      voices.setFxVolume(stop, bedGain(this.bedVolume));
     });
   }
 
@@ -4841,6 +5044,20 @@ export class DustHost implements OpcodeHost {
     this.trackFolder = "_UNILIB";
   }
 }
+
+/** Bed gain: the remake's 0.45 bed level scaled by Dust's 0…255 clip volume. */
+function bedGain(volume: number): number {
+  return 0.45 * Math.max(0, Math.min(255, volume)) / 255;
+}
+
+/** DF.EXE `0x445af0`: procedures the engine calls by name; missing ones are silent. */
+const ENGINE_HOOKS = new Set([
+  "opencast", "openactor", "closecast", "closeactor", "openflat", "openstage",
+  "closeflat", "closestage", "endwalk", "endturn", "endball", "endloop",
+  "openshop", "openprop", "closeshop", "closeprop", "openpuppet", "closepuppet",
+  "menustate", "boot", "idle", "menuselect", "keydown", "keyrepeat", "mousedown",
+  "openset", "openfloor", "openscene", "closeset", "closefloor", "closescene",
+]);
 
 function viewStill(
   view: WorldView | null,

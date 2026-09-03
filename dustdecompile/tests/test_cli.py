@@ -46,7 +46,7 @@ class TestCliRun(unittest.TestCase):
             rc = main(["-o", str(dest), str(DUST)])
             self.assertEqual(rc, 0)
             opcodes = json.loads((dest / "opcodes.json").read_text(encoding="utf-8"))
-            self.assertEqual(opcodes["count"], 304)
+            self.assertEqual(opcodes["count"], 307)
             ts = (dest / "opcodes.ts").read_text(encoding="utf-8")
             self.assertIn("puppetspeak", ts)
             self.assertIn("12043", ts)
@@ -69,7 +69,7 @@ class TestCliRun(unittest.TestCase):
             self.assertIn("puppetbevel", text)
             self.assertIn("spotmovie", text)
             hbj = json.loads((dest / "handbook.json").read_text(encoding="utf-8"))
-            self.assertEqual(hbj["opcode_count"], 304)
+            self.assertEqual(hbj["opcode_count"], 307)
 
     def test_plugin_only_cannot_recover_opcodes(self) -> None:
         dll = DUST / "PLUGINS" / "CHECKERS.DLL"
@@ -85,7 +85,7 @@ class TestCliRun(unittest.TestCase):
             rc = main(["--opcodes", "-o", str(dest), str(DUST)])
             self.assertEqual(rc, 0)
             data = json.loads((dest / "opcodes.json").read_text(encoding="utf-8"))
-            self.assertEqual(data["count"], 304)
+            self.assertEqual(data["count"], 307)
             self.assertFalse((dest / "handbook.md").exists())
 
 

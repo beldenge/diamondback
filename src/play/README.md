@@ -106,6 +106,44 @@ still runs as day 4 so those icons have extracted panel xy (day 1
 
 ---
 
+## Engine-verified corrections (Ghidra decompile of `DF.EXE`)
+
+Read out of the decompiled `.text`, not inferred. Book:
+[`dustdecompile/docs/vm.md`](../../dustdecompile/docs/vm.md). Where a rule
+below contradicts an older paragraph in this file, **this section wins**.
+
+| Area | What the engine does |
+|---|---|
+| Operator precedence | `* /` → `+ -` → `@` → `< > <= >=` → `= !=` → `&` → `\|` (`FUN_00409ff0`). `=` binds **looser** than `<`, so `a < b = c < d` is `(a<b) = (c<d)` |
+| `findword` | Reaching the last scan position ends the word **there**, so an unterminated final word loses its last character (`findword ("abc", " ", 1)` = `"ab"`). Dust lists always carry a trailing separator |
+| `putword` | Appends `sep` to the list **first**, then replaces the slot; a missing slot yields `""`. Empty `sep` inserts at a character index |
+| `stringtonum` | `sscanf ("%ld")` — sign + digits, trailing junk ignored, else 0 |
+| `variable (name[, v])` | The variable **named by the string**, locals then globals (`FUN_004070e0`). Not an actor field. Bounty / kid-gang keep state in `global bounty1…5` this way |
+| `actorscript` / `propscript` / `puppetscript` | Authoring-tool hooks. At runtime they only clear `result ()` — no proc call |
+| Hook order | `openstage()` → `openflat()`; `openshop()` → `openprop()`; `opencast()` → `openactor()` per actor (that is where `bird2…5`, `bounty2…5`, `horse2…3`, `kidgang2…5` are instanced and Watson gets `actorspeed 8`); `closeset()` → `closescene()` |
+| `closescene` / `openscene` | Run around **every** walk **and turn**: `closescene` fires when the script issues `currentscene ("strait"\|"left"\|"right")` (even if the move is rejected), `openscene` when the fifth plate lands. Also around a `currentscene ("scene xx")` jump and a real `currentdir` change |
+| Missing hooks | A hook procedure that does not exist is **not** an error (`FUN_00418b70` allows 31 names) |
+| Standing HQ still | Event 8 in the main loop: **20 idle ticks (1/3 s) after the last input**, then the HQ plate swaps in. A held key never shows it |
+| `currentdir ()` | Returns `"moving"` while a filmstrip is running, `"turning"` off-cardinal, `"nowhere"` with no SET |
+| `delay (n)` | **Proven** 60 Hz ticks (`FUN_00438240`), not inferred |
+| Subtitles | `puppetparam (7)` starts at **0** — the speech bar is **off** by default and the score-flat check box (or `C`) turns it on |
+| `puppetgrab (true)` | The PUP **Background layer is not loaded**, so the SET still shows behind the head |
+| `puppetevent` idles | Four timers from the **PUP header** (`idle.json`: `min_ticks` +0x83a, `max_ticks` +0x84a), `min + random (max − min)` ticks, re-rolled per play. `puppetparam (8)` disables them. The old clip-length heuristic was a guess |
+| `puppetevent` picture click | A click on the face (not a bevel) **replays the up-to-three lines** spoken since the last event |
+| `puppetspeak` | One string argument. A line with no audio holds `len/2 + 60` ticks |
+| `singlesound` / `dualsound` | Do **not** restart a clip that is still playing; `multiplesound` does |
+| `haltsound` | Stops both effect channels including one-shots |
+| `themevol` | Sets the level of every clip of that SND file, applied to what is playing (this is how scripts duck the saloon bed) |
+| `currenttheme (2)` | The theme's **SND file name**, not the clip |
+| Input | Keys sit in a 16-slot queue and are dispatched by the main loop. Taps during a filmstrip are still dropped (`0x40d920`), but an idle `makeloop` pump must not lose one — play holds the newest key and dispatches it when the VM frees up |
+| Save `.rtd` | A DreamFactory container (`RTDO`/`DFRT`): open-file list + paths + palette, engine state, actor/cast, prop/shop, tracks + clips, globals + string heap, walk/ball/loop state. Layout is in vm.md §12; the remake still writes JSON |
+
+Debug handle: play mode exposes `window.play` (same idea as
+`window.reimagined`), so `window.play.vm.frames` / `window.play.host`
+can be inspected from the console instead of synthesising events.
+
+---
+
 ## First evening (boot → scripts)
 
 Play mode runs extracted `boot()` then stage `advanceday()`. That is

@@ -1706,7 +1706,8 @@ describe("saloon SALGAMES scripts", () => {
     const vm = new VM({
       call: (name, args, ctx) => host.call(name, args, ctx),
     });
-    expect(await host.call("putword", ["ah kd qs", " ", 2, "2h"], vm)).toBe("ah 2h qs");
+    // DF.EXE `putword` appends the separator before replacing the slot.
+    expect(await host.call("putword", ["ah kd qs", " ", 2, "2h"], vm)).toBe("ah 2h qs ");
     expect(await host.call("substring", ["dust:data:", "dust:"], vm)).toBe(1);
     expect(await host.call("substring", ["2h 3h ah", "ah"], vm)).toBeGreaterThan(0);
     expect(await host.call("substring", ["2h 3h", "kd"], vm)).toBe(-1);
@@ -1871,7 +1872,8 @@ describe("saloon SALGAMES scripts", () => {
       const himProps = [...intern.props.values()].filter(
         (prop) => prop.visible && prop.shop === "checkers" && prop.name.startsWith("him"),
       );
-      expect(raw.split(" ").length).toBeLessThanOrEqual(65);
+      // DF.EXE `putword` appends a separator on every write; only the 64 cells matter.
+      expect(board.length).toBe(64);
       expect(himCells).toBe(12);
       expect(meCells).toBe(12);
       expect(himProps).toHaveLength(12);
@@ -1924,7 +1926,8 @@ describe("saloon SALGAMES scripts", () => {
       );
       const raw = String(vm.globals.get("mainboard"));
       const board = raw.trimEnd().split(" ");
-      expect(raw.split(" ").length).toBeLessThanOrEqual(65);
+      // DF.EXE `putword` appends a separator on every write; only the 64 cells matter.
+      expect(board.length).toBe(64);
       expect(board[2 * 8 + 1]).toBe("0");
       expect(board[3 * 8 + 2]).toBe("0");
       expect(board[4 * 8 + 3]).toBe("1");
@@ -1982,7 +1985,8 @@ describe("saloon SALGAMES scripts", () => {
       );
       const raw = String(vm.globals.get("mainboard"));
       const board = raw.trimEnd().split(" ");
-      expect(raw.split(" ").length).toBeLessThanOrEqual(65);
+      // DF.EXE `putword` appends a separator on every write; only the 64 cells matter.
+      expect(board.length).toBe(64);
       expect(board.filter((cell) => cell.startsWith("-")).length).toBe(12);
       expect(board[5 * 8 + 2]).toBe("0");
       expect(board[4 * 8 + 3]).toBe("-1");
@@ -2030,7 +2034,8 @@ describe("saloon SALGAMES scripts", () => {
       const raw = String(vm.globals.get("mainboard"));
       const board = raw.trimEnd().split(" ");
       expect(String(vm.globals.get("move"))).toBe("212,432,");
-      expect(raw.split(" ").length).toBeLessThanOrEqual(65);
+      // DF.EXE `putword` appends a separator on every write; only the 64 cells matter.
+      expect(board.length).toBe(64);
       expect(board[2 * 8 + 1]).toBe("0");
       expect(board[3 * 8 + 2]).toBe("0");
       expect(board[4 * 8 + 3]).toBe("0");

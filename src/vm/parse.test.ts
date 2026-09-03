@@ -13,6 +13,53 @@ const gangCast = resolve(here, "../../dfextract/out/CST/_GANG/Cast.json");
 const checkersAuto = resolve(here, "../../dfextract/out/PRP/_CHECKERS/automove_1.json");
 const checkersPiece = resolve(here, "../../dfextract/out/PRP/_CHECKERS/setcursor _arg__2.json");
 
+function tok(cmd: number, name: string): { off: number; cmd: number; kind: "opcode"; name: string } {
+  return { off: 0, cmd, kind: "opcode", name };
+}
+
+function int(value: number): { off: number; cmd: number; kind: "integer"; value: number } {
+  return { off: 0, cmd: 4, kind: "integer", value };
+}
+
+const BREAK = { off: 0, cmd: 6, kind: "break" as const, indent: 1 };
+
+describe("operator precedence (DF.EXE FUN_00409ff0)", () => {
+  it("binds = looser than < and @ tighter than comparisons", () => {
+    // code t ()  x = 1 < 2 = 3 < 4  endcode
+    const tokens = [
+      tok(4001, "code"),
+      { off: 0, cmd: 5, kind: "variable" as const, value: "t" },
+      tok(4018, "("),
+      tok(4019, ")"),
+      BREAK,
+      { off: 0, cmd: 5, kind: "variable" as const, value: "x" },
+      tok(8008, "="),
+      int(1),
+      tok(8011, "<"),
+      int(2),
+      tok(8008, "="),
+      int(3),
+      tok(8011, "<"),
+      int(4),
+      BREAK,
+      tok(4004, "endcode"),
+    ];
+    const [proc] = parseScript(tokens);
+    const stmt = proc!.body[0]!;
+    expect(stmt.type).toBe("assign");
+    if (stmt.type !== "assign") {
+      return;
+    }
+    expect(stmt.value.type).toBe("binary");
+    if (stmt.value.type !== "binary") {
+      return;
+    }
+    expect(stmt.value.op).toBe("=");
+    expect(stmt.value.left.type === "binary" && stmt.value.left.op).toBe("<");
+    expect(stmt.value.right.type === "binary" && stmt.value.right.op).toBe("<");
+  });
+});
+
 describe("parseScript", () => {
   it("parses Jenix day1 runyoself", () => {
     if (!existsSync(jenixDay1)) {

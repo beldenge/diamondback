@@ -77,20 +77,25 @@ const KW = {
   dumpglobal: 4029,
 } as const;
 
+/**
+ * DF.EXE `FUN_00409ff0` reduces one class at a time, tightest first,
+ * left to right inside a class: `* /`, `+ -`, `@`, `< > <= >=`, `= !=`,
+ * `&`, `|`. Equality binds looser than the ordering comparisons.
+ */
 const OP_PREC: Record<number, number> = {
   8006: 1, // |
   8005: 2, // &
   8008: 3, // =
   8009: 3, // !=
-  8010: 3, // >
-  8011: 3, // <
-  8012: 3, // >=
-  8013: 3, // <=
-  8007: 4, // @
-  8001: 5, // +
-  8002: 5, // -
-  8003: 6, // *
-  8004: 6, // /
+  8010: 4, // >
+  8011: 4, // <
+  8012: 4, // >=
+  8013: 4, // <=
+  8007: 5, // @
+  8001: 6, // +
+  8002: 6, // -
+  8003: 7, // *
+  8004: 7, // /
 };
 
 export class ParseError extends Error {

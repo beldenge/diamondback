@@ -144,12 +144,25 @@ def _record(image: PeImage, off: int) -> Opcode | None:
     return Opcode(name=name, id=oid, file_offset=off, name_va=ptr)
 
 
+# Three operator names are single Mac Roman glyphs in DF.EXE (the table was
+# authored on a Mac): 0xAD "≠", 0xB2 "≤", 0xB3 "≥". Print them the way the
+# extracted scripts and DFET do.
+MAC_ROMAN_OPERATORS = {
+    bytes([0xAD]): "!=",
+    bytes([0xB2]): "<=",
+    bytes([0xB3]): ">=",
+}
+
+
 def _string_start_at_va(image: PeImage, va: int) -> str | None:
     off = image.va_to_off(va)
     if off is None or off < 1:
         return None
     if image.data[off - 1] != 0:
         return None
+    raw = image.data[off : off + 2]
+    if len(raw) == 2 and raw[1:] == b"\x00" and raw[:1] in MAC_ROMAN_OPERATORS:
+        return MAC_ROMAN_OPERATORS[raw[:1]]
     return image.read_cstr(off, maxlen=48)
 
 

@@ -48,6 +48,10 @@ KNOWN = {
     "currentdir": 16011,
     "findfile": 20067,
     "path": 16009,
+    # Mac Roman glyphs in DF.EXE (0xAD/0xB2/0xB3), printed as the scripts do.
+    "!=": 8009,
+    ">=": 8012,
+    "<=": 8013,
 }
 
 
@@ -60,9 +64,9 @@ class TestOpcodes(unittest.TestCase):
         cls.by_id = opcode_map(cls.ops)
 
     def test_count_is_exactly_the_documented_table(self) -> None:
-        self.assertEqual(len(self.ops), 304)
-        self.assertEqual(len({op.name for op in self.ops}), 304)
-        self.assertEqual(len({op.id for op in self.ops}), 302)
+        self.assertEqual(len(self.ops), 307)
+        self.assertEqual(len({op.name for op in self.ops}), 307)
+        self.assertEqual(len({op.id for op in self.ops}), 305)
 
     def test_known_ids(self) -> None:
         for name, oid in KNOWN.items():
@@ -108,7 +112,7 @@ class TestOpcodes(unittest.TestCase):
     def test_id_bands(self) -> None:
         counts = Counter(opcode_band(op.id) for op in self.ops)
         self.assertEqual(counts["language"], 29)
-        self.assertEqual(counts["operator"], 12)
+        self.assertEqual(counts["operator"], 15)
         self.assertEqual(counts["command"], 88)
         self.assertEqual(counts["field"], 53)
         self.assertEqual(counts["function"], 108)

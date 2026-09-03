@@ -140,6 +140,20 @@ export class VoiceBank {
     resolve?.();
   }
 
+  /** Gain node behind each live `playFx` handle (Dust `themevol` / `soundvol`). */
+  private readonly fxGains = new Map<() => void, GainNode>();
+
+  /** Re-level a playing `playFx` sound by its stop handle. 0…1. */
+  setFxVolume(handle: (() => void) | null | undefined, volume: number): void {
+    if (!handle) {
+      return;
+    }
+    const gain = this.fxGains.get(handle);
+    if (gain) {
+      gain.gain.value = Math.max(0, Math.min(1, volume));
+    }
+  }
+
   /** Stop A/B movie slots and unchanneled one-shots. Leaves looping beds. */
   stopAllFx(): void {
     this.fxGen += 1;

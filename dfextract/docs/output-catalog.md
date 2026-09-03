@@ -86,6 +86,7 @@ first PUP-only runs. Those are stale. Use `out/PUP/_JENIX`.
 | `AUDIO/visemes/<ident>.json` | Per-line 60 Hz face/hand keyframes for **this** PUP. Play must key `folder/ident` — `idle 1.json` is a different track in `_LEROY` vs `_HELP1`. Do not parse `visemes.json`. |
 | `FRAMES/sprites.json` | Layer placement plus `rest` / `restLayers` from **this** PUP’s idle-1 viseme frame |
 | `scripts.json` | Script filenames in this PUP (`Boot Script.json`, `day1.json`, …) |
+| `idle.json` | `puppetevent` idle timers from the PUP header: `min_ticks` / `max_ticks` (4 each, 60 Hz) for `idle 1`–`idle 4`, and `player_voice` (header +0x20, 0 in every Dust PUP). DF.EXE `FUN_00431330` waits `min + random (max − min)` ticks per slot |
 | `AUDIO/<Identifier>.wav` | Speech for that line (8-bit or 16-bit mono PCM) |
 | `FRAMES/Background/frame_<id>.png` | Backdrop plate for the talking head |
 | `FRAMES/Body`, `Head`, `Eyes`, `Eyebrows`, `Nose`, `Jaw`, `Left`, `Right`, `Hands 1`, `Hands 2` | Face-part sprites. `<id>` is the source container index. Missing folders means that part has `count == 0` |

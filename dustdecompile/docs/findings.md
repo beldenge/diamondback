@@ -25,7 +25,8 @@ the same behaviour:
 
 | Recovered | You can now implement without guessing |
 |---|---|
-| Dust opcode dictionary (304 names, ids matching script tokens) | A script VM that names every token Dust actually uses |
+| Dust opcode dictionary (307 names, ids matching script tokens) | A script VM that names every token Dust actually uses |
+| VM semantics from a Ghidra decompile of `.text` ([vm.md](vm.md)) | Expression precedence, statements, `passcode` chains, hooks, timing, dialogue, mixer, save layout |
 | Id bands (`4xxx` language … `20xxx` returns a value) | Which names are statements vs functions vs fields |
 | Dialogue protocol | `puppetclear` → `puppetbevel(label, id)*` → `arg = puppetevent(-1)` |
 | Click protocol | boot `hittest` → `result()` → `sendto*` ; `pointx`/`pointy` in 512×264 |
@@ -91,7 +92,7 @@ byte-identical. Hash before comparing notes with anyone else.
 - `.text` virtual size **109710**. Separate process/tool from `DF.EXE`.
 - Same Win32 surface (KERNEL/USER/GDI/WINMM/comdlg32), no save dialog.
 - **ASCII verbs in the image** (these are the movie player’s own command names, not the Dust script table): `playmovie`, `playtheme`, `voicesound`, `singlesound`, `dualsound`, `multiplesound`, `soundloop`, `delay`, `actionframe`, `framerate`, `machinespeed`.
-- MOVPLAY also contains the **same 304-name opcode table** as `DF.EXE`. The standalone player is a DF subset, not a separate movie format.
+- MOVPLAY also contains the **same 307-name opcode table** as `DF.EXE`. The standalone player is a DF subset, not a separate movie format.
 - Still holds, group-A/group-B mixer, and the single framebuffer are **solved** (see §7). dfextract `--video` encodes at 60 fps from those rules.
 
 ### `CHECKERS.DLL`
@@ -166,7 +167,10 @@ struct OpcodeRec {
 - Then optional padding to 4-byte align the next group.
 - Groups are roughly alphabetical (`&` … `|`, then `actor*`, …, `wipeup`).
 - File range on this `DF.EXE`: **279984 … 281890** (last record start).
-- **304** names, **304** unique names, **302** unique ids.
+- **307** names, **307** unique names, **305** unique ids.
+- Three operator names are single **Mac Roman** glyphs (the table was authored
+  on a Mac): `0xAD` ≠ (id 8009), `0xB2` ≤ (8013), `0xB3` ≥ (8012). The scanner
+  prints them as `!=`, `<=`, `>=`. Missing them was why earlier runs found 304.
 
 Two ids have two spellings (both in Dust, not a Titanic mismatch):
 
@@ -189,7 +193,7 @@ are not in the name table.
 | Band | Count | Role in scripts |
 |---|---|---|
 | `4xxx` language | 29 | `code`/`if`/`switch`/`return`/`true`/`me`/`passcode`… sequential 4001–4029 |
-| `8xxx` operator | 12 | `+ - * / & | @ = != > <` (and `and`/`or`) |
+| `8xxx` operator | 15 | `+ - * / & | @ = != > < >= <=` (and `and`/`or`) |
 | `12xxx` command | 88 | statements: `puppetspeak`, `playmovie`, `sendto*`, `delay` |
 | `16xxx` field | 53 | get/set: `path`, `actorstar`, `currentscene`, `framerate` |
 | `20xxx` function | 108 | returns a value: `pluginfx`, `puppetevent`, `pointx`, `hittest` |

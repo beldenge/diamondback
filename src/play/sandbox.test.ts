@@ -294,7 +294,9 @@ describe("sandbox street fights", () => {
     hunter.visible = true;
     hunter.set = "town";
     hunter.pose = "stand";
-    hunter.variable = 1;
+    // Dust `variable (me)` reads the global named after the actor.
+    vm.globals.set("bounty1", 1);
+    vm.globalNames.add("bounty1");
     hunter.value = 0;
     hunter.x = 6 * 256 + 128;
     hunter.y = 13 * 256 + 128;
@@ -452,7 +454,8 @@ describe("sandbox street fights", () => {
     hunter.visible = true;
     hunter.pose = "stand";
     hunter.value = 0;
-    hunter.variable = 1;
+    vm.globals.set("kidgang1", 1);
+    vm.globalNames.add("kidgang1");
     const hit = host.lookup("hit", vm);
     expect(JSON.stringify(hit ?? {})).not.toContain("shot ");
     expect(host.lookupChain("hit", vm).length).toBe(1);

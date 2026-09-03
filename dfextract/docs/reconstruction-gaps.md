@@ -6,6 +6,12 @@ playing Dust / reading `DF.EXE`.
 
 Engine-binary findings (opcode table, plugin ABI, working protocols):
 [`dustdecompile/docs/findings.md`](../../dustdecompile/docs/findings.md).
+VM semantics from a Ghidra decompile — expression precedence, statement
+forms, `passcode` chains, hook order, timing, dialogue, mixer and the
+`.rtd` save layout: [`dustdecompile/docs/vm.md`](../../dustdecompile/docs/vm.md).
+Several rows below are **closed** by that document: `delay` units,
+`puppetclear` / `puppetspeak` / `puppetevent` semantics, the save blob
+layout, and the idle/viseme timing (now dumped as `PUP/_<NAME>/idle.json`).
 
 If you only read `out/**/*.txt` and invent the rest, the remake will
 look plausible and be wrong on branches.
@@ -75,7 +81,7 @@ the default if you only have the name.
 | `@` | String concat (confirmed in dumps); any other use? |
 | `plugin` / `pluginfx` | Leaves the script VM (see §3) |
 | `path` | Virtual FS (`dust:data:`) vs real folders |
-| `savegame` / `opengame` / `dumpglobal` | Filter in `DF.EXE` is `*.rtd`. No original save in this install. Layout unknown. Remake `savegame` writes JSON (VM globals + actors + props + pose) to `localStorage` and a downloaded `.rtd`; `opengame` loads that. Score/death flats are the menu. |
+| `savegame` / `opengame` / `dumpglobal` | Filter in `DF.EXE` is `*.rtd`. No original save in this install. **Container order recovered** (`vm.md` §12): open-file list + paths + palette, engine state, actor/cast, prop/shop, tracks + clips, globals + string heap, walk/ball/loop state. Remake `savegame` writes JSON (VM globals + actors + props + pose) to `localStorage` and a downloaded `.rtd`; `opengame` loads that. Score/death flats are the menu. |
 
 Anything printed as `cmd_<number>` is an opcode **not** in the 4.0
 table. Treat as unknown; do not guess.
