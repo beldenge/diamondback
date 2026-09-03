@@ -17,7 +17,7 @@ describe("reimagined routing surface", () => {
     expect(indexHtml).toContain("/landing/reimagined.jpg");
     expect(indexHtml).toContain('data-extract="SET/_NITE/FRAMES/1640_5.png"');
     expect(indexHtml).toContain('data-extract="SET/_TOWN/FRAMES/1640_5.png"');
-    expect(indexHtml).toContain('data-extract="MOV/_INTRO/FRAMES/frame_89.png"');
+    expect(indexHtml).toContain('data-extract="MOV/_INTRO/FRAMES/frame_335.png"');
     expect(indexHtml.match(/landing-card"/g)?.length).toBe(4);
   });
 
