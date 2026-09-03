@@ -38,7 +38,13 @@ it, play-verify.
    Movie holds, A/B mixer, framebuffer + per-scene palettes
    (findings.md §7). Cursors/menu/strings from `DF.EXE` `.rsrc`
    (`--rsrc`). dfextract `--video` implements the mux (opt-in).
-   `.rtd` still open. B playlist wrap and VM `*sound` handlers still open.
+   `.rtd` container order is recovered ([vm.md](vm.md) §12). B playlist
+   wrap is still open.
+2b. **Full decompile (done).** `dustdecompile/ghidra/` runs Ghidra
+   headless over all three binaries and writes decompiled C plus function,
+   string and data-ref tables. [vm.md](vm.md) is the read-out: value
+   types, operator precedence, statement forms, `passcode` record chains,
+   hook order, timing, dialogue, the mixer and the save layout.
 3. **TypeScript remake, one subsystem at a time,** using scripts + this
    handbook so an agent does not guess verb meanings.
 4. **Play-verify.** Jenix money, one door, checkers, one death, day

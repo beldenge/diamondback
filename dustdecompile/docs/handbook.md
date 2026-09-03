@@ -135,20 +135,24 @@ Id bands (observed): `4xxx` language, `8xxx` operator, `12xxx` command, `16xxx` 
 
 Play a puppet dialogue line (audio + face). Scripts stack several in a row with no wait loop, unlike voicesound.
 
-- **Confidence:** inferred
-- **Args:** line id string (`jenix.5`, `jones.1`). Rarely a second integer (Jones: puppetspeak ("jones.33", 101) in place of a bevel).
+- **Confidence:** proven-exe
+- **Args:** one line id string (`jenix.5`, `jones.1`). A second argument is a syntax error in DF.EXE.
 - **Returns:** none (command band)
-- **Blocks:** inferred yes — sequential conversation would break if it returned immediately
+- **Blocks:** yes — FUN_00430890 waits for the voice clip to finish
 - **Calls in dump:** 4305  arities [1, 2]
-- Almost always one string. Maps to PUP/_NAME/AUDIO/*.wav + texts.csv.
+- Maps to PUP/_NAME/AUDIO/*.wav + texts.csv. Looked up by line name or by text.
 - Compare voicesound: scripts poll currentvoice() != "none". puppetspeak is never polled that way.
+- A line with no audio holds len(text)/2 + 60 ticks with the text drawn.
+- Subtitles only draw when puppetparam (7) is non-zero (default 0), and never for idle 1-4, blank text, or a line starting with '*'.
+- Ctrl+Q / Ctrl+. halt the line AND set the skip flag, so every later puppetspeak is skipped until the next puppetevent.
+- PUP/_JONES/day1 calls puppetspeak ("jones.33", 101) with two arguments. The token stream really is two arguments, and the engine raises script error 2 on it: an authored-data bug that fires when actorvalue ("laurel") > 0. The remake speaks the line and ignores the extra argument.
 - Example: `puppetspeak (string1)`  (FLT/_NEW/mousedown _arg__32.txt:184)
 - Example: `puppetspeak (string2)`  (FLT/_NEW/mousedown _arg__32.txt:187)
 - Example: `puppetspeak ("blood.add.6")`  (PUP/_BLOOD/Boot Script.txt:22)
 
 ### `puppetclear` (12041, command)
 
-Clear the current speech/choice UI before offering a new bevel set.
+Drop the registered bevels before offering a new set. Does not stop speech.
 
 - **Confidence:** proven-scripts
 - **Args:** none
@@ -178,13 +182,16 @@ Register one dialogue choice. Does not wait. Ids are later returned by puppeteve
 
 Wait for the player to pick a bevel (or dismiss). Returns that id.
 
-- **Confidence:** proven-scripts
-- **Args:** always (-1) in Dust
-- **Returns:** integer: choice id, or -1 dismiss, or 55555 inventory bevel
+- **Confidence:** proven-exe
+- **Args:** integer timeout in 60 Hz ticks; negative waits forever (Dust passes -1, and 240 once)
+- **Returns:** integer: choice id, -1 dismiss (Ctrl+Q / Ctrl+.), -2 timeout, or 55555 inventory bevel
 - **Blocks:** yes
 - **Calls in dump:** 410  arities [1]
 - arg = puppetevent (-1) then switch arg / case -1 / case 101 …
-- Meaning of the -1 argument is unproven in DF.EXE (sentinel / timeout / allow-dismiss). Do not invent other values; Dust always passes -1.
+- FUN_00431330: a negative argument waits forever; a positive one returns -2 after that many ticks.
+- Draws the five bevels as full-width 24px rows in the 264-384 HUD band (FUN_00431040).
+- Runs four independent idle timers for the lines named idle 1..idle 4, each waiting min + random (max - min) ticks from the PUP header (+0x83a mins, +0x84a maxes; dumped as PUP/_<NAME>/idle.json). puppetparam (8) disables them.
+- A click on the picture (not a bevel) replays the up-to-three lines spoken since the last event; the list is cleared when puppetevent returns.
 - Example: `puppetevent (-1)`  (PUP/_BLOOD/day1.txt:36)
 - Example: `puppetevent (240)`  (PUP/_BLOOD/day1.txt:407)
 
@@ -626,21 +633,22 @@ Abort / debugger trap on impossible switch fallthrough.
 
 ### `savegame` (12077, command)
 
-Write a save. Format unknown.
+Write a save as a DreamFactory container file (type RTDO, creator DFRT).
 
-- **Confidence:** proven-scripts
+- **Confidence:** proven-exe
 - **Args:** title string (`Dust 0.3`) in the quit menu
 - **Calls in dump:** 4  arities [1]
-- Boot menuselect quit may questiondialog then savegame. Do not invent the file layout.
+- Boot menuselect quit may questiondialog then savegame. Refuses while a puppet is open.
+- Container order (FUN_0042d870, see docs/vm.md 12): open-file list + path slots + palette; engine state block; actor + cast tables; prop + shop tables; track table + clip arrays; globals + string heap; walk/ball/loop state and each active walk path.
 - Example: `savegame ("Dust 0.3")`  (BOOT/_BOOTFILE/Script 1.txt:225)
 - Example: `savegame ("dust 0.3")`  (FLT/_NEW/mousedown _arg__24.txt:13)
 
 ### `opengame` (12078, command)
 
-Load a save. Format unknown.
+Load a save written by savegame (same container order).
 
-- **Confidence:** unknown
-- **Args:** see call sites
+- **Confidence:** proven-exe
+- **Args:** title string; comdlg32 asks for the *.rtd path
 - **Calls in dump:** 2  arities [1]
 - Example: `opengame ("dust 0.3")`  (FLT/_NEW/mousedown _arg__25.txt:8)
 
@@ -674,12 +682,13 @@ Conditional. Closed by endif. Optional else.
 
 ### `switch` (4009, language)
 
-Switch. case / endswitch. case bodies do not fall through in Dust usage (each case exits or ends).
+Switch on an int or string. A matched case with an EMPTY body falls through to the next case label; a non-empty body ends at the next case.
 
-- **Confidence:** inferred
-- **Args:** expression. `switch (arg)` or `switch arg`.
+- **Confidence:** proven-exe
+- **Args:** expression. `switch (arg)` or `switch arg`. A bool is a type error.
 - **Calls in dump:** 3  arities [1]
-- Whether case falls through is unproven in DF.EXE. Dust scripts treat cases as exclusive.
+- FUN_004188c0 / FUN_00418aa0: consecutive case labels share the following body.
+- case values must match the switch value's type; strings compare case-insensitively.
 - Example: `switch (arg)`  (BOOT/_BOOTFILE/Script 1.txt:73)
 - Example: `switch (who)`  (CST/_TARGET/Cast.txt:181)
 - Example: `switch (total)`  (FLT/_SALGAMES/initgame_11.txt:270)
@@ -731,11 +740,11 @@ Boot calls framerate (3). hasattention uses (seconds * 60) / framerate() frames.
 
 ### `delay` (12004, command)
 
-Wait some ticks. Unit unknown (boot blacktoscreen uses 30; checkers delay (45)).
+Busy-wait n ticks of the 60 Hz clock (FUN_00438240), pumping Windows messages.
 
-- **Confidence:** inferred
-- **Args:** integer
-- **Blocks:** inferred yes
+- **Confidence:** proven-exe
+- **Args:** integer 60 Hz ticks (30 = 0.5 s, the same unit as screentoblack)
+- **Blocks:** yes
 - **Calls in dump:** 152  arities [1]
 - Example: `delay (30)`  (CST/_EXTRA/birdcage/Script.txt:65)
 - Example: `delay (3)`  (CST/_EXTRA/bounty1/Script.txt:305)

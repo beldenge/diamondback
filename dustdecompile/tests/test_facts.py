@@ -43,7 +43,7 @@ class TestFactsStatic(unittest.TestCase):
 
     def test_opcode_facts_have_ids_and_confidence(self) -> None:
         for row in OPCODES:
-            self.assertIn(row["confidence"], {"proven-scripts", "inferred", "unknown"}, row["name"])
+            self.assertIn(row["confidence"], {"proven-exe", "proven-scripts", "inferred", "unknown"}, row["name"])
             self.assertIsInstance(row["id"], int)
             self.assertTrue(row.get("summary"))
 

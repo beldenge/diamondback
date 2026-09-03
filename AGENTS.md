@@ -5,7 +5,9 @@
 **Never edit extracted or decompiled output in place.** That includes:
 
 - `dfextract/out/**` (scripts, JSON, PNG, WAV, `catalog.json`, …)
-- `dustdecompile/out/**` (handbook dump, opcode JSON, rsrc, …)
+- `dustdecompile/out/**` (handbook dump, opcode JSON, rsrc, Ghidra decompile, …)
+- `dustdecompile/docs/handbook.md` — written by `handbook.py` on every run,
+  not by hand. Change `dustdecompile/facts.py` and re-run instead.
 
 Those trees are produced by Python. A re-run wipes local patches. Hand-editing a dumped `actordeg`, still, sprite, or token JSON to make the remake look right is forbidden.
 

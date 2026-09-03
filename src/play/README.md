@@ -931,8 +931,10 @@ the still/puppet. GDI `DrawTextA` / `TextOutA` is left-aligned (same as
 the bevel labels); face is **Arial**. Click the bar to skip a line. **Escape** skips the rest of that
 character’s `puppetspeak` lines until `puppetclear` / `puppetevent`
 (choices). Do
-not keep a Continue button on the still. **C** hides or shows the bar
-(audio and visemes keep going). While `puppetspeak` is running the
+not keep a Continue button on the still. **C** shows or hides the bar
+(audio and visemes keep going) — that is Dust `puppetparam (7)`, which
+starts at **0**, so the bar is off until you press `C` or tick the box on
+the skull menu. While `puppetspeak` is running the
 cursor is `watch` (hourglass) and the five bevels do not highlight or
 accept a click — Leroy’s Yes/No stay on screen through `leroy.12` but
 are not live until the line ends. After speech, arrow + hover again.
@@ -941,12 +943,15 @@ spoken idle (`idlespeak`) does.
 
 While a choice is waiting, Dust does not freeze the puppet. `puppetevent`
 (`DF.EXE` `0x431330`) looks up **`idle 1`…`idle 4`** on the **open** PUP
-(not a global clip of that name) and gives each clip its own timer:
-interval `(rand15 * duration_ms / 0x7FFF) + 1` 60 Hz ticks (`0x40B060`).
-CSV tags pick the kind (`blink`,
-`gesture 1`, `idlespeak`); idle 1 defaults to blink, idle 4 to speak
-(Mayor’s spoken idle is `idle 3`). Blinks use **1/3** of the clip length,
-glances **3×** — that spacing is ours, not the EXE. Do not feed viseme
+(not a global clip of that name) and gives each clip its own timer.
+**Superseded:** the interval is not derived from the clip at all. Each
+slot waits `min + random (max − min)` 60 Hz ticks from the **PUP header**
+(+0x83a mins, +0x84a maxes), dumped as `PUP/_<NAME>/idle.json`, re-rolled
+after every play; `puppetparam (8)` disables all four. The clip-length
+heuristic below (blinks 1/3, glances 3×) is the old guess and is only the
+fallback when `idle.json` is missing. CSV tags still pick the kind
+(`blink`, `gesture 1`, `idlespeak`); idle 1 defaults to blink, idle 4 to
+speak (Mayor's spoken idle is `idle 3`). Do not feed viseme
 playback ticks (Leroy idle 2 is 29) into `0x40B060`; that is how long
 the face moves, not the wait. One clip per wake; overdue neighbors
 re-roll so idle 2 and idle 3 do not dump together. After `idlespeak`,

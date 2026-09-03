@@ -292,8 +292,14 @@ dismiss / sentinel). Do not invent other arguments.
 
 `puppetspeak("jenix.5")` is almost always one string (line id →
 `PUP/_JENIX/AUDIO`). Scripts never poll `currentvoice()` after it, unlike
-`voicesound`. One Jones site uses two args: `puppetspeak("jones.33", 101)`
-in place of a bevel. Blocking is **inferred**, not proven in the EXE.
+`voicesound`. Blocking is **proven**: `FUN_00430890` waits for the clip.
+
+One Jones site really does pass two arguments
+(`puppetspeak ("jones.33", 101)`, `PUP/_JONES/day1`). The handler parses
+**one** expression and the dispatcher then demands `)`, so the engine
+raises script error 2 there — an authored-data bug that fires when
+`actorvalue ("laurel") > 0`, not a second calling form. The remake speaks
+the line and ignores the extra argument.
 
 ### Clicks and the 512-pixel plate (proven in BOOT)
 
@@ -706,8 +712,10 @@ Play: `SET/_<PLACE>/paths.json` + `CST/_<CAST>/timing.json` for gang, extra, tar
 
 Do not pretend these are done:
 
-- C recovery of the VM (Ghidra on `DF.EXE` `.text` — readable PE32 C,
-  not done here).
+- ~~C recovery of the VM (Ghidra on `DF.EXE` `.text`)~~ **done** —
+  `dustdecompile/ghidra/` runs the headless decompile; the semantics are
+  written up in [vm.md](vm.md). Ghidra output itself stays generated and
+  gitignored under `out/ghidra/`.
 - Handler/function-pointer table next to the name table — we looked;
   the 6-byte records are `{name, id}` only. Dispatch is elsewhere
   (search / switch on id).

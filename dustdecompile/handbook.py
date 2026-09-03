@@ -208,9 +208,18 @@ def write_handbook(dest: Path, data: dict[str, Any]) -> list[Path]:
     dest.mkdir(parents=True, exist_ok=True)
     json_path = dest / "handbook.json"
     md_path = dest / "handbook.md"
+    markdown = render_markdown(data)
     json_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    md_path.write_text(render_markdown(data), encoding="utf-8")
-    return [json_path, md_path]
+    md_path.write_text(markdown, encoding="utf-8")
+    written = [json_path, md_path]
+    # `docs/handbook.md` is the in-repo copy readers link to (out/ is
+    # gitignored). Write it here so it cannot drift from the generator —
+    # it did, and shipped a stale opcode count.
+    docs_copy = Path(__file__).resolve().parent / "docs" / "handbook.md"
+    if docs_copy.parent.is_dir():
+        docs_copy.write_text(markdown, encoding="utf-8")
+        written.append(docs_copy)
+    return written
 
 
 def _txt_name(oid: int | None) -> str:

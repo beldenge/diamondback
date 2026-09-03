@@ -14,7 +14,7 @@ InstallShield.
 
 DreamCatcher's published `DF.EXE` SHA-1 (`97462977fc15277ba186a64baffe978d658413a9`) does **not** match this install. Hash ours before comparing notes.
 
-`DF.EXE` / `MOVPLAY.EXE` / `CHECKERS.DLL` are Win32 (Win32s on Windows 3.1), not 16-bit. Ghidra's x86 decompiler applies. The launcher is the only NE file in scope.
+`DF.EXE` / `MOVPLAY.EXE` / `CHECKERS.DLL` are Win32 (Win32s on Windows 3.1), not 16-bit. Ghidra's x86 decompiler applies and **has been run** on all three: `dustdecompile/ghidra/ExportDecomp.java` writes the decompiled C, a function table, strings and data refs into the gitignored `out/ghidra/<binary>/`. All 1206 `DF.EXE` functions decompile. The launcher is the only NE file in scope.
 
 Full hashes, PE sections, imports, and how the opcode table was parsed:
 [`findings.md`](findings.md).

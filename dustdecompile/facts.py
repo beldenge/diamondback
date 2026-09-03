@@ -1,6 +1,7 @@
 """Curated engine/library meanings. Only what scripts or DF.EXE support.
 
 confidence:
+  proven-exe     — read out of the DF.EXE decompile (dustdecompile/docs/vm.md)
   proven-scripts — control flow in extracted Dust scripts shows this
   inferred     — very likely from usage, not proven in DF.EXE
   unknown      — still a reconstruction gap
@@ -109,19 +110,23 @@ OPCODES: list[dict] = [
         "name": "puppetspeak",
         "id": 12043,
         "summary": "Play a puppet dialogue line (audio + face). Scripts stack several in a row with no wait loop, unlike voicesound.",
-        "args": "line id string (`jenix.5`, `jones.1`). Rarely a second integer (Jones: puppetspeak (\"jones.33\", 101) in place of a bevel).",
+        "args": "one line id string (`jenix.5`, `jones.1`). A second argument is a syntax error in DF.EXE.",
         "returns": "none (command band)",
-        "blocking": "inferred yes — sequential conversation would break if it returned immediately",
-        "confidence": "inferred",
+        "blocking": "yes — FUN_00430890 waits for the voice clip to finish",
+        "confidence": "proven-exe",
         "notes": [
-            "Almost always one string. Maps to PUP/_NAME/AUDIO/*.wav + texts.csv.",
+            "Maps to PUP/_NAME/AUDIO/*.wav + texts.csv. Looked up by line name or by text.",
             "Compare voicesound: scripts poll currentvoice() != \"none\". puppetspeak is never polled that way.",
+            "A line with no audio holds len(text)/2 + 60 ticks with the text drawn.",
+            "Subtitles only draw when puppetparam (7) is non-zero (default 0), and never for idle 1-4, blank text, or a line starting with '*'.",
+            "Ctrl+Q / Ctrl+. halt the line AND set the skip flag, so every later puppetspeak is skipped until the next puppetevent.",
+            "PUP/_JONES/day1 calls puppetspeak (\"jones.33\", 101) with two arguments. The token stream really is two arguments, and the engine raises script error 2 on it: an authored-data bug that fires when actorvalue (\"laurel\") > 0. The remake speaks the line and ignores the extra argument.",
         ],
     },
     {
         "name": "puppetclear",
         "id": 12041,
-        "summary": "Clear the current speech/choice UI before offering a new bevel set.",
+        "summary": "Drop the registered bevels before offering a new set. Does not stop speech.",
         "args": "none",
         "returns": "none",
         "blocking": "inferred no",
@@ -148,13 +153,16 @@ OPCODES: list[dict] = [
         "name": "puppetevent",
         "id": 20028,
         "summary": "Wait for the player to pick a bevel (or dismiss). Returns that id.",
-        "args": "always (-1) in Dust",
-        "returns": "integer: choice id, or -1 dismiss, or 55555 inventory bevel",
+        "args": "integer timeout in 60 Hz ticks; negative waits forever (Dust passes -1, and 240 once)",
+        "returns": "integer: choice id, -1 dismiss (Ctrl+Q / Ctrl+.), -2 timeout, or 55555 inventory bevel",
         "blocking": "yes",
-        "confidence": "proven-scripts",
+        "confidence": "proven-exe",
         "notes": [
             "arg = puppetevent (-1) then switch arg / case -1 / case 101 …",
-            "Meaning of the -1 argument is unproven in DF.EXE (sentinel / timeout / allow-dismiss). Do not invent other values; Dust always passes -1.",
+            "FUN_00431330: a negative argument waits forever; a positive one returns -2 after that many ticks.",
+            "Draws the five bevels as full-width 24px rows in the 264-384 HUD band (FUN_00431040).",
+            "Runs four independent idle timers for the lines named idle 1..idle 4, each waiting min + random (max - min) ticks from the PUP header (+0x83a mins, +0x84a maxes; dumped as PUP/_<NAME>/idle.json). puppetparam (8) disables them.",
+            "A click on the picture (not a bevel) replays the up-to-three lines spoken since the last event; the list is cleared when puppetevent returns.",
         ],
     },
     {
@@ -510,17 +518,20 @@ OPCODES: list[dict] = [
     {
         "name": "savegame",
         "id": 12077,
-        "summary": "Write a save. Format unknown.",
+        "summary": "Write a save as a DreamFactory container file (type RTDO, creator DFRT).",
         "args": "title string (`Dust 0.3`) in the quit menu",
-        "confidence": "proven-scripts",
-        "notes": ["Boot menuselect quit may questiondialog then savegame. Do not invent the file layout."],
+        "confidence": "proven-exe",
+        "notes": [
+            "Boot menuselect quit may questiondialog then savegame. Refuses while a puppet is open.",
+            "Container order (FUN_0042d870, see docs/vm.md 12): open-file list + path slots + palette; engine state block; actor + cast tables; prop + shop tables; track table + clip arrays; globals + string heap; walk/ball/loop state and each active walk path.",
+        ],
     },
     {
         "name": "opengame",
         "id": 12078,
-        "summary": "Load a save. Format unknown.",
-        "args": "see call sites",
-        "confidence": "unknown",
+        "summary": "Load a save written by savegame (same container order).",
+        "args": "title string; comdlg32 asks for the *.rtd path",
+        "confidence": "proven-exe",
     },
     {
         "name": "dumpglobal",
@@ -547,10 +558,13 @@ OPCODES: list[dict] = [
     {
         "name": "switch",
         "id": 4009,
-        "summary": "Switch. case / endswitch. case bodies do not fall through in Dust usage (each case exits or ends).",
-        "args": "expression. `switch (arg)` or `switch arg`.",
-        "confidence": "inferred",
-        "notes": ["Whether case falls through is unproven in DF.EXE. Dust scripts treat cases as exclusive."],
+        "summary": "Switch on an int or string. A matched case with an EMPTY body falls through to the next case label; a non-empty body ends at the next case.",
+        "args": "expression. `switch (arg)` or `switch arg`. A bool is a type error.",
+        "confidence": "proven-exe",
+        "notes": [
+            "FUN_004188c0 / FUN_00418aa0: consecutive case labels share the following body.",
+            "case values must match the switch value's type; strings compare case-insensitively.",
+        ],
     },
     {
         "name": "global",
@@ -596,10 +610,10 @@ OPCODES: list[dict] = [
     {
         "name": "delay",
         "id": 12004,
-        "summary": "Wait some ticks. Unit unknown (boot blacktoscreen uses 30; checkers delay (45)).",
-        "args": "integer",
-        "blocking": "inferred yes",
-        "confidence": "inferred",
+        "summary": "Busy-wait n ticks of the 60 Hz clock (FUN_00438240), pumping Windows messages.",
+        "args": "integer 60 Hz ticks (30 = 0.5 s, the same unit as screentoblack)",
+        "blocking": "yes",
+        "confidence": "proven-exe",
     },
     {
         "name": "makeloop",

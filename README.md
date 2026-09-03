@@ -39,7 +39,7 @@ Open http://localhost:5173 — title chooser (four cards). Cards switch in-page;
 | Click a door, then walk forward | Open (if allowed) and go inside |
 | Click a nearby person (play mode) | Talk (puppet + choices) |
 | Click the skull (play mode) | Original menu: Save, Open, Quit, Credits, keys, volume |
-| **C** (play mode) | Hide / show the black speech bar (audio keeps going) |
+| **C** (play mode) | Show / hide the black speech bar. Dust `puppetparam (7)`: subtitles start **off**, and the skull menu's check box is the same switch |
 
 `/?mode=unlocked&clock=1|2|3` — morning / afternoon / night (Unlocked only).
 
@@ -100,6 +100,18 @@ python -m dustdecompile
 
 Output: `dustdecompile/out/` (gitignored), including `out/rsrc/cursors/`
 from `DF.EXE`. Details: [`dustdecompile/README.md`](dustdecompile/README.md).
+
+A full Ghidra decompile is a separate, optional step (needs Ghidra and a
+JDK); it writes the decompiled C and function/string/data-ref tables into
+the same gitignored tree:
+
+```
+<ghidra>/support/analyzeHeadless <proj> DustProj -import DF.EXE   -scriptPath dustdecompile/ghidra -postScript ExportDecomp.java   dustdecompile/out/ghidra/DF
+```
+
+What that decompile proved about the script VM — types, operator
+precedence, statements, engine hooks, timing, dialogue, mixer and the
+`.rtd` save layout — is [`dustdecompile/docs/vm.md`](dustdecompile/docs/vm.md).
 
 ### Tests
 
