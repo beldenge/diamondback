@@ -587,7 +587,7 @@ body.landing #hud {
 .landing-inner {
   position: relative;
   z-index: 2;
-  max-width: 1440px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 20px 20px 36px;
   text-align: center;
@@ -625,7 +625,7 @@ body.landing #hud {
 
 .landing-modes {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 18px;
 }
 
@@ -705,9 +705,14 @@ body.landing #hud {
 .landing-card img {
   display: block;
   width: 100%;
-  aspect-ratio: 4 / 5;
-  object-fit: cover;
-  object-position: center 35%;
+  aspect-ratio: 512 / 264;
+  object-fit: contain;
+  object-position: center;
+  background: #120c08;
+}
+
+.landing-card img.landing-still {
+  image-rendering: pixelated;
 }
 
 .landing-badge {
@@ -734,12 +739,8 @@ body.landing #hud {
 }
 
 .landing-card-copy {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 36px 14px 12px;
-  background: linear-gradient(180deg, transparent 0%, rgba(18, 10, 6, 0.94) 42%);
+  padding: 12px 14px 14px;
+  background: #1a100c;
 }
 
 .landing-card h2 {
@@ -757,6 +758,7 @@ body.landing #hud {
   font-size: 16px;
   line-height: 1.35;
   color: #e8d3a4;
+  overflow-wrap: break-word;
 }
 
 #play-dialog {
@@ -887,21 +889,16 @@ body.landing #hud {
 }
 
 @media (max-width: 1100px) {
-  .landing-modes {
-    grid-template-columns: 1fr 1fr;
-    max-width: 720px;
-    margin: 0 auto;
-  }
-
   .landing-inner {
     padding: 20px 14px 40px;
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 700px) {
   .landing-modes {
     grid-template-columns: 1fr;
-    max-width: 420px;
+    max-width: 520px;
+    margin: 0 auto;
   }
 }
 

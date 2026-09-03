@@ -3,6 +3,7 @@ import { clientMode, needsUnlockedSpoilerWarning, type ClientMode } from "./core
 import { MovieGallery } from "./play/gallery";
 import { PlayGame } from "./play/game";
 import { browserHasSave } from "./play/save";
+import { extractUrl } from "./world/set/extract";
 
 const landing = document.getElementById("landing");
 const unlockedSpoilers = document.getElementById("unlocked-spoilers");
@@ -11,6 +12,15 @@ let storyGame: PlayGame | null = null;
 let sandboxGame: PlayGame | null = null;
 let reimagined: import("./reimagined/game").ReimaginedGame | null = null;
 let reimaginedLoading = false;
+
+function fillLandingCards(): void {
+  for (const img of document.querySelectorAll<HTMLImageElement>("#landing img[data-extract]")) {
+    const rel = img.dataset.extract;
+    if (rel) {
+      img.src = extractUrl(rel);
+    }
+  }
+}
 
 function spoilerDialog(): HTMLDialogElement | null {
   return unlockedSpoilers instanceof HTMLDialogElement ? unlockedSpoilers : null;
@@ -220,4 +230,5 @@ unlockedSpoilers?.addEventListener("click", (event) => {
   }
 });
 
+fillLandingCards();
 applyRoute();
