@@ -545,7 +545,9 @@ Pots/bells have rec+32 = 0; SFX live on those last>1 A-slots. Rec 1 of
 full-frame dismiss to rec 64. Rec 1 and rec 9 of `grocpots.mov` both
 jump A1 to rec 2 — rec 9 is replay, not a second clang. Linear extract
 schedules each unique `(slot, dest)` at the dest rec’s start tick.
-Inspect wait is type 2 slot 0 last 2, not rec+0≠0.
+Inspect wait is a type-2 slot-0 command on a rec whose command count
+is 1, with `last` > 1 (the dest rec), not rec+0≠0. `last` is not always
+2: BELLBARN jumps to 3, JAILMAP / HIDEPLAT page 4→5.
 Type 4 (48 bytes, Mac rect + Pascal `.mov` at +16) pushes a nested
 playmovie (`0x419ba3`) while depth `< 5`. When rec+0 cmd count is 0,
 rec+0x16 is an end-kind: **3** copies rec+0x30 into the current movie
@@ -648,14 +650,21 @@ SET framelist records are **28 bytes**. The six shorts at +12 are a
 duplicate of from/to pose, not extra camera xyz. `0x40e550` indexes
 stills as `frame0 + index`.
 
-**Not traced:** no `mov [0x46094c], 64` in `.text`. Play copies SET +24
-into that slot because the engine *reads* `[0x46094c]` as setback, every
-SET has 64 there, and 64 + focal 310 + 256-tiles puts O7 N Leroy at
-still-x **354** (original midline **353**). Walk-table look-deg writes
-(`0x40de2f` stores `0xC0` on facing-1 = N) are **0 = east** on the same
-circle as `0x411d50` (`0xC0` = north). SET facing codes stay 1=N.
-Turn jump table at `0x40e128` steps `index*16` but the per-facing start
-deg is not mapped to shortest-path ±64.
+**Traced.** There is no `mov [0x46094c], 64` because the slot is filled
+through a pointer: `opensetfile` → `FUN_00421b80` copies the SET
+container-0 header into the state block at `0x460924`, so
+`[0x46094c]` ← SET **+0x18** (setback, 64 on every SET),
+`[0x46094e]` ← **+0x1a** (camZ; the `camerahi` opcode is the only other
+writer), `[0x460950]/[0x460952]` ← **+0x2a/+0x2c** (still size), and
+`[0x46095e]/[0x460960]/[0x460962]` ← **+0x30/+0x32/+0x34** (spawn tile and
+facing, copied on to the dest slots). An absolute-address scan of `.text`
+finds only reads of `0x46094c`, which is what made this look untraced.
+
+Look-deg is **0 = east** on the same circle as `0x411d50`: facing 1=N is
+`0xC0`, 2=S `0x40`, 3=E `0`, 4=W `0x80`, in both branches of `0x40dd90`.
+The turn table at `0x40e128` **is** shortest-path ±`index*16`: it adds
+from N→E, S→(not E), E→(not N) and W→N, and subtracts otherwise, which is
+exactly a ±64 quarter turn the short way.
 
 Patents (web search “Cyberflix DreamFactory projection”, not a known
 number): [US5644694](https://patents.google.com/patent/US5644694A)
@@ -704,7 +713,7 @@ BFS on camera tiles, or one CST cycle per 256-unit tile.
 
 `stdactor` copies `stdspeed` / `stdturn` of `actorset(who)`: town **3 / 7**, hotlower and sallower **4 / 8**, else **5 / 10** (GANG `Cast.txt`). Mine extra `stdspeed` is **4**. That many world units / deg-units per **20 Hz** game frame. Scripts wait with `while iswalk { forceupdate }`.
 
-Play: `SET/_<PLACE>/paths.json` + `CST/_<CAST>/timing.json` for gang, extra, target, mine. Leftover: face dest before the first translate (record+4); resume snap.
+Play: `SET/_<PLACE>/paths.json` + `CST/_<CAST>/timing.json` for gang, extra, target, mine. Both leftovers are now implemented: the job's `record+4` turn target (walk pivots at `actorturn` before translating, `endturn` on landing) and the `0x424250` resume splice.
 
 ---
 
@@ -716,34 +725,58 @@ Do not pretend these are done:
   `dustdecompile/ghidra/` runs the headless decompile; the semantics are
   written up in [vm.md](vm.md). Ghidra output itself stays generated and
   gitignored under `out/ghidra/`.
-- Handler/function-pointer table next to the name table — we looked;
-  the 6-byte records are `{name, id}` only. Dispatch is elsewhere
-  (search / switch on id).
+- ~~Handler/function-pointer table next to the name table~~ **settled** —
+  the 6-byte records really are `{name, id}` only. Dispatch is a **switch
+  on the id** in two functions: `FUN_00431dd0` for commands and field
+  *set* forms, `FUN_00404320` for functions and field *get* forms. There
+  is no table of handlers.
 - ~~`PlugProc` calling convention and `checkmove` search internals~~
   **done** — §3 CHECKERS.DLL. Play copy: `src/play/checkers.ts`.
-- MOVPLAY **B playlist wrap** (`header+0x8BE` last-item next pointer) —
+- ~~MOVPLAY **B playlist wrap** (`header+0x8BE` last-item next pointer)~~
+  **done** — `0x40B933` builds a **circular** list: each node's `next`
+  (`+0x55`) is the following node, and the last one is playlist entry
+  `header+0x8BE`. That entry is **0** in all 31 Dust reels with a theme,
+  so the whole list loops. Six reels run out of bed before the picture
+  ends and audibly need it (LUPRE ~59 s, LUSS ~30 s, then D4AD4N, INTRO,
+  INTRO3, MAIN). Extract dumps it as `bed_wrap`; play follows it.
+  Superseded note: —
   sequential play of the `+0x83E` list is implemented; whether the
   theme loops the list after the last entry is not pinned.
-- `singlesound` / `dualsound` / `multiplesound` **VM** handlers (game
-  SND, not MOV reels). Reel mixing is the A-slot + B-playlist path in §7.
-- `walktostar` **route** is the SET polyline at waypoint +0x18 (`0x424000` /
-  `0x411f50`). `actorspeed` is units per **20 Hz** game frame (boot
-  `framerate (3)` wait at `0x40e1d2`), not per 60 Hz counter tick. CST
-  pose table is one slot per that same frame. Leftover: turn-then-walk
-  (`walk` record +4 ≥ 0); resume snap (`0x424250`).
-- Save blob format. Filter string is `Saved games (.RTD)!*.rtd`. No
-  `.rtd` in this install.
-- Mouth/`animLogic` visemes: integer is now in `texts.csv`; how it
-  indexes jaw/mouth frames is still unproven (not a PUP container id).
-- Bevel / inventory chrome layout (cursors **are** dumped: `python -m
+- ~~`singlesound` / `dualsound` / `multiplesound` **VM** handlers~~
+  **done** — four mixer channels (0 voice, 1 and 2 effects, 3 theme) and
+  the clip-priority rules are in [vm.md](vm.md) §8. Reel mixing stays the
+  A-slot + B-playlist path in §7.
+- ~~`walktostar` turn-then-walk and resume snap~~ **done**. The route is
+  the SET polyline at waypoint +0x18 (`0x424000` / `0x411f50`);
+  `actorspeed` is units per **20 Hz** game frame. `0x410820` gives the job
+  a turn target (`calcdeg` to the dest, or the first path vertex) and
+  `0x410b80` spends whole ticks rotating to it **before** any translation,
+  firing `endturn` when it lands while the walk stays live — which is why
+  cast `endturn` handlers guard with `if iswalk (me)`. `0x424250` splices
+  a resumed path to the nearest vertex so the actor carries on instead of
+  walking back to the first one.
+- ~~Save blob format~~ **container order recovered** ([vm.md](vm.md)
+  §12). Filter string is `Saved games (.RTD)!*.rtd`; there is still no
+  `.rtd` in this install to diff a writer against, and the remake keeps
+  its JSON save.
+- ~~Mouth/`animLogic` visemes~~ **done** — the dialogue record's `anim`
+  field **is** a PUP container index. `FUN_00430890` calls
+  `FUN_0042d160(<open PUP>, anim, &handle)` to load that container and
+  draws its keyframes; `dfextract` already reads it that way. The earlier
+  note that it is "not a PUP container id" was wrong.
+- ~~**Inventory** chrome layout~~ **settled** — there is no engine layout
+  pass. Each INVEN prop's `moveyoself` hardcodes `propxy (me, x, y)` per
+  `day`, so the panel is authored data the extractor already dumps. The
+  five dialogue **bevels** are engine-drawn: `FUN_00431040` lays them out
+  as full-width 24px rows, `top = (i+11)*24`, in the 264–384 HUD band.
+  Cursors **are** dumped (`python -m
   dustdecompile --rsrc` → `out/rsrc/cursors/`). Script `cursor("touch")`
   maps to `CURS.TOUCH`. RCDATA `TRIG1` / `TRIG2` are 256 int16s,
   `16384 * sin/cos(2π i / 256)` — `actordeg` / `calcvect`, not FOV.
-- CST dest-rect **X, Y, size, sprite Z** and SET filmstrip camera are
-  §7a (locked in play). Leftover: the `mov` that fills `[0x46094c]`
-  from SET +24; walk-table look-deg vs facing 1=N; turn jump-table
-  start deg (step size `index*16` is proven). Do not revive 1/z Y,
-  1/z sprite Z, or frozen/screen-lerped pans.
+- ~~CST dest-rect and SET filmstrip camera leftovers~~ **done** — §7a now
+  traces the SET-header copy that fills `[0x46094c]`, the facing→look-deg
+  map, and the shortest-path turn table. Do not revive 1/z Y, 1/z sprite
+  Z, or frozen/screen-lerped pans.
 - Z-buffer **use** at runtime is in play: CST pixels draw when
   `actorZ <= stillZ` (smaller = closer). Sprite Z is EXE
   `(lensForward − zclip − setback + 128) >> 6` (`0x41535c`), then at

@@ -52,6 +52,11 @@ export interface MovieTimeline {
   clips?: MovieClip[];
   /** Rec+0x16==3 Pascal at rec+0x30. playmovie loads this when the reel ends. */
   next?: string;
+  /**
+   * Header +0x8BE: playlist entry the last B node links back to
+   * (MOVPLAY `0x40B933`). 0 in every Dust reel with a theme.
+   */
+  bed_wrap?: number;
 }
 
 /** Still-table length in seconds (timeline sidecar, else sum of holds). */
@@ -361,16 +366,55 @@ export function movieClipsForRec(
   return due;
 }
 
+/**
+ * The B playlist is a **circular** list: MOVPLAY links each node to the
+ * next and points the last one back at playlist entry `header+0x8BE`
+ * (`0x40B933`; that field is 0 in every Dust reel with a theme). Six
+ * reels run out of bed before the picture ends and audibly loop — the
+ * LUPRE / LUSS attract reels by ~59 s and ~30 s, plus INTRO, INTRO3,
+ * D4AD4N and MAIN by a couple of seconds each.
+ */
+export function movieBedWrapIndex(
+  clips: readonly MovieCue[],
+  wrapTo = 0,
+): number | undefined {
+  const beds = clips
+    .map((clip, index) => ({ clip, index }))
+    .filter((row) => movieGroupBChannel(row.clip.channel) && row.clip.url)
+    .sort((a, b) => a.clip.startSec - b.clip.startSec);
+  if (!beds.length) {
+    return undefined;
+  }
+  const at = Math.max(0, Math.trunc(wrapTo));
+  return (beds[at] ?? beds[0])!.index;
+}
+
 export function armMovieBedFollow(
   clips: readonly MovieCue[],
   index: number,
   play: (clip: MovieCue) => Promise<unknown>,
   cancelled: () => boolean,
   endSec = Number.POSITIVE_INFINITY,
+  wrapTo?: number,
+  atSec?: number,
 ): void {
-  const next = movieFollowBedIndex(clips, index, endSec);
+  const cur = clips[index];
+  const startedAt = atSec ?? cur?.startSec ?? 0;
+  const curDur = cur?.durationSec ?? 0;
+  // Project the next start instead of trusting authored times: after one
+  // lap the table's `startSec` values are all in the past.
+  const nextAt = startedAt + curDur;
+  let next = movieFollowBedIndex(clips, index, endSec);
   if (next === undefined) {
-    return;
+    // Wrapping needs a known reel end and a real buffer length, or the
+    // chain could schedule forever.
+    if (!Number.isFinite(endSec) || curDur <= 0 || nextAt >= endSec) {
+      return;
+    }
+    next = movieBedWrapIndex(clips, wrapTo);
+    if (next === undefined) {
+      return;
+    }
   }
   void (async () => {
     if (cancelled()) {
@@ -384,7 +428,7 @@ export function armMovieBedFollow(
     if (cancelled()) {
       return;
     }
-    armMovieBedFollow(clips, next, play, cancelled, endSec);
+    armMovieBedFollow(clips, next, play, cancelled, endSec, wrapTo, nextAt);
   })();
 }
 
@@ -397,6 +441,7 @@ export async function playMovieRecAudio(
   cancelled: () => boolean,
   bedToken: { gen: number },
   endSec = Number.POSITIVE_INFINITY,
+  wrapTo?: number,
 ): Promise<void> {
   for (const index of movieClipsForRec(clips, recStart, recEnd)) {
     if (cancelled()) {
@@ -419,6 +464,7 @@ export async function playMovieRecAudio(
         (next) => play(next, true),
         () => cancelled() || bedToken.gen !== followGen,
         endSec,
+        wrapTo,
       );
     }
   }

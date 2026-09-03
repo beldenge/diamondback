@@ -57,7 +57,39 @@ export function routeToStar(
   const stored = pair.points.map((p) => ({ x: p.x, y: p.y, z: p.z ?? 0 }));
   const points = pair.a.toLowerCase() === from ? stored : stored.slice().reverse();
   points[points.length - 1] = dest;
-  return dedupeRoute(fromX, fromY, points);
+  return dedupeRoute(fromX, fromY, splicePathAt(points, fromX, fromY));
+}
+
+/**
+ * DF.EXE `0x424250`: a resumed walk does not restart the polyline. The
+ * engine finds the vertex nearest the actor, overwrites it with the
+ * actor's own position and shifts the tail down, so the actor carries on
+ * from where it stands instead of walking back to the first vertex. The
+ * nearest vertex is never the last one — that would leave no segment.
+ * Standing on the from-star gives vertex 0, i.e. the whole path.
+ */
+export function splicePathAt(
+  points: readonly RoutePoint[],
+  fromX: number,
+  fromY: number,
+): RoutePoint[] {
+  if (points.length < 2) {
+    return [...points];
+  }
+  let at = 0;
+  let best = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < points.length; i += 1) {
+    const p = points[i]!;
+    const d = Math.hypot(p.x - fromX, p.y - fromY);
+    if (d < best) {
+      best = d;
+      at = i;
+    }
+  }
+  if (at === points.length - 1) {
+    at = points.length - 2;
+  }
+  return points.slice(at + 1);
 }
 
 function dedupeRoute(fromX: number, fromY: number, points: RoutePoint[]): RoutePoint[] {

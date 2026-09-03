@@ -139,6 +139,12 @@ describe("approach walk", () => {
     leroy.y = 12 * 256 + 128;
     leroy.route = [{ x: 6 * 256 + 128, y: 10 * 256 + 128, z: 0 }];
     host.startWalk(leroy, 6 * 256 + 128, 11 * 256 + 128, 0);
+    expect(leroy.degTarget).toBe(dirToDeg("N"));
+    // DF.EXE `0x410b80` spends whole ticks turning to face the dest before
+    // it translates. Run the pivot out first.
+    for (let i = 0; i < 64 && leroy.walkTurn; i += 1) {
+      host.advanceActorsOnce();
+    }
     expect(leroy.deg).toBe(dirToDeg("N"));
     expect(visibleOctant(leroy.deg, dirToDeg("N"))).toBe(4);
   });
@@ -157,9 +163,16 @@ describe("approach walk", () => {
     const leroy = host.namedActor("leroy");
     leroy.x = 1740;
     leroy.y = 3536;
+    const want = calcDeg(leroy, { x: 1664, y: 3712 });
     host.startWalk(leroy, 1664, 3712, 0);
     expect(leroy.pose).toBe("walk");
-    expect(leroy.deg).toBe(calcDeg(leroy, { x: 1664, y: 3712 }));
+    expect(leroy.degTarget).toBe(want);
+    // DF.EXE `0x410b80` spends whole ticks turning to face the dest before
+    // it translates. Run the pivot out first.
+    for (let i = 0; i < 64 && leroy.walkTurn; i += 1) {
+      host.advanceActorsOnce();
+    }
+    expect(leroy.deg).toBe(want);
     expect(leroy.turning).toBe(false);
     expect([0, 7]).toContain(visibleOctant(leroy.deg, dirToDeg("N")));
   });
@@ -183,7 +196,14 @@ describe("approach walk", () => {
     help.degTarget = dirToDeg("N");
     const dest = { x: 6 * 256 + 128, y: 12 * 256 + 128 };
     host.startWalk(help, dest.x, dest.y, 0);
-    host.advanceActorsOnce();
+    // The stale idle target (N) must not survive; the walk vector wins.
+    expect(help.turning).toBe(false);
+    expect(help.degTarget).toBe(calcDeg({ x: 1760, y: 3034 }, dest));
+    // DF.EXE `0x410b80` spends whole ticks turning to face the dest before
+    // it translates. Run the pivot out first.
+    for (let i = 0; i < 64 && help.walkTurn; i += 1) {
+      host.advanceActorsOnce();
+    }
     expect(help.turning).toBe(false);
     expect(help.deg).toBe(calcDeg({ x: 1760, y: 3034 }, dest));
   });

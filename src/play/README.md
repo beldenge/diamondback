@@ -135,6 +135,8 @@ below contradicts an older paragraph in this file, **this section wins**.
 | `haltsound` | Stops both effect channels including one-shots |
 | `themevol` | Sets the level of every clip of that SND file, applied to what is playing (this is how scripts duck the saloon bed) |
 | `currenttheme (2)` | The theme's **SND file name**, not the clip |
+| Walk start | The walk job **turns to face the destination first** (`0x410820` sets `record+4`, `0x410b80` rotates at `actorturn` and does not translate on those ticks), fires `endturn` on landing while the walk stays live, then walks. Cast `endturn` handlers guard with `if iswalk (me)` for exactly that |
+| Walk resume | A resumed path splices to the vertex nearest the actor (`0x424250`) so it carries on instead of walking back to the first vertex |
 | Input | Keys sit in a 16-slot queue and are dispatched by the main loop. Taps during a filmstrip are still dropped (`0x40d920`), but an idle `makeloop` pump must not lose one — play holds the newest key and dispatches it when the VM frees up |
 | Save `.rtd` | A DreamFactory container (`RTDO`/`DFRT`): open-file list + paths + palette, engine state, actor/cast, prop/shop, tracks + clips, globals + string heap, walk/ball/loop state. Layout is in vm.md §12; the remake still writes JSON |
 
@@ -176,7 +178,7 @@ Code: [`sceneName.ts`](sceneName.ts).
 | Ground items | Jug at `town.jug` (after Leroy walks off). Bone at `town.bone` (Help’s day1 script). Hotel C3 south poster `dollar.mov` adds $4 when `actionframe (1)`. |
 | Sky / extras | `shootingstar` (night). Tumbleweeds are **day** (`clock != 3`). |
 | Ambience | `night.snd` + looping `town.snd`. `nightfxs`: saloon bed, chin chime, then owl / coyote / cricket. Saloon crowd `sounddone` gates the next yell. |
-| Click movies | South-gate rules / firearms (`nitewarn` / `nitefire`), shop signs, `dog1` / `dog2`, item inspects, store pots (`grocpots.mov`), street mission bells (`bell.mov`), Padre A2 north tower (`towerup` → `towertop` → `towerdn`). Intros skipped unless `?intro`. `dog1.mov` is one 59-tick table. Rec+32 stamps A1 at tick 20 and 26. Rec+0x1A bit 0 on recs 2 and 4 (`timeline.wait_audio`) busy-waits mixer channel 0 idle (DF.EXE `0x419300` → `0x4026F0`) so growl 1 finishes before growl 2 starts. The next A start on an empty waveOut ring Pause/Write/Restarts one 0x4000-byte header at 22050 Hz 8-bit (`0x40F069` / `0x40F3B4`, ≈0.74 s) — that is the pause between the two growls. Wait-for-click is DF.EXE command type 2 slot 0 last 2 (`timeline.wait`), not rec+0≠0. Pots/bells rec 1 is a hotspot still. `playmovie` follows timeline `next` (rec+0x16==3). Linear `clips` stay for `--video`. WARNING/BONE wait; DOG1 rec+32 cues only. Tests: [`movies.test.ts`](movies.test.ts). |
+| Click movies | South-gate rules / firearms (`nitewarn` / `nitefire`), shop signs, `dog1` / `dog2`, item inspects, store pots (`grocpots.mov`), street mission bells (`bell.mov`), Padre A2 north tower (`towerup` → `towertop` → `towerdn`). Intros skipped unless `?intro`. `dog1.mov` is one 59-tick table. Rec+32 stamps A1 at tick 20 and 26. Rec+0x1A bit 0 on recs 2 and 4 (`timeline.wait_audio`) busy-waits mixer channel 0 idle (DF.EXE `0x419300` → `0x4026F0`) so growl 1 finishes before growl 2 starts. The next A start on an empty waveOut ring Pause/Write/Restarts one 0x4000-byte header at 22050 Hz 8-bit (`0x40F069` / `0x40F3B4`, ≈0.74 s) — that is the pause between the two growls. Wait-for-click is a DF.EXE type-2 slot-0 command on a one-command rec with `last` > 1 — the dest rec, not always 2 (BELLBARN jumps to 3; JAILMAP / HIDEPLAT page 4→5). Use `timeline.wait`, not rec+0≠0. Pots/bells rec 1 is a hotspot still. `playmovie` follows timeline `next` (rec+0x16==3). Linear `clips` stay for `--video`. WARNING/BONE wait; DOG1 rec+32 cues only. Tests: [`movies.test.ts`](movies.test.ts). |
 | Lodging / sleep | Fear sells the room for $9 at `phase = 4` (Blood’s cigar), or takes Help’s ring. `phase = 5` unlocks the upstairs playroom. Click the bed sign → `hotbed.mov` → `actionframe (1)` → `advanceday` (Day 2 morning in the room, `d1nd2m.mov`). |
 | Dell fight | Optional. After the key (`phase = 7`), leave the hotel looking **west** (G5) → `phase = 8`, Jones walks you; D7 south starts `FIGHT.FLT`. Sleep at `phase = 5` skips it. |
 | Locked | Jail, chin (until `phase >= 2`), bank, apoth, store, doctor, stage. Hotel + saloon open. Saloon upstairs: Ruby knock-talk; Oona’s room is locked this night; Mazie is knock-only. |
@@ -246,7 +248,8 @@ board from the avatar satchel must not keep INVEN icons (checkers empty
 `gotoflat ("avatar")`.
 Boot `addinven ("helpbut")` is not an inspect target — empty hand falls
 back to the first owned prop. Inspect MOVs wait on the still whose
-command stream has type-2 slot 0 last 2 (`timeline.wait`), then play
+command stream has a one-command type-2 slot-0 jump (`last` > 1 is the
+dest rec; `timeline.wait`), then play
 the fade-out frames. Rec+0 is that stream’s command count, not a wait
 flag — pots/bells use 2–4. Dismiss must not `skipNextClick` the next
 real EXAMINE.

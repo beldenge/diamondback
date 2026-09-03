@@ -893,7 +893,7 @@ export class PlayGame implements WorldView {
       timeoutMovie?: string;
     }[],
     clips: { url: string; startSec: number; channel?: string; durationSec?: number }[],
-    opts?: { keepLayer?: boolean },
+    opts?: { keepLayer?: boolean; bedWrap?: number },
   ): Promise<boolean> {
     if (!frames.length) {
       return true;
@@ -938,9 +938,9 @@ export class PlayGame implements WorldView {
             movieFrameWaitsForClick(frame.action, frame.wait),
         )
       ) {
-        ok = await this.playActionMovie(playable, clips);
+        ok = await this.playActionMovie(playable, clips, opts?.bedWrap);
       } else {
-        await this.playLinearMovie(playable, clips);
+        await this.playLinearMovie(playable, clips, opts?.bedWrap);
       }
     } finally {
       if (!opts?.keepLayer) {
@@ -972,6 +972,7 @@ export class PlayGame implements WorldView {
       endKind?: number;
     }[],
     clips: { url: string; startSec: number; channel?: string; durationSec?: number }[],
+    bedWrap?: number,
   ): Promise<void> {
     const endSec = movieTableEndSec(frames);
     let tableSec = 0;
@@ -987,6 +988,7 @@ export class PlayGame implements WorldView {
         () => !!this.movieEl.hidden,
         this.movieBed,
         endSec,
+        bedWrap,
       );
       if (movieFrameWaitsForAudio(frame.waitAudio)) {
         await voices.whenGroupAIdle();
@@ -1017,8 +1019,11 @@ export class PlayGame implements WorldView {
       timeoutMovie?: string;
     }[],
     clips: { url: string; startSec: number; channel?: string; durationSec?: number }[],
+    bedWrap?: number,
   ): Promise<boolean> {
     if (frames.some((frame) => frame.hotspots && frame.hotspots.length > 0)) {
+      // No Dust reel has both a theme playlist and hotspots, so the
+      // bed-follow chain never applies on this path.
       return this.playHotspotMovie(frames, clips);
     }
     const endSec = movieTableEndSec(frames);
@@ -1035,6 +1040,7 @@ export class PlayGame implements WorldView {
         () => !!this.movieEl.hidden,
         this.movieBed,
         endSec,
+        bedWrap,
       );
       if (movieFrameWaitsForAudio(frame.waitAudio)) {
         await voices.whenGroupAIdle();

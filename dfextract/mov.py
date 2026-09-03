@@ -52,6 +52,12 @@ FRAME_AUDIO_OFF = 32  # u16, 1-based group-A slot
 FRAME_CMD_OFF = 0x24  # u32 offset of DF.EXE in-engine command stream
 PLAYLIST_COUNT_OFF = 0x34
 PLAYLIST_OFF = 0x83E
+# MOVPLAY 0x40B933 links the playlist into a *circular* list: each node
+# points at the next, and the last one at playlist entry header+0x8BE.
+# That entry is 0 in all 31 Dust reels that have a theme. Six of them run
+# out of bed before the picture ends and audibly loop: LUPRE (~59 s),
+# LUSS (~30 s), D4AD4N, INTRO, INTRO3, MAIN.
+PLAYLIST_WRAP_OFF = 0x8BE
 # DF.EXE 0x4196a0: rec+0 is command *count*, not actionframe. Commands
 # live in the scene header at rec+0x24. Size jump table at 0x419ca0.
 # Type 2 is 16 bytes: Mac rect (top,left,bottom,right) + A-slot at +10
@@ -216,6 +222,9 @@ class ReelTimeline:
     # Rec+0x16==3 Pascal at rec+0x30. playmovie loads this file when
     # the playhead finishes (towerup → towertop.mov).
     next_movie: str = ""
+    # header+0x8BE of the head scene: playlist entry the last B node
+    # links back to. -1 when the reel has no theme playlist.
+    bed_wrap: int = -1
 
     @property
     def duration_ticks(self) -> int:
@@ -345,6 +354,7 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
     a_events: list[tuple[int, int, int, str, int, bool]] = []
     cmd_raw = 0
     tick = 0
+    bed_wrap = -1
     ncont = len(df.containers)
     for scene_i, scene_index in enumerate(scenes):
         data = df.containers[scene_index].data
@@ -352,6 +362,9 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
         default = struct.unpack_from("<I", data, 0x26)[0]
         n_a = struct.unpack_from("<H", data, 26)[0]
         n_b = struct.unpack_from("<H", data, 28)[0]
+        if scene_i == 0 and len(data) >= PLAYLIST_WRAP_OFF + 4:
+            if struct.unpack_from("<h", data, PLAYLIST_COUNT_OFF)[0] > 0:
+                bed_wrap = struct.unpack_from("<i", data, PLAYLIST_WRAP_OFF)[0]
         next_scene = scenes[scene_i + 1] if scene_i + 1 < len(scenes) else ncont
         audios: list[int] = []
         for index in range(scene_index + 1, next_scene):
@@ -417,14 +430,19 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
             timeout_movie = ""
             end_kind = struct.unpack_from("<H", rec, REC_END_KIND_OFF)[0]
             for kind, cmd_slot, last, rect, movie in _frame_commands(data, rec):
-                # Inspect still: the only command is a full-frame jump
-                # (WARNING/BONE). Do not pause on last=2 among several
-                # hotspots (INFO/MAIN, KEYS).
+                # Inspect still: the rec's only command is a slot-0 click
+                # region that jumps the playhead (WARNING/BONE/BELLMOON).
+                # `last` is the dest rec (0x419b73), not a magic 2 —
+                # BELLBARN jumps to 3, JAILMAP/HIDEPLAT page through 4→5.
+                # With one command there is no type-3 timeout, so the reel
+                # can only advance on the click. Do not pause on a dest
+                # among several hotspots (INFO/MAIN, KEYS, grocpots) or on
+                # last 0/1, which stay on the still (harmonica/MUSIPLAT).
                 if (
                     action == 1
                     and kind == 2
                     and cmd_slot == 0
-                    and last == 2
+                    and last > 1
                 ):
                     wait = True
                 # Type 5: click pops a nested play (belltown from towertop).
@@ -542,6 +560,7 @@ def parse_reel_timeline(df: DFFile) -> ReelTimeline | None:
         frames=tuple(frames),
         clip_starts=tuple(clip_starts),
         next_movie=next_movie,
+        bed_wrap=bed_wrap,
     )
 
 
@@ -637,6 +656,43 @@ def _iter_stills(df: DFFile) -> Iterator[StillFrame]:
     yield from stills
 
 
+def bed_wrap_cues(timeline: ReelTimeline) -> list[ClipStart]:
+    """Extra B plays once the playlist runs out (MOVPLAY circular list).
+
+    The last node links back to playlist entry `header+0x8BE`, so a reel
+    that outlives its playlist keeps looping from there. Six Dust reels do
+    (LUPRE, LUSS, D4AD4N, INTRO, INTRO3, MAIN). Linear consumers (`--video`)
+    need those repeats spelled out; `clip_starts` stays the literal file.
+    """
+    if timeline.bed_wrap < 0:
+        return []
+    beds = sorted(
+        (c for c in timeline.clip_starts if c.channel == "B"),
+        key=lambda c: c.start_tick,
+    )
+    if not beds or any(c.duration_ticks <= 0 for c in beds):
+        return []
+    total = timeline.duration_ticks
+    at = max(c.start_tick + c.duration_ticks for c in beds)
+    extra: list[ClipStart] = []
+    index = min(timeline.bed_wrap, len(beds) - 1)
+    while at < total and len(extra) < 512:
+        clip = beds[index]
+        extra.append(
+            ClipStart(
+                container=clip.container,
+                start_tick=at,
+                channel="B",
+                duration_ticks=clip.duration_ticks,
+            )
+        )
+        at += clip.duration_ticks
+        index = index + 1 if index + 1 < len(beds) else min(
+            timeline.bed_wrap, len(beds) - 1
+        )
+    return extra
+
+
 def _collect_reel(
     df: DFFile, *, decode_audio: bool
 ) -> tuple[list[StillFrame], list[AudioCue]]:
@@ -645,7 +701,7 @@ def _collect_reel(
     timeline = parse_reel_timeline(df)
     schedule: dict[int, list[tuple[int, str]]] = {}
     if timeline is not None:
-        for clip in timeline.clip_starts:
+        for clip in list(timeline.clip_starts) + bed_wrap_cues(timeline):
             schedule.setdefault(clip.container, []).append(
                 (clip.start_tick, clip.channel)
             )
@@ -823,6 +879,7 @@ def _write_timeline(timeline: ReelTimeline, out_dir: Path) -> None:
             for clip in timeline.clip_starts
         ],
         **({"next": timeline.next_movie} if timeline.next_movie else {}),
+        **({"bed_wrap": timeline.bed_wrap} if timeline.bed_wrap >= 0 else {}),
         "source": (
             "MOVPLAY tick=timeGetTime()*3/50; record at header+0x8C2 i*80; "
             "hold=max(header+0x26, rec+2); A cue=rec+32; B playlist at +0x83E; "

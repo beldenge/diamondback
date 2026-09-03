@@ -14,6 +14,7 @@ if str(HERE) not in sys.path:
 from container import read_df_file
 from image import decode_indexed_image
 from mov import (
+    bed_wrap_cues,
     END_KIND_CHAIN,
     FRAME_AUDIO_OFF,
     FRAME_REC_SIZE,
@@ -462,6 +463,39 @@ class TestTowerChain(unittest.TestCase):
         self.assertEqual(barn.next_movie, "")
         self.assertEqual(moon.next_movie, "")
         self.assertEqual(town.next_movie, "")
+
+    def test_theme_playlist_wraps_and_intro3_reaches_it(self) -> None:
+        """MOVPLAY 0x40B933 links the last B node back to entry header+0x8BE."""
+        intro3 = parse_reel_timeline(read_df_file(INTRO3))
+        dog1 = parse_reel_timeline(read_df_file(DOG1))
+        assert intro3 is not None and dog1 is not None
+        # Every Dust reel with a theme loops the whole list.
+        self.assertEqual(intro3.bed_wrap, 0)
+        # No group B at all -> nothing to wrap.
+        self.assertEqual(dog1.bed_wrap, -1)
+        # Six reels run out of playlist before the picture ends, so the
+        # loop is audible: INTRO by ~2 s, the LUPRE / LUSS attract reels by
+        # ~59 s / ~30 s. Assert it on INTRO, which is a fixture here.
+        intro = parse_reel_timeline(read_df_file(INTRO))
+        assert intro is not None
+        bed = [c for c in intro.clip_starts if c.channel == "B"]
+        self.assertTrue(bed)
+        last = max(c.start_tick + c.duration_ticks for c in bed)
+        self.assertLess(last, intro.duration_ticks)
+
+    def test_bed_wrap_cues_cover_the_reel_for_linear_consumers(self) -> None:
+        """`--video` is linear, so the playlist loop must be spelled out."""
+        intro = parse_reel_timeline(read_df_file(INTRO))
+        dog1 = parse_reel_timeline(read_df_file(DOG1))
+        assert intro is not None and dog1 is not None
+        extra = bed_wrap_cues(intro)
+        self.assertTrue(extra)
+        self.assertTrue(all(c.channel == "B" for c in extra))
+        bed = [c for c in list(intro.clip_starts) + extra if c.channel == "B"]
+        end = max(c.start_tick + c.duration_ticks for c in bed)
+        self.assertGreaterEqual(end, intro.duration_ticks)
+        # No theme playlist -> nothing to repeat.
+        self.assertEqual(bed_wrap_cues(dog1), [])
 
     def test_intro_does_not_chain_but_intro2_plays_intro3(self) -> None:
         """Boot names intro then intro2. intro2's last rec kind 3 is intro3.mov."""

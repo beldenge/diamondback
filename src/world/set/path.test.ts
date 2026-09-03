@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { routeToStar, TILE_SPAN, worldToTile, type StarPath } from "./path";
+import { routeToStar, splicePathAt, TILE_SPAN, worldToTile, type StarPath } from "./path";
 
 const LEROY_PATH: StarPath = {
   a: "town.leroy2",
@@ -89,5 +89,32 @@ describe("SET star paths", () => {
     });
     expect(hops[0]).toEqual({ x: 1664, y: 3476, z: 0 });
     expect(hops.at(-1)).toEqual({ x: 2656, y: 2720, z: 0 });
+  });
+});
+
+describe("resume splice (DF.EXE 0x424250)", () => {
+  const line = [
+    { x: 0, y: 0, z: 0 },
+    { x: 100, y: 0, z: 0 },
+    { x: 200, y: 0, z: 0 },
+    { x: 300, y: 0, z: 0 },
+  ];
+
+  it("keeps the whole path when standing on the first vertex", () => {
+    expect(splicePathAt(line, 0, 0)).toEqual(line.slice(1));
+  });
+
+  it("drops vertices already passed instead of walking back", () => {
+    // Two thirds along: carry on to the last vertex, do not return to 0.
+    expect(splicePathAt(line, 205, 0)).toEqual([{ x: 300, y: 0, z: 0 }]);
+  });
+
+  it("never splices onto the last vertex, so a segment always remains", () => {
+    expect(splicePathAt(line, 300, 0)).toEqual([{ x: 300, y: 0, z: 0 }]);
+  });
+
+  it("leaves a two-point path alone", () => {
+    const pair = line.slice(0, 2);
+    expect(splicePathAt(pair, 99, 0)).toEqual([{ x: 100, y: 0, z: 0 }]);
   });
 });

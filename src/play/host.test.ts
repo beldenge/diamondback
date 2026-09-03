@@ -786,11 +786,48 @@ describe("actor walk wait", () => {
     }));
     host.startWalk(actor, 1664, 3712, 0);
     expect(actor.walkTiming).toEqual([1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8]);
+    // DF.EXE `0x410b80` spends whole ticks turning to face the dest before
+    // it translates. Run the pivot out first.
+    for (let i = 0; i < 64 && actor.walkTurn; i += 1) {
+      host.advanceActorsOnce();
+    }
+    expect(actor.walkStep).toBe(0);
     host.advanceActorsOnce();
     expect(actor.walking).toBe(true);
     expect(actor.walkStep).toBe(1);
     host.advanceActorsOnce();
     expect(actor.walkStep).toBe(2);
+  });
+
+  it("turns to face the dest before translating (DF.EXE 0x410b80)", () => {
+    const host = new DustHost({} as PuppetUi);
+    const actor = host.namedActor("leroy");
+    actor.x = 0;
+    actor.y = 0;
+    actor.deg = 0;
+    actor.speed = 3;
+    actor.turnSpeed = 7;
+    // Dest is due south, a quarter turn from the actor's east heading.
+    host.startWalk(actor, 0, 300, 0);
+    expect(actor.walking).toBe(true);
+    expect(actor.walkTurn).toBe(true);
+    expect(actor.degTarget).toBe(64);
+    // The pivot ticks do not move the actor.
+    host.advanceActorsOnce();
+    expect(actor.y).toBe(0);
+    expect(actor.deg).toBe(7);
+    let frames = 1;
+    for (; frames < 64 && actor.walkTurn; frames += 1) {
+      host.advanceActorsOnce();
+    }
+    expect(actor.deg).toBe(64);
+    expect(actor.y).toBe(0);
+    // A quarter turn at actorturn 7 is ceil(64 / 7) frames.
+    expect(frames).toBe(Math.ceil(64 / 7));
+    // `endturn` lands while the walk is still live.
+    expect(actor.walking).toBe(true);
+    host.advanceActorsOnce();
+    expect(actor.y).toBeCloseTo(3, 5);
   });
 
   it("moves actorspeed units once per game frame, not per 60 Hz rAF", () => {
@@ -800,6 +837,11 @@ describe("actor walk wait", () => {
     actor.y = 0;
     actor.speed = 3;
     host.startWalk(actor, 300, 0, 0);
+    // DF.EXE `0x410b80` spends whole ticks turning to face the dest before
+    // it translates. Run the pivot out first.
+    for (let i = 0; i < 64 && actor.walkTurn; i += 1) {
+      host.advanceActorsOnce();
+    }
     host.advanceActors(1 / 60);
     expect(actor.x).toBe(0);
     host.advanceActors(2 / 60);
@@ -905,6 +947,11 @@ describe("actor walk wait", () => {
     host.startWalk(crow, 60, 0, 180);
     expect(crow.pose).toBe("flight");
     expect(crow.destZ).toBe(180);
+    // DF.EXE `0x410b80` spends whole ticks turning to face the dest before
+    // it translates. Run the pivot out first.
+    for (let i = 0; i < 64 && crow.walkTurn; i += 1) {
+      host.advanceActorsOnce();
+    }
     host.advanceActorsOnce();
     expect(crow.x).toBeCloseTo(6, 5);
     expect(crow.walking).toBe(true);

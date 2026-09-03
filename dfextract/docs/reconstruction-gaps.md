@@ -124,7 +124,7 @@ comma-separated `row col code` encoding. Play copy:
 | Missing | Why it matters |
 |---|---|
 | How a 6-frame SET transition is **timed** / blended | **Locked.** DF.EXE `0x40dd90` / `0x40e1d2`: 5 motion plates at 20 Hz, dest HQ is the standing blit. `0x40d920` no-ops while in strip. See [`src/world/set/README.md`](../../src/world/set/README.md). |
-| MOV reel playback (rate + audio cues) | Holds, A/B mixer, framebuffer, palettes recovered from `MOVPLAY` (see §4a). B playlist wrap after last entry is the leftover. |
+| MOV reel playback (rate + audio cues) | **Done.** Holds, A/B mixer, framebuffer, palettes recovered from `MOVPLAY` (see §4a). The B playlist is a circular list whose last node links to entry `header+0x8BE` (`bed_wrap`, 0 everywhere in Dust). |
 | How stills are **stored at runtime** | Dump is paletted PNG (old RGBA dump was ~115 MB town). Dust’s SET is ~60 MB of 8-bit deltas into one 135 KB buffer. Do not assume 1.7 GB (all frames as RGBA textures). HTTP-per-PNG + 80-texture LRU is what the walker does now. |
 | Z-buffers | **Locked in play.** Trailing RLE after SET color stills. Default dump writes `FRAMES/z/*.png`. `--z` without `--frames` does not rewrite color stills. South-gate road Z is **3** at your feet … **7** up the street (24 = sky). Pixel draws when `spriteZ ≤ stillZ`. Sprite Z is EXE `(lensForward − zclip − setback + 128) >> 6`, then at most **one** plane closer if the hotspot is dirt. Do not use 1/z from the feet (hid the N7 E jug). Do not `min` with a wall. Book: [`src/play/README.md`](../../src/play/README.md) § World → still. |
 | World → still sprite xy | **Locked in play.** Scripts place stars in SET units (`town.leroy1` = 1740, 3536; `town.jug` = 1730, 3476). Tiles **256**. Projector is DF.EXE `0x40dcd0` for **X and Y**, dest size `0x415271`, sprite Z `>> 6`, filmstrip `0x40dd90`. Do not use 1/z Y/scale/Z. Do not freeze or screen-lerp pans. Do not scan Z for Y. Do not nudge stars. Book + dead ends + screenshot oracles: [`src/play/README.md`](../../src/play/README.md) § World → still. |
@@ -191,7 +191,12 @@ has stills (intros, overlays, inspectables, `INFO/`). Mixed 384/264
 (TIPRE) is letterboxed; odd sizes (NITEWARN) pad even for x264. Do not
 use constant 14 fps for new muxes.
 
-Leftover: whether the B playlist **wraps** after the last `+0x83E`
+**Closed:** the B playlist is a circular list — `0x40B933` sets the last
+node's `next` to playlist entry `header+0x8BE` (0 in all 31 Dust reels
+with a theme), dumped as `bed_wrap`. Six reels outlive their playlist and
+loop audibly (LUPRE, LUSS, D4AD4N, INTRO, INTRO3, MAIN).
+
+Historic note: whether the B playlist **wraps** after the last `+0x83E`
 entry (`header+0x8BE`). The extract is close, not proven 1-to-1 with a
 capture of original `MOVPLAY`.
 

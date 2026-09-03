@@ -12,6 +12,7 @@ import {
   movieClipsAtStart,
   armMovieBedFollow,
   movieBedContinues,
+  movieBedWrapIndex,
   movieClipsForRec,
   movieFollowBedIndex,
   movieQueueWhen,
@@ -427,6 +428,53 @@ describe("INTRO2 group B bed", () => {
     expect(Math.abs((clips[third!]!.startSec) - 727 / hz)).toBeLessThan(1e-6);
     const tableEnd = (timeline.duration_ticks ?? 0) / hz;
     expect(movieFollowBedIndex(clips, third!, tableEnd)).toBeUndefined();
+  });
+
+  it("loops the playlist when the reel outlives it (MOVPLAY header+0x8BE)", async () => {
+    // Last node links back to playlist entry `bed_wrap` (0 in Dust).
+    const clips = [
+      { startSec: 0, durationSec: 6, channel: "B", url: "a" },
+      { startSec: 6, durationSec: 6, channel: "B", url: "b" },
+    ];
+    expect(movieBedWrapIndex(clips, 0)).toBe(0);
+    expect(movieBedWrapIndex(clips, 1)).toBe(1);
+    expect(movieBedWrapIndex([], 0)).toBeUndefined();
+    const played: string[] = [];
+    armMovieBedFollow(
+      clips,
+      0,
+      async (clip) => {
+        played.push(clip.url ?? "");
+      },
+      () => false,
+      // Reel runs to 30 s; the 12 s playlist has to wrap.
+      30,
+      0,
+    );
+    for (let i = 0; i < 40; i += 1) {
+      await Promise.resolve();
+    }
+    expect(played.slice(0, 5)).toEqual(["b", "a", "b", "a", "b"]);
+  });
+
+  it("never wraps without a known reel end", async () => {
+    const clips = [
+      { startSec: 0, durationSec: 6, channel: "B", url: "a" },
+      { startSec: 6, durationSec: 6, channel: "B", url: "b" },
+    ];
+    const played: string[] = [];
+    armMovieBedFollow(
+      clips,
+      0,
+      async (clip) => {
+        played.push(clip.url ?? "");
+      },
+      () => false,
+    );
+    for (let i = 0; i < 20; i += 1) {
+      await Promise.resolve();
+    }
+    expect(played).toEqual(["b"]);
   });
 
   it("queues the next B clip without waiting for onended", async () => {

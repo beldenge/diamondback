@@ -121,7 +121,7 @@ export class MoviePlayer {
     if (frames.some((frame) => movieFrameWaitsForClick(frame.action, frame.wait))) {
       await this.playAction(frames, clips, gen, totalSec, opts.waitClick, opts.onProgress);
     } else {
-      await this.playLinear(frames, clips, gen, totalSec, opts.onProgress);
+      await this.playLinear(frames, clips, gen, totalSec, opts.onProgress, timeline.bed_wrap);
     }
     if (gen === this.gen) {
       opts.onProgress?.(totalSec, totalSec);
@@ -188,6 +188,7 @@ export class MoviePlayer {
     gen: number,
     totalSec: number,
     onProgress?: (nowSec: number, totalSec: number) => void,
+    bedWrap?: number,
   ): Promise<void> {
     const total = Math.max(0, totalSec);
     const endSec = movieTableEndSec(frames);
@@ -208,6 +209,7 @@ export class MoviePlayer {
         () => gen !== this.gen,
         this.bedToken,
         endSec,
+        bedWrap,
       );
       if (movieFrameWaitsForAudio(frame.waitAudio)) {
         wall += await awaitWhile(voices.whenGroupAIdle(), () => gen !== this.gen, (sec) => {

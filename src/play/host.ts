@@ -224,6 +224,12 @@ export interface ActorState {
   turnSpeed: number;
   walking: boolean;
   turning: boolean;
+  /**
+   * Pivot phase of a walk job. DF.EXE `0x410b80` turns while the job's
+   * `record+4` target is set and does **not** translate on those ticks;
+   * `endturn` fires when it lands, then the walk begins.
+   */
+  walkTurn: boolean;
   destX: number;
   destY: number;
   destZ: number;
@@ -320,7 +326,7 @@ export interface WorldView {
       timeoutMovie?: string;
     }[],
     clips: { url: string; startSec: number; channel?: string }[],
-    opts?: { keepLayer?: boolean },
+    opts?: { keepLayer?: boolean; bedWrap?: number },
   ): Promise<boolean | void>;
   /** Hide the movie layer after a `keepLayer` chain (towerup → towertop → towerdn). */
   endMovie?(): void;
@@ -1995,6 +2001,7 @@ export class DustHost implements OpcodeHost {
   private clearWalk(actor: ActorState): void {
     actor.walking = false;
     actor.turning = false;
+    actor.walkTurn = false;
     actor.route = [];
     actor.destStar = "";
     // Extracted death is `actorpose ("dead")` then `stopwalk`. Do not
@@ -2034,13 +2041,22 @@ export class DustHost implements OpcodeHost {
       actor.walkStep = 0;
       actor.walkAcc = 0;
     }
-    // Idle `turntodeg` must not keep rotating the sprite after the walk
-    // heading is set. EXE turns, then translates (`0x410b80`).
+    // DF.EXE `0x410820` gives the walk job a turn target (`calcdeg` to the
+    // dest, or the first path vertex) and `0x410b80` spends whole ticks
+    // rotating toward it before any translation. Only the first leg
+    // pivots — later polyline hops just follow the line.
     actor.turning = false;
     const dx = x - actor.x;
     const dy = y - actor.y;
-    if (dx !== 0 || dy !== 0) {
-      actor.deg = this.facingForWalk(actor, x, y);
+    if (continueCycle) {
+      actor.walkTurn = false;
+      if (dx !== 0 || dy !== 0) {
+        actor.deg = this.facingForWalk(actor, x, y);
+      }
+    } else {
+      actor.degTarget =
+        dx !== 0 || dy !== 0 ? this.facingForWalk(actor, x, y) : actor.deg;
+      actor.walkTurn = true;
     }
     this.view?.refreshActors();
   }
@@ -2086,6 +2102,22 @@ export class DustHost implements OpcodeHost {
       }
       if (actor.walking && actor.turning) {
         actor.turning = false;
+      }
+      if (actor.walking && actor.walkTurn) {
+        // Rotate only; the engine returns from the job tick after the turn.
+        const delta = degDelta(actor.deg, actor.degTarget);
+        const step = Math.max(1, actor.turnSpeed);
+        if (!Number.isFinite(delta) || Math.abs(delta) <= step) {
+          actor.deg = wrapDeg(actor.degTarget);
+          actor.walkTurn = false;
+          // `endturn` lands while the walk is still live — cast handlers
+          // guard with `if iswalk (me)` exactly for this.
+          this.turnEnds.push(actor.name);
+        } else {
+          actor.deg = wrapDeg(actor.deg + Math.sign(delta) * step);
+        }
+        moved = true;
+        continue;
       }
       if (actor.walking) {
         const dx = actor.destX - actor.x;
@@ -2524,6 +2556,7 @@ export class DustHost implements OpcodeHost {
         turnSpeed: 7,
         walking: false,
         turning: false,
+        walkTurn: false,
         destX: 0,
         destY: 0,
         destZ: 0,
@@ -5005,7 +5038,10 @@ export class DustHost implements OpcodeHost {
           channel: clip.channel,
         }));
         if (this.view?.playMovie && frames.length) {
-          const ok = await this.view.playMovie(frames, clips, { keepLayer: true });
+          const ok = await this.view.playMovie(frames, clips, {
+            keepLayer: true,
+            bedWrap: timeline.bed_wrap,
+          });
           played = true;
           if (ok === false) {
             this.lastActionFrame = actionFrameAfterPlay(true, true);

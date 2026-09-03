@@ -276,6 +276,10 @@ since the last `puppetevent` (max 3 kept), `DAT_0045dd20` skip flag.
   event**; **Ctrl+Q / Ctrl+.** returns **-1**; Ctrl+0…9 set `wavevolume`;
   Ctrl+T toggles the text flag. The spoken-lines list is cleared when
   `puppetevent` returns.
+- Each dialogue record's `anim` field (rec+12, dumped as `animLogic`) is a
+  **PUP container index**: `FUN_00430890` loads it with
+  `FUN_0042d160(<open PUP>, anim, &handle)` and draws that container's
+  keyframes as the face track. It is not an opaque id.
 - `closepuppetfile ()`: `closepuppet()` hook, unload, arrow cursor, redraw.
 - `puppetparam (i[, v])`: 1 `DAT_0046089c`, 2 (0x80), 3 text color 250,
   4 highlight color 251, 5 font 888, 6 size 12, 7 **subtitles (default
@@ -373,6 +377,45 @@ channels idle; `voicedone ()` = channel 0 idle. Names come back as
   up in the CST (error 10 if unknown), resets the frame counter.
 - Field opcodes read with no set argument return the value; the set form
   (`FUN_00431dd0` side) returns nothing.
+
+## 11a. Walk jobs and the SET camera
+
+`walktostar` (`FUN_00410820`) creates a 0x52-byte walk job with a **turn
+target** at `record+4`: `calcdeg` to the destination, or the heading of
+the first vertex of the SET polyline when the star pair has one. The job
+tick (`FUN_00410b80`) then runs in two phases:
+
+1. While `record+4` is non-negative the actor only **rotates** toward it,
+   one `actorturn` step per game frame, and the tick returns without
+   translating.
+2. When the heading lands, `endturn` fires and `record+6` decides what
+   happens next: `0` (walks) clears the turn target and the walk begins,
+   non-zero (a bare `turntodeg`) ends the job.
+
+So `endturn` arrives while the walk is still live, which is why cast
+`endturn` handlers guard with `if iswalk (me)`.
+
+A **resumed** walk does not restart the polyline. `FUN_00424250` finds the
+vertex nearest the actor, overwrites it with the actor's own position and
+shifts the tail down, so the actor carries on from where it stands. The
+nearest vertex is never allowed to be the last one, which would leave no
+segment to walk.
+
+`opensetfile` (`FUN_00421b80`) copies the SET container-0 header into the
+camera state block, which is why no absolute store to the setback slot
+exists in `.text`:
+
+| State | SET header |
+|---|---|
+| lens setback `0x46094c` | +0x18 (64 on every SET) |
+| camera height `0x46094e` | +0x1a (`camerahi` is the only other writer) |
+| still width / height | +0x2a / +0x2c |
+| spawn tile X / Y / facing | +0x30 / +0x32 / +0x34 |
+
+Filmstrip look-deg is **0 = east**: facing 1=N is `0xC0`, 2=S `0x40`,
+3=E `0`, 4=W `0x80`. The turn table at `0x40e128` steps `index*16` the
+short way round, adding for N→E, S→(not E), E→(not N) and W→N and
+subtracting otherwise — a ±64 quarter turn.
 
 ## 12. Save files (`savegame` / `opengame`, `FUN_0042d870` / `FUN_0042e050`)
 

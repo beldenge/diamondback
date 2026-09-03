@@ -82,6 +82,12 @@ describe("Help walk facing", () => {
     help.y = 3034;
     help.deg = 0;
     host.startWalk(help, 6 * 256 + 128, 12 * 256 + 128, 0);
+    expect(help.degTarget).not.toBe(0);
+    // DF.EXE `0x410b80` spends whole ticks turning to face the dest before
+    // it translates. Run the pivot out first.
+    for (let i = 0; i < 64 && help.walkTurn; i += 1) {
+      host.advanceActorsOnce();
+    }
     expect(help.deg).not.toBe(0);
     const walk = helpWalkFrames();
     if (!walk?.length) {
