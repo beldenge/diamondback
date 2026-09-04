@@ -43,7 +43,7 @@ jobs:
             echo "::error::Set repository variable VITE_EXTRACT_BASE to the CloudFront origin (e.g. https://d3en1dc3mw7cky.cloudfront.net)"
             exit 1
           fi
-      - run: npm ci
+      - run: npm ci --no-audit --no-fund
       - run: npm test
       - run: npm run build
         env:
