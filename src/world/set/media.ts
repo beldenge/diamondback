@@ -1,22 +1,39 @@
 /**
  * Decode gates. Color stills (`stillGate`) must not share a pool with
  * Z/sprites: one 8+8 pool ran 16 `Image.decode`s on the main thread and
- * froze the film. Bits stay on a small pool. Do not advance the color
+ * froze the film. Bits stay on a smaller pool. Do not advance the color
  * still until that plate’s Z is known (cached plane or cached miss).
  *
  * Dust played a strip from RAM; CD seeks were the hitch. We never skip
  * a plate. High jobs (current strip, then dest depth-1) start before
- * queued low jobs. Low prefetch cannot fill the last `HIGH_MEDIA_RESERVE`
- * still slots. `Image.decode` cannot be aborted once started.
+ * queued low jobs. `Image.decode` cannot be aborted once started.
+ *
+ * The caps are about **two different scarce things**, and they moved:
+ *
+ * - Colour stills no longer decode on the main thread at all — they go
+ *   through `createImageBitmap`, so the eight-slot cap that protected
+ *   the film from `Image.decode` is now guarding a cost that left. What
+ *   a colour slot costs today is a *request*, and the hosted extract is
+ *   HTTP/2, which has no six-connection limit. More slots means fewer
+ *   round trips per strip.
+ * - Z and sprites still `getImageData` on the main thread, so their pool
+ *   stays small — just not as small as three, since the measured
+ *   main-thread share of a Z decode is ~0.7 ms.
+ *
+ * The reserve matters more than the ceiling. A strip needs its five
+ * plates inside 250 ms; the dest-neighbourhood warm-up is not needed for
+ * at least that long. On a slow link every extra in-flight request steals
+ * bandwidth from plate 0, so speculation gets a *third* of the pool, not
+ * all-but-two of it.
  */
 
-export const MAX_MEDIA_INFLIGHT = 8;
+export const MAX_MEDIA_INFLIGHT = 12;
 
-/** Z + sprite bitmaps. Keep this small so film decode stays responsive. */
-export const MAX_BITS_INFLIGHT = 3;
+/** Z + sprite bitmaps. Smaller: these still read pixels on the main thread. */
+export const MAX_BITS_INFLIGHT = 6;
 
-/** Slots low jobs must leave free so a high plate can start immediately. */
-export const HIGH_MEDIA_RESERVE = 2;
+/** Share of the pool low-priority prefetch may occupy. */
+export const LOW_MEDIA_SHARE = 1 / 3;
 
 export type MediaPriority = "high" | "low";
 
@@ -127,13 +144,11 @@ export class MediaGate {
     return undefined;
   }
 
-  /** Keep at least two slots free when the cap is the default 8. */
-  private reserve(): number {
-    return Math.min(HIGH_MEDIA_RESERVE, Math.max(0, this.maxInflight - 2));
-  }
-
+  /** How many of the pool's slots speculative prefetch may hold at once. */
   private lowCap(): number {
-    return this.maxInflight - this.reserve();
+    // Always leave room for at least one speculative job, and never let
+    // speculation take more than its share of the pool.
+    return Math.max(1, Math.min(this.maxInflight - 1, Math.floor(this.maxInflight * LOW_MEDIA_SHARE)));
   }
 }
 

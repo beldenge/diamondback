@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { IDLE_NEIGHBOR_DEPTH, neighborStillUrls, poseHqUrl, transitionStillUrls } from "./film";
+import {
+  IDLE_NEIGHBOR_DEPTH,
+  neighborStillUrls,
+  poseHqUrl,
+  transitionStillUrls,
+  warmUrlsFromSpawn,
+} from "./film";
 import { buildSetGraph } from "./graph";
 import type { SceneRecord, TransitionRecord } from "./types";
 import { transitionForInput } from "./walker";
@@ -74,5 +80,52 @@ describe("filmstrip URLs", () => {
     const urls = neighborStillUrls(graph, pose, "_TOWN", 2);
     expect(urls).toContain("/extract/SET/_TOWN/FRAMES/40_0.png");
     expect(urls).toContain("/extract/SET/_TOWN/FRAMES/40_4.png");
+  });
+});
+
+describe("extract cache warm list", () => {
+  const graph = buildSetGraph(scenes, records);
+  const spawn = { x: 0, y: 1, facing: "E" as const };
+
+  it("pairs every colour plate with its Z plane", () => {
+    const urls = warmUrlsFromSpawn(graph, spawn, "_TOWN");
+    for (const url of urls) {
+      if (url.includes("/FRAMES/z/")) {
+        continue;
+      }
+      expect(urls).toContain(url.replace("/FRAMES/", "/FRAMES/z/"));
+    }
+  });
+
+  it("reaches poses a depth-1 prefetch never would", () => {
+    const urls = warmUrlsFromSpawn(graph, spawn, "_TOWN");
+    // 40 is the dest pose's own turn — two moves out from spawn.
+    expect(urls).toContain("/extract/SET/_TOWN/FRAMES/40_0.png");
+    expect(urls).toContain("/extract/SET/_TOWN/FRAMES/z/40_0.png");
+  });
+
+  it("includes the standing HQ, which the walker fetches separately", () => {
+    const urls = warmUrlsFromSpawn(graph, spawn, "_TOWN");
+    expect(urls).toContain("/extract/SET/_TOWN/FRAMES/10_5.png");
+  });
+
+  it("puts the spawn's own moves before anything further out", () => {
+    const urls = warmUrlsFromSpawn(graph, spawn, "_TOWN");
+    const near = urls.indexOf("/extract/SET/_TOWN/FRAMES/10_0.png");
+    const far = urls.indexOf("/extract/SET/_TOWN/FRAMES/40_0.png");
+    expect(near).toBeGreaterThanOrEqual(0);
+    expect(far).toBeGreaterThan(near);
+  });
+
+  it("never repeats a URL", () => {
+    const urls = warmUrlsFromSpawn(graph, spawn, "_TOWN");
+    expect(new Set(urls).size).toBe(urls.length);
+  });
+
+  it("stops at the limit", () => {
+    expect(warmUrlsFromSpawn(graph, spawn, "_TOWN", 4).length).toBeLessThanOrEqual(
+      warmUrlsFromSpawn(graph, spawn, "_TOWN").length,
+    );
+    expect(warmUrlsFromSpawn(graph, spawn, "_TOWN", 0)).toEqual([]);
   });
 });

@@ -32,6 +32,7 @@ import {
 import {
   IDLE_NEIGHBOR_DEPTH,
   neighborStillUrls,
+  warmUrlsFromSpawn,
   transitionStillUrls,
 } from "../world/set/film";
 import { bitsGate, type MediaPriority } from "../world/set/media";
@@ -69,6 +70,7 @@ import {
   zUrlFromStill,
 } from "../world/set/graph";
 import { pngImageData, StillsView } from "../world/set/stillsView";
+import { warmExtract } from "../core/precache";
 import {
   actorSprite,
   actorStillHeight,
@@ -1369,6 +1371,7 @@ export class PlayGame implements WorldView {
         await this.host.seedSandboxInventory(this.vm);
       }
       this.scriptsReady = true;
+      this.warmTownCache();
       this.layoutActors();
       await this.host.ensureHudPortrait(this.vm);
       this.booting = false;
@@ -2403,6 +2406,20 @@ export class PlayGame implements WorldView {
       return;
     }
     this.dispatchWalkKey(walkInputKey(next.input), next.repeat);
+  }
+
+  /**
+   * Hand the extract cache the whole SET, nearest-first, once the player
+   * can actually move. Hosted only — `warmExtract` is a no-op in dev and
+   * wherever no service worker took. Fire and forget: a partly warmed
+   * town is still a faster town.
+   */
+  private warmTownCache(): void {
+    if (!this.graph) {
+      return;
+    }
+    const urls = warmUrlsFromSpawn(this.graph, this.pose, this.stillsFolder());
+    void warmExtract(urls);
   }
 
   private preloadNeighbors(): void {

@@ -1,4 +1,4 @@
-import { frameUrl, hqFrame } from "./graph";
+import { frameUrl, hqFrame, zUrlFromStill } from "./graph";
 import { applyTransition, transitionForInput, type WalkInput } from "./walker";
 import { framesToPlay, type SetGraph, type SetTransition, type WalkerPose } from "./types";
 
@@ -87,6 +87,65 @@ export function neighborStillUrls(
       }
       seenUrl.add(url);
       urls.push(url);
+    }
+  }
+  return urls;
+}
+
+/**
+ * Every filmed plate of a SET, colour and Z, ordered by how far it is
+ * from the spawn — breadth-first through the same left/right/forward
+ * moves the walker can actually make.
+ *
+ * This is the list the extract cache warms in the background. Order is
+ * the whole point: a player who leaves after thirty seconds should still
+ * have got the tiles around the gate, and one who walks the length of
+ * Main Street should stay ahead of the fetch.
+ */
+export function warmUrlsFromSpawn(
+  graph: SetGraph,
+  spawn: WalkerPose,
+  folder: string,
+  limit = Number.POSITIVE_INFINITY,
+): string[] {
+  const urls: string[] = [];
+  const seenUrl = new Set<string>();
+  const seenPose = new Set<string>();
+  const queue: WalkerPose[] = [spawn];
+  seenPose.add(`${spawn.x},${spawn.y},${spawn.facing}`);
+
+  const push = (url: string): void => {
+    if (seenUrl.has(url)) {
+      return;
+    }
+    seenUrl.add(url);
+    urls.push(url, zUrlFromStill(url));
+  };
+
+  while (queue.length > 0 && urls.length < limit) {
+    const pose = queue.shift();
+    if (!pose) {
+      break;
+    }
+    // The standing still for this pose, then everything you can do from it.
+    const hq = poseHqUrl(graph, pose, folder);
+    if (hq) {
+      push(hq);
+    }
+    for (const input of NEIGHBOR_INPUTS) {
+      const tr = transitionForInput(graph, pose, input);
+      if (!tr) {
+        continue;
+      }
+      for (const url of transitionStillUrls(tr, folder)) {
+        push(url);
+      }
+      const next = applyTransition(tr);
+      const key = `${next.x},${next.y},${next.facing}`;
+      if (!seenPose.has(key)) {
+        seenPose.add(key);
+        queue.push(next);
+      }
     }
   }
   return urls;

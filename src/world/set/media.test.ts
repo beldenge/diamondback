@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { bitsGate, MediaGate, MAX_BITS_INFLIGHT, stillGate } from "./media";
+import {
+  bitsGate,
+  MediaGate,
+  MAX_BITS_INFLIGHT,
+  MAX_MEDIA_INFLIGHT,
+  stillGate,
+} from "./media";
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -22,7 +28,10 @@ async function waitIdle(gate: MediaGate): Promise<void> {
 describe("media gate", () => {
   it("keeps film and Z/sprite decode on separate pools", () => {
     expect(stillGate).not.toBe(bitsGate);
-    expect(MAX_BITS_INFLIGHT).toBe(3);
+    // Z and sprites still read pixels on the main thread; colour stills
+    // do not. The bits pool stays the smaller of the two.
+    expect(MAX_BITS_INFLIGHT).toBeLessThan(MAX_MEDIA_INFLIGHT);
+    expect(MAX_BITS_INFLIGHT).toBeGreaterThan(0);
   });
 
   it("starts high-priority jobs before queued low-priority jobs", async () => {
@@ -63,10 +72,37 @@ describe("media gate", () => {
     expect(started).toEqual(["hold", "later"]);
   });
 
-  it("leaves reserved slots so a high job starts while lows are saturated", async () => {
+  it("caps speculation to a share of the pool, so a strip plate starts at once", async () => {
     const started: string[] = [];
-    const gate = new MediaGate(8);
-    const holds = Array.from({ length: 8 }, () => deferred());
+    const gate = new MediaGate(12);
+    const holds = Array.from({ length: 12 }, () => deferred());
+    for (let i = 0; i < 12; i += 1) {
+      const hold = holds[i]!;
+      gate.enqueue(`low-${i}`, "low", async () => {
+        started.push(`low-${i}`);
+        await hold.promise;
+      });
+    }
+    // Twelve speculative jobs offered; only a third of the pool taken.
+    const speculating = gate.running;
+    expect(speculating).toBeLessThanOrEqual(4);
+    expect(gate.queued).toBe(12 - speculating);
+    expect(started).not.toContain("strip");
+    gate.enqueue("strip", "high", async () => {
+      started.push("strip");
+    });
+    expect(started).toContain("strip");
+    expect(gate.running).toBe(speculating + 1);
+    for (const hold of holds) {
+      hold.resolve();
+    }
+    await waitIdle(gate);
+  });
+
+  it("lets the current strip use the whole pool, speculation notwithstanding", async () => {
+    const started: string[] = [];
+    const gate = new MediaGate(12);
+    const holds = Array.from({ length: 20 }, () => deferred());
     for (let i = 0; i < 8; i += 1) {
       const hold = holds[i]!;
       gate.enqueue(`low-${i}`, "low", async () => {
@@ -74,25 +110,27 @@ describe("media gate", () => {
         await hold.promise;
       });
     }
-    expect(gate.running).toBe(6);
-    expect(gate.queued).toBe(2);
-    expect(started).not.toContain("strip");
-    gate.enqueue("strip", "high", async () => {
-      started.push("strip");
-    });
-    expect(started).toContain("strip");
-    expect(gate.running).toBe(7);
+    const before = gate.running;
+    for (let i = 0; i < 10; i += 1) {
+      const hold = holds[8 + i]!;
+      gate.enqueue(`plate-${i}`, "high", async () => {
+        started.push(`plate-${i}`);
+        await hold.promise;
+      });
+    }
+    expect(gate.running).toBe(12);
+    expect(started.filter((n) => n.startsWith("plate")).length).toBe(12 - before);
     for (const hold of holds) {
       hold.resolve();
     }
     await waitIdle(gate);
   });
 
-  it("prefer() starts a promoted job in a reserved slot", async () => {
+  it("prefer() promotes a queued job out of the speculation cap", async () => {
     const started: string[] = [];
-    const gate = new MediaGate(8);
-    const holds = Array.from({ length: 6 }, () => deferred());
-    for (let i = 0; i < 6; i += 1) {
+    const gate = new MediaGate(12);
+    const holds = Array.from({ length: 12 }, () => deferred());
+    for (let i = 0; i < 12; i += 1) {
       const hold = holds[i]!;
       gate.enqueue(`low-${i}`, "low", async () => {
         started.push(`low-${i}`);
@@ -103,7 +141,7 @@ describe("media gate", () => {
       started.push("later");
     });
     expect(started).not.toContain("later");
-    expect(gate.running).toBe(6);
+    // Promotion makes it a strip plate, so the low cap no longer applies.
     gate.prefer("later");
     expect(started).toContain("later");
     for (const hold of holds) {
@@ -133,9 +171,9 @@ describe("media gate", () => {
     }
     gate.preferMany(["a", "b", "c"]);
     const extras = started.filter((name) => name.length === 1);
+    // First id first — a tap needs plate 0 before the rest of its strip.
     expect(extras[0]).toBe("a");
-    expect(extras).toEqual(["a", "b"]);
-    expect(gate.queued).toBe(1);
+    expect(extras).toEqual(["a", "b", "c"]);
     for (const hold of [...lows, ...plates]) {
       hold.resolve();
     }
@@ -169,7 +207,7 @@ describe("media gate", () => {
     let peak = 0;
     for (let i = 0; i < 3; i += 1) {
       const hold = holds[i]!;
-      gate.enqueue(`j${i}`, "low", async () => {
+      gate.enqueue(`j${i}`, "high", async () => {
         running += 1;
         peak = Math.max(peak, running);
         await hold.promise;

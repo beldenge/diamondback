@@ -2,6 +2,7 @@ import "./style.css";
 import { clientMode, needsUnlockedSpoilerWarning, type ClientMode } from "./core/mode";
 import { MovieGallery } from "./play/gallery";
 import { PlayGame } from "./play/game";
+import { startPrecache } from "./core/precache";
 import { browserHasSave } from "./play/save";
 import { extractUrl } from "./world/set/extract";
 
@@ -232,3 +233,6 @@ unlockedSpoilers?.addEventListener("click", (event) => {
 
 fillLandingCards();
 applyRoute();
+// Hosted only, and only the extract: puts the film on local disk so the
+// second visit reads from storage instead of the network.
+void startPrecache();

@@ -136,6 +136,24 @@ Python tests need `sources/dust.dbgl/` (and `dfextract/out/` for some decompile 
 
 Repo variable **`VITE_EXTRACT_BASE`** must be the CloudFront origin (no trailing slash). Local `npm run dev` ignores it and keeps using `/extract`.
 
+**Extract cache (`public/sw.js`).** Hosted builds register a service
+worker that puts the film on the player's disk: cache-first for the
+extract origin, and after boot the stills walker hands it every plate of
+the current SET ordered breadth-first from the spawn, warmed in the
+background at low priority. A second visit — and most of a first one —
+reads from storage instead of the network, which is what Dust got from
+the CD. Measured on a preview build: a six-move walk made 78 extract
+requests, **none** of which touched the network.
+
+It is deliberately narrow. It never intercepts HTML, JS or CSS, so a
+Pages deploy behaves exactly as before and the worker cannot serve a
+stale app shell. The extract origin is baked into the worker's URL
+(`sw.js?base=…`), so **changing `VITE_EXTRACT_BASE` installs a new worker
+and drops the old cache** — which is what makes the versioned-prefix
+upload plan safe. `EPOCH` in `sw.js` is the manual wipe, and `?nosw=1`
+unregisters and clears. Dev never registers it: Vite serves `/extract`
+with `no-cache` so a re-dump must show up on reload.
+
 Pages **Source** must be **GitHub Actions**. Markdown and Python (`dfextract/`, `dustdecompile/`) do not trigger a deploy. **Actions → Deploy Pages → Run workflow** forces one. After a client change, push `main`; you do not re-upload S3 unless the extract itself changed.
 
 If the canvas is blank on the live site: CloudFront CORS (GET/HEAD, `Access-Control-Allow-Origin` `*` or the Pages origin) or a key-prefix mismatch (`SET/…` vs `extract/SET/…`).
