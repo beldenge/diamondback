@@ -163,8 +163,32 @@ import {
 } from "./movies";
 import { playMovieClip, unlockVoices, voices } from "./speech";
 
+/**
+ * How much of the next move to warm before it is asked for.
+ *
+ * `neighborStillUrls` is plate-major, so the first six entries are plate
+ * 0 then plate 1 of each of the (at most three) moves available from the
+ * pose we are landing on. That is what a tap needs *immediately*; the
+ * rest of the chosen strip is fetched when the tap actually happens and
+ * has a 50 ms slot per plate to arrive.
+ *
+ * Warming all five plates of all three moves instead meant ~15 decodes
+ * per step of which at most 5 were ever shown — it tripled the decode
+ * traffic, and evicted the cache out from under stills we still wanted.
+ */
+const DEST_WARM_PLATES = 6;
+
 /** DF.EXE main loop: event 8 (HQ still) needs 20 idle ticks of the 60 Hz clock. */
 const HQ_IDLE_MS = (20 * 1000) / 60;
+
+/**
+ * SET Z planes, 512×264 bytes each: 512 of them is ~69 MB of plain
+ * `Uint8Array`. Deeper than the colour cache on purpose — a plane is a
+ * quarter the size of the still it pairs with, and re-deriving one costs
+ * a PNG decode plus a throwaway 540 KB `ImageData`, so it is the more
+ * expensive of the two to lose.
+ */
+const Z_CACHE_MAX = 512;
 
 const CURSORS: Record<string, string> = {
   arrow: "/rsrc/cursors/arrow.cur",
@@ -298,8 +322,12 @@ export class PlayGame implements WorldView {
     }
   >();
   private zPlane: Uint8Array | null = null;
+  /** A decode landed; repaint the sprite layer on the next tick. */
+  private actorsDirty = false;
   private zWant = "";
   private readonly zCache = new Map<string, Uint8Array | null>();
+  /** Planes the current strip and next moves need; never LRU-evicted. */
+  private readonly zRetain = new Set<string>();
   private readonly zLoading = new Map<string, Promise<void>>();
   private readonly stageEl: HTMLDivElement;
   private readonly hudEl: HTMLDivElement;
@@ -468,6 +496,10 @@ export class PlayGame implements WorldView {
         event.preventDefault();
       }
     });
+    // The 512×384 stage letterboxes into a phone screen, so most of a
+    // portrait display is bars. A swipe that starts out there is still a
+    // swipe — otherwise two thirds of the glass does nothing.
+    window.addEventListener("pointerdown", (event) => this.onLetterboxDown(event));
     window.addEventListener("pointermove", (event) => this.onPointerMove(event));
     window.addEventListener("pointerup", (event) => void this.onPointerUp(event));
     window.addEventListener("pointercancel", (event) => void this.onPointerUp(event));
@@ -496,10 +528,16 @@ export class PlayGame implements WorldView {
     window.visualViewport?.addEventListener("scroll", () => this.layoutStage());
   }
 
+  /**
+   * A world-state change wants the sprite layer repainted. One
+   * `advanceActors` pass fires this from `actorField`, `advanceActorsOnce`
+   * and `advancePropViews`, so painting here ran the whole projection +
+   * blit three times per frame. Mark it and let `tick` paint once;
+   * `forceupdate` awaits a real frame, so a blocking script still sees
+   * the repaint on its next step.
+   */
   refreshActors(): void {
-    if (!this.flats.board) {
-      this.layoutActors();
-    }
+    this.actorsDirty = true;
     this.host.paintPuzzle();
   }
 
@@ -1409,8 +1447,12 @@ export class PlayGame implements WorldView {
       // CRACK `while stilldown` `forceupdate`s at 60 Hz — skip hidden-world
       // actor blits so `mouse()` is not sampled 50 ms late.
       if (!this.flats.board) {
+        this.actorsDirty = false;
         this.layoutActors();
       }
+    } else if (this.actorsDirty && !this.flats.board) {
+      this.actorsDirty = false;
+      this.layoutActors();
     }
     this.applyCursor();
     this.ui.tick(dt);
@@ -1859,6 +1901,27 @@ export class PlayGame implements WorldView {
     void this.runScriptMouse(point, "world");
   }
 
+  /**
+   * A touch that lands on the letterbox, not on the stage. `onPointerUp`
+   * is already global, so recording the origin is all a swipe needs.
+   */
+  private onLetterboxDown(event: PointerEvent): void {
+    if (!this.visible || event.button !== 0 || !isSwipePointer(event.pointerType)) {
+      return;
+    }
+    if (this.swipe || this.flats.open || !this.scriptsReady) {
+      return;
+    }
+    const target = event.target;
+    if (target instanceof Node && this.stageEl.contains(target)) {
+      return;
+    }
+    if (this.dialogEl?.open) {
+      return;
+    }
+    this.swipe = { id: event.pointerId, x: event.clientX, y: event.clientY };
+  }
+
   private onPointerMove(event: PointerEvent): void {
     if (!this.visible) {
       return;
@@ -2015,24 +2078,7 @@ export class PlayGame implements WorldView {
     }
     if (this.host.sandbox && event.code === "KeyN" && !event.repeat) {
       event.preventDefault();
-      if (this.talking || this.inputBlocked() || !this.scriptsReady) {
-        return;
-      }
-      const clock = numGlobal(this.vm, "clock");
-      const slot = isClockSlot(clock) ? clock : 2;
-      const next = toggleDayNight(slot, this.lastDayClock);
-      this.lastDayClock = next.lastDayClock;
-      this.talking = true;
-      void this.host
-        .applySandboxClock(this.vm, next.clock)
-        .then(() => {
-          this.hqGen += 1;
-          return this.showHold();
-        })
-        .finally(() => {
-          this.talking = false;
-          this.syncHud();
-        });
+      this.toggleSandboxClock();
       return;
     }
     if (event.code === "Escape" && !event.repeat) {
@@ -2081,6 +2127,61 @@ export class PlayGame implements WorldView {
     void this.host.dispatchKey(this.vm, arg, repeat).finally(() => {
       this.talking = false;
     });
+  }
+
+  /**
+   * Sandbox `N`. Also the toolbar's day/night button — on a phone there
+   * is no key to press, and this is the one thing in the stills modes
+   * that had no other way in.
+   */
+  private toggleSandboxClock(): void {
+    if (!this.host.sandbox || this.talking || this.inputBlocked() || !this.scriptsReady) {
+      return;
+    }
+    const clock = numGlobal(this.vm, "clock");
+    const slot = isClockSlot(clock) ? clock : 2;
+    const next = toggleDayNight(slot, this.lastDayClock);
+    this.lastDayClock = next.lastDayClock;
+    this.talking = true;
+    void this.host
+      .applySandboxClock(this.vm, next.clock)
+      .then(() => {
+        this.hqGen += 1;
+        return this.showHold();
+      })
+      .finally(() => {
+        this.talking = false;
+        this.syncHud();
+      });
+  }
+
+  /** Day/night in the toys bar: `N` with no keyboard to press it on. */
+  private clockToy(): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "sandbox-toy sandbox-clock";
+    btn.dataset.label = "Day / night";
+    btn.setAttribute("aria-label", "Toggle day and night");
+    const face = document.createElement("span");
+    face.className = "sandbox-toy-face sandbox-clock-face";
+    btn.append(face);
+    let fromPointer = false;
+    btn.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      fromPointer = true;
+      this.toggleSandboxClock();
+    });
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      if (fromPointer) {
+        fromPointer = false;
+        return;
+      }
+      this.toggleSandboxClock();
+    });
+    return btn;
   }
 
   private tryMove(input: WalkInput): void {
@@ -2133,7 +2234,7 @@ export class PlayGame implements WorldView {
   private startStillStrip(tr: SetTransition, dest: WalkerPose): void {
     const folder = this.stillsFolder();
     const motion = transitionStillUrls(tr, folder);
-    const nextMoves = neighborStillUrls(this.graph, dest, folder, 1);
+    const nextMoves = neighborStillUrls(this.graph, dest, folder, 1).slice(0, DEST_WARM_PLATES);
     this.view.retain([...motion, ...nextMoves]);
     this.view.preload(motion, "high");
     this.view.prefer(motion);
@@ -2308,7 +2409,13 @@ export class PlayGame implements WorldView {
     if (!this.graph) {
       return;
     }
-    const urls = neighborStillUrls(this.graph, this.pose, this.stillsFolder(), IDLE_NEIGHBOR_DEPTH);
+    // Standing still: the same head-of-list warmth, at idle priority.
+    const urls = neighborStillUrls(
+      this.graph,
+      this.pose,
+      this.stillsFolder(),
+      IDLE_NEIGHBOR_DEPTH,
+    ).slice(0, DEST_WARM_PLATES);
     this.view.preload(urls, "low");
     this.preloadZ(urls, "low");
   }
@@ -2783,7 +2890,10 @@ export class PlayGame implements WorldView {
           inven ? { restoreShadow: false } : undefined,
         );
         this.spriteBits.set(url, bits);
-        this.layoutActors();
+        // Warming a cast queues dozens of plates; a full sprite pass per
+        // arrival ran `layoutActors` hundreds of times per walk. Coalesce
+        // to one pass on the next tick.
+        this.actorsDirty = true;
         return bits;
       })
       .catch(() => {
@@ -2825,6 +2935,7 @@ export class PlayGame implements WorldView {
    */
   private resetOcclusion(): void {
     this.zCache.clear();
+    this.zRetain.clear();
     this.zLoading.clear();
     this.zWant = "";
   }
@@ -2883,15 +2994,48 @@ export class PlayGame implements WorldView {
     }
   }
 
+  /**
+   * Current strip + next-move neighborhood are pinned; everything else
+   * is LRU. This used to drop the cache to just those planes on every
+   * step, so pacing one street re-decoded half of them — 512×264 PNG,
+   * `getImageData`, and the 135k-pixel channel loop, all on the main
+   * thread while the filmstrip was running. A plane is 135 KB, so the
+   * whole cache is ~35 MB.
+   */
   private trimZCache(stillUrls: string[]): void {
-    const keep = new Set(stillUrls.map((still) => zUrlFromStill(still)));
-    if (this.zWant) {
-      keep.add(this.zWant);
+    this.zRetain.clear();
+    for (const still of stillUrls) {
+      this.zRetain.add(zUrlFromStill(still));
     }
-    for (const key of [...this.zCache.keys()]) {
-      if (!keep.has(key)) {
+    if (this.zWant) {
+      this.zRetain.add(this.zWant);
+    }
+    // Pinned planes are the freshest: re-inserting moves them to the
+    // young end of the Map's insertion order.
+    for (const key of this.zRetain) {
+      if (this.zCache.has(key)) {
+        const plane = this.zCache.get(key) ?? null;
         this.zCache.delete(key);
+        this.zCache.set(key, plane);
       }
+    }
+    this.evictZCache();
+  }
+
+  private evictZCache(): void {
+    while (this.zCache.size > Z_CACHE_MAX) {
+      let victim: string | undefined;
+      for (const key of this.zCache.keys()) {
+        if (key === this.zWant || this.zRetain.has(key)) {
+          continue;
+        }
+        victim = key;
+        break;
+      }
+      if (victim === undefined) {
+        return;
+      }
+      this.zCache.delete(victim);
     }
   }
 
@@ -2909,16 +3053,17 @@ export class PlayGame implements WorldView {
     const job = decodeStillImage(url, priority)
       .then((image) => {
         this.zCache.set(url, zPlaneFromImageData(image));
+        this.evictZCache();
         if (this.zWant === url) {
           this.zPlane = this.zCache.get(url) ?? null;
-          this.layoutActors();
+          this.actorsDirty = true;
         }
       })
       .catch(() => {
         this.zCache.set(url, null);
         if (this.zWant === url) {
           this.zPlane = null;
-          this.layoutActors();
+          this.actorsDirty = true;
         }
       })
       .finally(() => {
@@ -2939,6 +3084,7 @@ export class PlayGame implements WorldView {
       event.stopPropagation();
       event.preventDefault();
     });
+    bar.append(this.clockToy());
     for (const toy of SANDBOX_TOYS) {
       const btn = document.createElement("button");
       btn.type = "button";

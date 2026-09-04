@@ -159,7 +159,8 @@ class Tumbleweed {
     for (let i = 0; i < 11; i += 1) {
       const hoop = new THREE.Mesh(new THREE.TorusGeometry(WEED_R * rand(0.72, 1), 0.01, 4, 16), mat);
       hoop.rotation.set(rand(0, Math.PI), rand(0, Math.PI), rand(0, Math.PI));
-      hoop.castShadow = true;
+      // No shadow: the sun's map is static (see `ReimaginedGame.tick`) and
+      // a 0.4-unit twig ball is one texel of a 260-unit / 2048 map anyway.
       this.obj.add(hoop);
     }
     this.obj.visible = false;

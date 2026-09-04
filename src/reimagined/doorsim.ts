@@ -16,7 +16,8 @@ export interface Clickable {
   hitMeshes: THREE.Mesh[];
   open: boolean;
   toggle(): void;
-  update(dt: number): void;
+  /** True if anything moved this frame (the sun's shadow map must redraw). */
+  update(dt: number): boolean;
   colliders(): Aabb[];
 }
 
@@ -159,14 +160,15 @@ export class SwingDoor {
     this.open = !this.open;
   }
 
-  update(dt: number): void {
+  update(dt: number): boolean {
     const target = this.open ? 1 : 0;
     if (this.t === target) {
-      return;
+      return false;
     }
     const step = dt / 0.45;
     this.t = target > this.t ? Math.min(target, this.t + step) : Math.max(target, this.t - step);
     this.apply();
+    return true;
   }
 
   private apply(): void {
@@ -229,16 +231,18 @@ export class CafeDoors {
     }
   }
 
-  update(px: number, pz: number, dt: number): void {
+  update(px: number, pz: number, dt: number): boolean {
     const across = this.alongZ ? px - this.x : pz - this.z;
     const along = this.alongZ ? pz - this.z : px - this.x;
     const near = Math.abs(along) < this.width / 2 + 0.45 && Math.abs(across) < 1.1;
     // +yaw swings the leaves toward the door's outward side; push them
     // away from whichever side the walker is on
     const target = near ? (across > 0 ? -1.35 : 1.35) : 0;
+    const was = this.angle;
     this.angle += (target - this.angle) * Math.min(1, dt * 7);
     for (const { pivot, dir } of this.pivots) {
       pivot.rotation.y = this.angle * dir;
     }
+    return Math.abs(this.angle - was) > 1e-4;
   }
 }

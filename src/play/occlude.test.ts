@@ -10,6 +10,7 @@ import {
   blitSpriteZ,
   isDoorOverlay,
   isRangeGroundWalker,
+  zPlaneFromImageData,
   isWallOverlay,
   paintFarToNear,
   propStillScale,
@@ -345,5 +346,43 @@ describe("SET Z vs actor", () => {
     expect(data[3]).toBe(255);
     expect(data[7]).toBe(255);
     expect(data[foot + 3]).toBe(CONTACT_SHADOW_ALPHA);
+  });
+});
+
+describe("zPlaneFromImageData", () => {
+  /** What the loop used to be, byte by byte. */
+  function referenceZ(image: ImageData): Uint8Array {
+    const z = new Uint8Array(image.width * image.height);
+    for (let i = 0; i < z.length; i += 1) {
+      z[i] = image.data[i * 4];
+    }
+    return z;
+  }
+
+  function make(width: number, height: number, offset = 0): ImageData {
+    const buffer = new ArrayBuffer(offset + width * height * 4);
+    const data = new Uint8ClampedArray(buffer, offset, width * height * 4);
+    for (let i = 0; i < width * height; i += 1) {
+      data[i * 4] = (i * 7) % 25; // R: the SET Z plane, 1..24
+      data[i * 4 + 1] = 200; // G/B/A differ so a wrong channel shows up
+      data[i * 4 + 2] = 99;
+      data[i * 4 + 3] = 255;
+    }
+    return { data, width, height, colorSpace: "srgb" } as ImageData;
+  }
+
+  it("reads the red channel of a full 512x264 still", () => {
+    const image = make(512, 264);
+    expect(Array.from(zPlaneFromImageData(image))).toEqual(Array.from(referenceZ(image)));
+  });
+
+  it("falls back when the pixels are not 32-bit aligned", () => {
+    const image = make(8, 4, 2);
+    expect(image.data.byteOffset % 4).not.toBe(0);
+    expect(Array.from(zPlaneFromImageData(image))).toEqual(Array.from(referenceZ(image)));
+  });
+
+  it("returns one byte per pixel", () => {
+    expect(zPlaneFromImageData(make(6, 3))).toHaveLength(18);
   });
 });

@@ -12,7 +12,7 @@ import { pngFetchCache } from "./extract";
 import { stillGate, type MediaPriority } from "./media";
 import { STILL_HEIGHT, STILL_WIDTH } from "./types";
 
-/** ~256 stills × 512×264 RGBA. Older GPU uploads are disposed. */
+/** ~256 stills × 512×264 RGBA (~138 MB). Older uploads are disposed. */
 const CACHE_MAX = 256;
 
 export class StillsView {
@@ -154,8 +154,14 @@ export class StillsView {
   private apply(url: string, texture: Texture): void {
     this.displayed = url;
     this.touch(url);
+    // Only the null -> texture swap changes the shader defines. Setting
+    // `needsUpdate` on every plate re-ran three's program cache key (a
+    // ~40-field string) 20 times a second for the same program.
+    const first = this.material.map === null;
     this.material.map = texture;
-    this.material.needsUpdate = true;
+    if (first) {
+      this.material.needsUpdate = true;
+    }
     this.mesh.visible = true;
   }
 
@@ -235,50 +241,48 @@ function stillTexture(image: TexImageSource, flipY: boolean): Texture {
   return texture;
 }
 
-type ScratchSlot = {
-  canvas: HTMLCanvasElement;
-  ctx: CanvasRenderingContext2D;
-  busy: boolean;
-};
+/**
+ * One software 2D canvas for every PNG decode. Each still used to keep
+ * its own `HTMLCanvasElement` alive as the texture source: 256 cached
+ * stills meant 256 GPU-backed canvas surfaces (~110 MB) fighting
+ * Chrome's canvas budget. Decoded pixels are plain `ImageData` now, so
+ * the scratch is the only canvas in the pipeline. It only grows.
+ */
+let scratchCanvas: HTMLCanvasElement | null = null;
+let scratchCtx: CanvasRenderingContext2D | null = null;
 
-const scratchPool: ScratchSlot[] = [];
-
-function borrowScratch(width: number, height: number): ScratchSlot {
-  let slot = scratchPool.find((item) => !item.busy);
-  if (!slot) {
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d", { alpha: true, willReadFrequently: true });
+function scratchFor(width: number, height: number): CanvasRenderingContext2D {
+  if (!scratchCanvas || !scratchCtx) {
+    scratchCanvas = document.createElement("canvas");
+    scratchCanvas.width = Math.max(1, width);
+    scratchCanvas.height = Math.max(1, height);
+    const ctx = scratchCanvas.getContext("2d", { alpha: true, willReadFrequently: true });
     if (!ctx) {
       throw new Error("still canvas");
     }
-    slot = { canvas, ctx, busy: false };
-    scratchPool.push(slot);
+    scratchCtx = ctx;
+    return ctx;
   }
-  slot.busy = true;
-  if (slot.canvas.width !== width || slot.canvas.height !== height) {
-    slot.canvas.width = width;
-    slot.canvas.height = height;
-  } else {
-    slot.ctx.clearRect(0, 0, width, height);
+  if (scratchCanvas.width < width || scratchCanvas.height < height) {
+    // Growing resets the backing store; every caller clears its own rect.
+    scratchCanvas.width = Math.max(scratchCanvas.width, width);
+    scratchCanvas.height = Math.max(scratchCanvas.height, height);
   }
-  return slot;
-}
-
-function releaseScratch(slot: ScratchSlot): void {
-  slot.busy = false;
+  return scratchCtx;
 }
 
 /**
- * Decode an extract PNG onto a 2D canvas. Indexed SET stills go black in
+ * Decode an extract PNG to `ImageData`. Indexed SET stills go black in
  * Firefox if we use createImageBitmap({ colorSpaceConversion: "none" })
- * or revoke the blob URL before the pixels are copied.
- * `readback` keeps the bitmap in software for `getImageData` (Z/sprites).
- * Town stills omit that so the GPU upload stays on the fast path.
+ * or revoke the blob URL before the pixels are copied, so the decode
+ * still goes through an `Image` and a 2D canvas.
+ *
+ * The pixels come back as `ImageData`, not a canvas: three uploads that
+ * directly (it is a `TexImageSource` and honours `flipY`), and a still
+ * kept in the texture cache then costs one typed array instead of a
+ * live GPU-backed canvas surface.
  */
-export async function rasterizePng(
-  url: string,
-  opts?: { readback?: boolean },
-): Promise<{ canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D }> {
+export async function pngImageData(url: string): Promise<ImageData> {
   const res = await fetch(url, { cache: pngFetchCache(import.meta.env.PROD) });
   if (!res.ok) {
     throw new Error(`${url} ${res.status}`);
@@ -302,44 +306,112 @@ export async function rasterizePng(
     if (w <= 0 || h <= 0) {
       throw new Error(`${url} empty still`);
     }
-    if (opts?.readback) {
-      const slot = borrowScratch(w, h);
-      try {
-        slot.ctx.drawImage(img, 0, 0);
-        return { canvas: slot.canvas, ctx: slot.ctx };
-      } catch (err) {
-        releaseScratch(slot);
-        throw err;
-      }
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d", { alpha: true });
-    if (!ctx) {
-      throw new Error("still canvas");
-    }
+    // Borrow, draw, read: no await in between, so the scratch is never
+    // shared across two decodes even with eight of them in flight.
+    const ctx = scratchFor(w, h);
+    ctx.clearRect(0, 0, w, h);
     ctx.drawImage(img, 0, 0);
-    return { canvas, ctx };
+    return ctx.getImageData(0, 0, w, h);
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
 }
 
-/** Z/sprite pixels. Uses a software scratch canvas; does not keep it. */
-export async function pngImageData(url: string): Promise<ImageData> {
-  const { canvas, ctx } = await rasterizePng(url, { readback: true });
-  try {
-    return ctx.getImageData(0, 0, canvas.width, canvas.height);
-  } finally {
-    const slot = scratchPool.find((item) => item.canvas === canvas);
-    if (slot) {
-      releaseScratch(slot);
-    }
+/**
+ * A standalone canvas of the PNG, for callers that blit it with
+ * `drawImage` (PUP talking-head plates). Stills do not use this — they
+ * keep `ImageData` so the cache is not 256 live canvas surfaces.
+ */
+export async function pngCanvas(url: string): Promise<HTMLCanvasElement> {
+  const image = await pngImageData(url);
+  const canvas = document.createElement("canvas");
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const ctx = canvas.getContext("2d", { alpha: true });
+  if (!ctx) {
+    throw new Error("still canvas");
   }
+  ctx.putImageData(image, 0, 0);
+  return canvas;
+}
+
+/**
+ * `ImageBitmap` support, probed once.
+ *
+ * A film still is only ever a texture: nothing reads its pixels back in
+ * JS. Decoding it to `ImageData` put 512×264×4 bytes on the JS heap per
+ * still — 132 MB held by a full cache, and ~6 MB of fresh garbage every
+ * step once the cache starts evicting, which is what turned into GC
+ * pauses after a few dozen moves. An `ImageBitmap` decodes off the main
+ * thread, keeps its pixels outside the JS heap, and `close()` frees it
+ * the moment the cache evicts it.
+ *
+ * WebGL's `UNPACK_FLIP_Y_WEBGL` does not apply to an `ImageBitmap`, so
+ * the flip has to happen at creation. Verified byte-identical against
+ * the `ImageData` path for a SET still and a CST sprite. Do **not** pass
+ * `colorSpaceConversion: "none"` — that is the option that turns
+ * indexed SET PNGs black in Firefox.
+ */
+let bitmapSupport: Promise<boolean> | null = null;
+
+function probeImageBitmap(): Promise<boolean> {
+  if (typeof createImageBitmap !== "function" || typeof document === "undefined") {
+    return Promise.resolve(false);
+  }
+  // One pixel red over one pixel blue: after a flipY decode the top row
+  // must come back blue. A browser that ignores the option fails here
+  // and keeps the ImageData path rather than rendering upside down.
+  const probe = document.createElement("canvas");
+  probe.width = 1;
+  probe.height = 2;
+  const ctx = probe.getContext("2d", { alpha: false, willReadFrequently: true });
+  if (!ctx) {
+    return Promise.resolve(false);
+  }
+  ctx.fillStyle = "#ff0000";
+  ctx.fillRect(0, 0, 1, 1);
+  ctx.fillStyle = "#0000ff";
+  ctx.fillRect(0, 1, 1, 1);
+  return createImageBitmap(probe, { imageOrientation: "flipY" })
+    .then((bitmap) => {
+      ctx.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      const top = ctx.getImageData(0, 0, 1, 1).data;
+      return top[2] > 200 && top[0] < 60;
+    })
+    .catch(() => false);
+}
+
+function imageBitmapReady(): Promise<boolean> {
+  bitmapSupport ??= probeImageBitmap();
+  return bitmapSupport;
+}
+
+/** A missing / broken URL. Retrying it through the other decoder is pointless. */
+class FetchFailed extends Error {}
+
+async function bitmapStill(url: string): Promise<Texture> {
+  const res = await fetch(url, { cache: pngFetchCache(import.meta.env.PROD) });
+  if (!res.ok) {
+    throw new FetchFailed(`${url} ${res.status}`);
+  }
+  const blob = await res.blob();
+  const typed = blob.type.startsWith("image/") ? blob : new Blob([blob], { type: "image/png" });
+  // Flipped at decode, so the texture must not flip again.
+  return stillTexture(await createImageBitmap(typed, { imageOrientation: "flipY" }), false);
 }
 
 async function decodeStillTexture(url: string, _priority: MediaPriority): Promise<Texture> {
-  const { canvas } = await rasterizePng(url);
-  return stillTexture(canvas, true);
+  if (await imageBitmapReady()) {
+    try {
+      return await bitmapStill(url);
+    } catch (err) {
+      if (err instanceof FetchFailed) {
+        throw err;
+      }
+      // A decode failure the probe did not predict: fall back for good.
+      bitmapSupport = Promise.resolve(false);
+    }
+  }
+  return stillTexture(await pngImageData(url), true);
 }

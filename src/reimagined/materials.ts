@@ -32,6 +32,9 @@ const NIGHT_MATS: { mat: THREE.MeshLambertMaterial; day: number; night: number }
 export function registerNight(mat: THREE.MeshLambertMaterial, day: number, night: number): THREE.MeshLambertMaterial {
   NIGHT_MATS.push({ mat, day, night });
   mat.emissiveIntensity = day;
+  // `applyNightMats` keeps this exact instance; the sign atlas must not
+  // fold it away (see `Builder.atlasSigns`).
+  mat.userData.night = true;
   return mat;
 }
 

@@ -1,5 +1,5 @@
 import { extractUrl } from "../world/set/extract";
-import { rasterizePng } from "../world/set/stillsView";
+import { pngCanvas } from "../world/set/stillsView";
 import { HUD_HEIGHT, STAGE_HEIGHT, STAGE_WIDTH } from "./stage";
 import { voices } from "./speech";
 
@@ -908,8 +908,8 @@ export class PuppetUi {
     if (pending) {
       return pending;
     }
-    const job = rasterizePng(url)
-      .then(({ canvas }) => {
+    const job = pngCanvas(url)
+      .then((canvas) => {
         this.bitmaps.set(url, canvas);
         return canvas;
       })

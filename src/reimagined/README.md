@@ -223,6 +223,45 @@ north (−Z); positive yaw turns left; movement uses
 `wishXZ` (forward = (−sin yaw, −cos yaw)) so WASD always matches the
 camera.
 
+## What keeps the frame cheap
+
+The renderer is CPU-bound: at the south gate the GPU finishes in ~1 ms
+while `renderer.render` costs several times that in JavaScript, so the
+work is draw calls and material binds, not pixels. Four things hold it
+down. Measured at the spawn pose, they take the frame from 972 draw
+calls / 111 point lights / ~6.2 ms to **402 draw calls / 24 point
+lights / ~2.7 ms**.
+
+- **Sign atlas** (`atlas.ts`). Every board, poster and shelf front was
+  its own canvas texture on its own material on its own quad: ~230
+  one-quad draws, each making three rebind a material and re-upload
+  its uniforms — the single largest cost. `Builder.build` packs the
+  plain ones into 2048² pages and rewrites their UVs, so they become
+  one draw per page. Only materials used by `decal()` quads alone are
+  folded, and only plain opaque lit ones: cut-out letters
+  (`alphaTest`), glass, and anything `registerNight` dims keep their
+  own material, because `applyNightMats` holds those instances.
+  Tiles carry an 8 px edge-replicated margin on a 16 px grid so
+  mipmapping cannot pull a neighbour in.
+- **Point-light pool** (`lights.ts`). The interiors and the mine define
+  111 short-range lights and every fragment of every material looped
+  over all of them. A fixed pool of 24 is re-aimed each frame at the
+  lights nearest the camera, fading out between 8 and 12 units from a
+  light's own sphere. The pool size never changes: three bakes the
+  count into every shader, so adding one recompiles all of them.
+- **Static shadow map.** The town does not move, so
+  `shadowMap.autoUpdate` is off and `tick` asks for a redraw only when
+  a door swings, the sky flips, or the buffer resizes — otherwise 377
+  shadow-caster draws ran every frame for an identical picture. The
+  tumbleweed gave up its shadow for this; at 260 units over a 2048 map
+  a twig ball was one texel.
+- **Adaptive render scale.** A 4K display asks for a 2× buffer with
+  four MSAA samples. `adaptScale` steps the pixel ratio down through
+  2 / 1.5 / 1.25 / 1 / 0.75 after 45 frames average worse than 20 ms,
+  and climbs back below 11 ms, never above the display's own ratio. The
+  hysteresis and an equal cooldown keep a single hitch from resizing
+  anything.
+
 ## Controls
 
 Click for pointer-lock look; WASD / arrows move; Shift sprints; Space
@@ -231,6 +270,29 @@ click a door to swing it open. Esc releases the look; Esc again
 returns to the title chooser. Collision is AABB with slide and a
 step-up for boardwalks and stairs — never sticky. Fog stays light
 enough to see the mission from the gate, as the film does.
+
+### Touch (`touch.ts`)
+
+A phone never resolves `requestPointerLock`, so the click-to-enter shade
+never lifted and every movement key was out of reach: the mode simply
+did not run there. Touch mode engages on the first `pointerType ===
+"touch"` event, or straight away when the browser reports a coarse
+pointer, and then:
+
+| Gesture | Action |
+|---|---|
+| Left half, drag | Floating stick — walk; push to the rim to run |
+| Right half, drag | Look |
+| Right half, tap | Open / close what you tapped |
+| **Jump** / **Night** / **Menu** buttons | Space / `N` / Esc-to-chooser |
+
+A tap interacts with what the *finger* landed on, not with the
+crosshair: the raycast takes the tap's normalised device coords and a
+slightly longer reach, because a fingertip is not a crosshair. The
+crosshair itself is hidden on touch, since there is nothing to aim.
+Everything is corner-anchored through `env(safe-area-inset-*)`, and the
+mouse path is untouched — on a hybrid laptop the last pointer to press
+the canvas decides whether a click asks for pointer lock.
 
 ### Debug query params (used only when actually present)
 
@@ -249,6 +311,8 @@ for pose screenshots against the film stills). A dev handle
 | `palette.ts` / `textures.ts` | Dust palette + procedural canvas materials |
 | `materials.ts` | Lazy material registry (day/night window variants) |
 | `geometry.ts` | `Builder`: merged boxes/cylinders/decals/arched walls + collision AABBs |
+| `atlas.ts` | Sign-texture atlas: packing, edge padding, UV retarget |
+| `lights.ts` | Fixed point-light pool aimed at the camera |
 | `props.ts` | Street props (fences, headstones, lamps, wagons…) and furniture (beds, counters, shelves, stairs with rails, pictures…) |
 | `town.ts` | Outdoor Diamondback, block by filmed block; real windows with muntins/arches/bars |
 | `interiors.ts` | Interior door registry, `lining`/partition helpers, assembly |
@@ -260,7 +324,8 @@ for pose screenshots against the film stills). A dev handle
 | `ambient.ts` | Night meteors and street tumbleweeds |
 | `player.ts` | FPS body: slide collision, step-up, gravity, jump |
 | `sky.ts` | Day/night dome, sun/moon, stars, fog |
-| `hud.ts` | Place label, crosshair, door prompt, pause overlay |
+| `hud.ts` | Place label, crosshair, door prompt, pause overlay (mouse / touch copy) |
+| `touch.ts` | Virtual stick, drag-look, tap-to-interact, Jump / Night / Menu |
 | `game.ts` | Orchestration, input, raycast clicks, quit-to-chooser |
 
 Wired from `src/main.ts` (lazy `import("./reimagined/game")`) and

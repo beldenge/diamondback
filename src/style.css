@@ -12,6 +12,20 @@ body,
   background: #1a120c;
   color: #f3e6c8;
   font-family: Georgia, "Times New Roman", serif;
+  /* A drag on a phone is a game input, never a pull-to-refresh or a
+     rubber-band, and a double tap is never a zoom. */
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* The stage measures the *visual* viewport; on iOS that is what shrinks
+   when the URL bar shows, so `dvh` keeps the letterbox honest. */
+@supports (height: 100dvh) {
+  html,
+  body,
+  #app {
+    height: 100dvh;
+  }
 }
 
 #viewport {
@@ -338,6 +352,17 @@ body.play #app {
 .sandbox-toy:hover::after,
 .sandbox-toy:focus-visible::after {
   opacity: 1;
+}
+
+/* Day / night. The one stills-mode control with no pointer path. */
+.sandbox-clock {
+  background: #1c1209;
+  border-color: #e8d49a;
+}
+
+.sandbox-clock-face {
+  background: radial-gradient(circle at 32% 30%, #f4e6b4 0 34%, #6c5a35 36% 52%, #120c07 54%);
+  box-shadow: inset 0 0 0 2px rgba(20, 14, 10, 0.85);
 }
 
 #play-flat {

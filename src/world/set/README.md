@@ -113,12 +113,52 @@ sprites use `bitsGate` (max 3) so they cannot flood `Image.decode`.
 `Image.decode` cannot be aborted once started. If a PNG is missing
 when the clock wants it, **wait** — do not skip. Entering a building
 drops the last Z plane so town occlusion is never held onto a shop still.
-Stills are 2D canvases (not `ImageBitmap` — indexed SET PNGs go black
-in Firefox with `colorSpaceConversion: "none"`). The GPU cache evicts
-after 256 stills (~138 MB RGBA) and will not drop the retained
-current/next strip.
-That is not the film: `TOWN.SET` is ~60 MB of 8-bit deltas; the PNG
-dump is ~115 MB; keeping every town still as RGBA would be ~1.7 GB.
+A **colour still is only ever a texture** — nothing reads its pixels
+back in JS — so it decodes with
+`createImageBitmap(blob, { imageOrientation: "flipY" })` and the texture
+takes `flipY = false`. That keeps the decode off the main thread, keeps
+512×264×4 bytes per still *off* the JS heap, and lets eviction `close()`
+the bitmap the moment it is dropped. WebGL's `UNPACK_FLIP_Y_WEBGL` does
+not apply to an `ImageBitmap`, which is why the flip is asked for at
+creation; verified byte-identical against the canvas path for a SET
+still and a CST sprite. Do **not** pass `colorSpaceConversion: "none"` —
+*that* is what turns indexed SET PNGs black in Firefox. A one-time probe
+checks the flip actually happened and falls back to the `ImageData` path
+if it did not.
+
+**Z planes and sprites** still need their pixels in JS, so they go
+through one shared software 2D canvas and `getImageData`.
+
+The texture cache evicts after 256 stills and will not drop the retained
+current/next strip. That is not the film: `TOWN.SET` is ~60 MB of 8-bit
+deltas; the PNG dump is ~115 MB; keeping every town still as RGBA would
+be ~1.7 GB — the town is 3155 stills, so the cache is ~8 % of it and a
+long walk is *expected* to re-decode.
+
+**Z planes are LRU, 512 deep (~69 MB of plain `Uint8Array`).** Deeper
+than the colour cache on purpose: a plane is a quarter the size of the
+still it pairs with, and re-deriving one costs a PNG decode plus a
+throwaway 540 KB `ImageData`. They used to be trimmed to the current
+strip plus its neighbours on *every step*, so pacing one street
+re-decoded half of them.
+
+**Prefetch is the head of the list, not the whole neighbourhood.**
+`neighborStillUrls` is plate-major, so its first six entries are plate 0
+then plate 1 of each of the (at most three) moves available from the
+pose being landed on — what a tap needs immediately. The rest of the
+chosen strip is fetched when the tap happens and has a 50 ms slot per
+plate to arrive. Warming all five plates of all three moves instead
+meant ~15 decodes per step of which at most 5 were ever shown: it
+tripled the traffic and evicted the cache out from under stills that
+were still wanted. Measured over a 231-move tour of all 52 camera
+tiles, dropping to the head of the list cut decodes ~30 %, evictions
+~31 %, heap 267 → 169 MB and the worst move 607 → 352 ms, with 3 held
+frames in 4614 (0.07 %) and plate 0 warm at 100 % of taps.
+
+Sprite and Z decodes mark the actor overlay dirty; `tick` repaints it
+once. Painting inside each decode callback (and inside each of the
+three `refreshActors` a single `advanceActors` fires) ran the whole
+projection-and-blit pass several times per frame.
 
 A tap during the strip is dropped (`0x40d920`). After idle, Dust
 `keyrepeat` fires if the key is still down. Play mode uses the same
@@ -183,8 +223,16 @@ inpaint or remap those to invented tans/whites.
   `day`. Padre / hotel / shops have no night SET — clock still flips so
   walking out lands on night street.
 - **Swipe** (touch/pen): across turns, up walks. Down is not a back
-  step. Mouse clicks on the still do **not** walk — Dust used chrome
-  outside 0–512, and remake 22%/48% bands stole scene hotspots.
+  step. Sideways **drags the picture**, the way every photo panorama
+  does — pull the still right and the street slides right, which means
+  you turned *left*. Matching the finger to the turn reads as backwards,
+  because the picture visibly moves the wrong way. Up stays a push, not
+  a drag: it is a step forward and there is no filmed back step to drag
+  toward. A swipe may start **anywhere on the page**, not just on the
+  stage: the 512×384 letterbox leaves most of a portrait phone as bars,
+  and dead glass is worse than a slightly loose hitbox. Mouse clicks on
+  the still do **not** walk — Dust used chrome outside 0–512, and remake
+  22%/48% bands stole scene hotspots.
 - **Click a door** — if the lock function says openable, overlay the
   house-prop sprite and play `dooropen*`. Click again to close.
   Locked doors play `knock*` and stay shut (chin / jail on day 1,

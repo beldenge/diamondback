@@ -141,12 +141,13 @@ describe("walker", () => {
   });
 
   it("maps a finger swipe to turn / walk, not a back step", () => {
-    expect(swipeWalkInput(-60, 0)).toBe("left");
-    expect(swipeWalkInput(60, 0)).toBe("right");
+    // Sideways drags the picture: pull it right and the camera turns left.
+    expect(swipeWalkInput(-60, 0)).toBe("right");
+    expect(swipeWalkInput(60, 0)).toBe("left");
     expect(swipeWalkInput(0, -60)).toBe("forward");
     expect(swipeWalkInput(0, 60)).toBeNull();
     expect(swipeWalkInput(10, -10)).toBeNull();
-    expect(swipeWalkInput(80, -40)).toBe("right");
+    expect(swipeWalkInput(80, -40)).toBe("left");
     expect(swipeWalkInput(40, -80)).toBe("forward");
     expect(walkInputKey("forward")).toBe("uparrow");
     expect(walkInputKey("left")).toBe("leftarrow");

@@ -617,14 +617,16 @@ export class FountainSecret {
     this.open = !this.open;
   }
 
-  update(dt: number): void {
+  update(dt: number): boolean {
     const target = this.open ? 1 : 0;
-    if (this.t !== target) {
-      const step = dt / 1.4;
-      this.t = target > this.t ? Math.min(target, this.t + step) : Math.max(target, this.t - step);
-      const eased = this.t * this.t * (3 - 2 * this.t);
-      this.group.position.x = SHAFT.x + eased * SHAFT.slide;
+    if (this.t === target) {
+      return false;
     }
+    const step = dt / 1.4;
+    this.t = target > this.t ? Math.min(target, this.t + step) : Math.max(target, this.t - step);
+    const eased = this.t * this.t * (3 - 2 * this.t);
+    this.group.position.x = SHAFT.x + eased * SHAFT.slide;
+    return true;
   }
 
   colliders(): Aabb[] {

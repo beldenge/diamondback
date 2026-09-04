@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries, mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
+import { buildSignAtlas, isAtlasableMaterial, isAtlasableTexture } from "./atlas";
 import type { Facing } from "./coords";
 
 export interface Aabb {
@@ -77,6 +78,9 @@ const FACING_ROT_Y: Record<Facing, number> = {
 export class Builder {
   private parts = new Map<THREE.Material, THREE.BufferGeometry[]>();
 
+  /** Materials used by `decal` quads and nothing else — atlas candidates. */
+  private quadOnly = new Set<THREE.Material>();
+
   readonly colliders: Aabb[] = [];
 
   /** Every axis-aligned box, collidable or not: the surfaces decals can hang on. */
@@ -85,11 +89,16 @@ export class Builder {
   /** Every decal placed, for the dressing audit (see `auditDecor`). */
   readonly decals: DecalRecord[] = [];
 
-  private push(mat: THREE.Material, geom: THREE.BufferGeometry): void {
+  private push(mat: THREE.Material, geom: THREE.BufferGeometry, quad = false): void {
     let list = this.parts.get(mat);
     if (!list) {
       list = [];
       this.parts.set(mat, list);
+      if (quad) {
+        this.quadOnly.add(mat);
+      }
+    } else if (!quad) {
+      this.quadOnly.delete(mat);
     }
     list.push(geom);
   }
@@ -222,7 +231,8 @@ export class Builder {
     const geom = new THREE.PlaneGeometry(w, h);
     geom.rotateY(FACING_ROT_Y[facing]);
     geom.translate(cx, cy, cz);
-    this.push(mat, geom);
+    // Untouched 0..1 UVs: the only shape the sign atlas can retarget.
+    this.push(mat, geom, true);
     if (opts.audit !== false) {
       this.decals.push({ facing, x: cx, y: cy, z: cz, w, h });
     }
@@ -368,8 +378,12 @@ export class Builder {
     }
   }
 
-  /** Merge everything into one mesh per material, added to `parent`. */
+  /**
+   * Fold the plain sign quads into shared atlas pages, then merge
+   * everything into one mesh per material and add it to `parent`.
+   */
   build(parent: THREE.Object3D, opts: { shadows?: boolean } = {}): void {
+    this.atlasSigns();
     for (const [mat, geoms] of this.parts) {
       const merged = mergeGeometries(geoms, false);
       if (!merged) {
@@ -391,5 +405,40 @@ export class Builder {
       parent.add(mesh);
     }
     this.parts.clear();
+    this.quadOnly.clear();
+  }
+
+  /**
+   * Re-key every plain lit sign onto one material per atlas page. ~230
+   * one-quad draws with ~230 material binds become one per page.
+   */
+  private atlasSigns(): void {
+    const entries: { material: THREE.MeshLambertMaterial; geoms: THREE.BufferGeometry[] }[] = [];
+    for (const mat of this.quadOnly) {
+      if (!isAtlasableMaterial(mat) || !isAtlasableTexture((mat as THREE.MeshLambertMaterial).map)) {
+        continue;
+      }
+      const geoms = this.parts.get(mat);
+      if (geoms?.length) {
+        entries.push({ material: mat as THREE.MeshLambertMaterial, geoms });
+      }
+    }
+    if (entries.length < 2) {
+      return;
+    }
+    const { pages, byEntry } = buildSignAtlas(entries);
+    for (let i = 0; i < entries.length; i += 1) {
+      const page = pages[byEntry[i].page];
+      let list = this.parts.get(page.material);
+      if (!list) {
+        list = [];
+        this.parts.set(page.material, list);
+      }
+      for (const geom of entries[i].geoms) {
+        list.push(geom);
+      }
+      this.parts.delete(entries[i].material);
+      entries[i].material.dispose();
+    }
   }
 }

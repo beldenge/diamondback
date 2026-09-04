@@ -75,6 +75,16 @@ export function stillClickInput(nx: number, ny: number): WalkInput | null {
 /** Client-pixel swipe: across turns, up walks. Down is not a back step. */
 export const SWIPE_THRESHOLD = 48;
 
+/**
+ * A sideways swipe **drags the view**, the way Street View and every
+ * other photo panorama behave: pull the picture to the right and the
+ * street slides right, which means the camera turned *left*. Matching
+ * the finger to the turn instead (drag right, turn right) reads as
+ * backwards, because the still visibly moves the wrong way.
+ *
+ * Up is the exception and stays a push: it is a step forward, not a
+ * drag, and there is no filmed back step to drag toward.
+ */
 export function swipeWalkInput(
   dx: number,
   dy: number,
@@ -86,7 +96,7 @@ export function swipeWalkInput(
     return null;
   }
   if (ax > ay) {
-    return dx < 0 ? "left" : "right";
+    return dx < 0 ? "right" : "left";
   }
   return dy < 0 ? "forward" : null;
 }

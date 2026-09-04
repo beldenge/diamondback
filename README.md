@@ -26,20 +26,23 @@ Open http://localhost:5173 — title chooser (four cards). Cards switch in-page;
 
 **Dust: Unlocked** (`/?mode=unlocked`): same PlayGame / VM as Resurrected, sandbox policy. Empty of story casts, every door open (`debugging`), minigame NPCs (Leroy at the range, Bolivar at the store, Dell at D7, Kid at G6, saloon blackjack/poker tables), farm animals including horses (not the dog). Bank sign cracks the safe; apoth bottles open compounding. `N` day/night; `?clock=1|2|3`. Afternoon by default so shops and tables are up. Needs the same full extract as Resurrected (PUP/CST/FLT/PRP, not just SET stills).
 
-**Dust: Reimagined** (`/?mode=reimagined`): 3D free-roam of Diamondback. Pointer-lock FPS, empty town, clickable swing doors, `N` day/night. Esc releases the look; Esc again returns to the chooser. Isolated from Resurrected / Unlocked — no VM, no SET stills. Details: [`src/reimagined/README.md`](src/reimagined/README.md).
+**Dust: Reimagined** (`/?mode=reimagined`): 3D free-roam of Diamondback. Pointer-lock FPS, empty town, clickable swing doors, `N` day/night. Esc releases the look; Esc again returns to the chooser. On a phone it is a virtual stick under the left thumb, a drag on the right to look, a tap to open a door, and Jump / Night / Menu buttons — no pointer lock, no keys. Isolated from Resurrected / Unlocked — no VM, no SET stills. Details: [`src/reimagined/README.md`](src/reimagined/README.md).
 
 **The Picture Show** (`/?mode=movies`): extracted `playmovie` reels in the browser (not `movplay.py`). Opening is selected first. `/?mode=movies&reel=intro3` picks another. Not INVEN inspectables or stairs. **Underground** is the Yunni cave payoffs (fountain, skeleton, snake, flute, chest, tumble). **Coming attractions** lists the CD `INFO/` attract reels (Jump Raven, Lunicus, Skull Cracker, Titanic).
 
-| Key / click | Action |
-|---|---|
-| **← →** or **A / D** | Turn |
-| **↑** or **W** | Walk one filmed block |
-| **N** | Day ↔ night stills (sandbox only; does not change the day number) |
-| Click left / right / top of the picture | Turn or walk |
-| Click a door, then walk forward | Open (if allowed) and go inside |
-| Click a nearby person (play mode) | Talk (puppet + choices) |
-| Click the skull (play mode) | Original menu: Save, Open, Quit, Credits, keys, volume |
-| **C** (play mode) | Show / hide the black speech bar. Dust `puppetparam (7)`: subtitles start **off**, and the skull menu's check box is the same switch |
+| Key / click | Touch | Action |
+|---|---|---|
+| **← →** or **A / D** | Drag the picture sideways | Turn. The still follows your finger, so dragging right turns you **left** |
+| **↑** or **W** | Drag up | Walk one filmed block |
+| **N** | Moon button in the toy bar | Day ↔ night stills (sandbox only; does not change the day number) |
+| Click a door, then walk forward | Tap, then drag up | Open (if allowed) and go inside |
+| Click a nearby person (play mode) | Tap | Talk (puppet + choices) |
+| Click the skull (play mode) | Tap | Original menu: Save, Open, Quit, Credits, keys, volume |
+| **C** (play mode) | Skull menu check box | Show / hide the black speech bar. Dust `puppetparam (7)`: subtitles start **off** |
+
+Swipes work anywhere on the page, not just on the letterboxed stage, so
+a portrait phone is not mostly dead glass. Nothing in the stills modes
+needs a keyboard.
 
 `/?mode=unlocked&clock=1|2|3` — morning / afternoon / night (Unlocked only).
 

@@ -1,10 +1,8 @@
 # Future Concepts
-- Resurrected save is in: skull `score` flat → `localStorage` + `.rtd` JSON download. Original `*.rtd` layout is still unknown if we ever want bit-identical Dust saves.
 - Use photogrammetry or other methods to create a 3D model of the town
 - Use Blender MCP to create 3D models of items and props
 - Support other languages (text only, not speech)
 - Ability to select a point in a movie to start from, like clicking on the timeline
 
 # Other
-- Performance improvements are still needed, especially with movement in resurrected and unlocked modes
-- Better support for mobile devices is needed across all modes, but especially reimagined mode
+- Mobile: all four modes are usable without a keyboard (stills swipe anywhere and drag the picture; reimagined has a virtual stick, drag-look, tap-to-open and Jump / Night / Menu). Still open: the 512×384 stage letterboxes hard in portrait — landscape is much better and nothing tells the player so

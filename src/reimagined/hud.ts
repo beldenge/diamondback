@@ -29,6 +29,22 @@ const CSS = `
   letter-spacing: 0.05em;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
+/* Bottom-right belongs to the Jump button once there are fingers. */
+.rei-root.touch .rei-hint {
+  right: auto;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: auto;
+  top: calc(14px + env(safe-area-inset-top, 0px));
+  text-align: center;
+  /* Stay clear of the Menu button in the top-left corner. */
+  max-width: calc(100% - 170px);
+}
+.rei-root.touch .rei-place {
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  left: calc(18px + env(safe-area-inset-left, 0px));
+  font-size: 18px;
+}
 .rei-cross {
   position: absolute;
   left: 50%;
@@ -100,6 +116,11 @@ export class Hud {
 
   private pause: HTMLDivElement;
 
+  private hint: HTMLDivElement;
+
+  /** No crosshair on touch: a finger aims, the camera does not. */
+  private touchMode = false;
+
   constructor() {
     this.style = document.createElement("style");
     this.style.textContent = CSS;
@@ -112,10 +133,9 @@ export class Hud {
     this.place.className = "rei-place";
     this.root.appendChild(this.place);
 
-    const hint = document.createElement("div");
-    hint.className = "rei-hint";
-    hint.textContent = "WASD walk · Shift run · Space jump · N night · click doors · Esc menu";
-    this.root.appendChild(hint);
+    this.hint = document.createElement("div");
+    this.hint.className = "rei-hint";
+    this.root.appendChild(this.hint);
 
     this.cross = document.createElement("div");
     this.cross.className = "rei-cross";
@@ -128,14 +148,34 @@ export class Hud {
 
     this.pause = document.createElement("div");
     this.pause.className = "rei-pause";
-    this.pause.innerHTML =
-      "<h1>Dust: Reimagined</h1>" +
-      "<p>Click to walk Diamondback.</p>" +
-      '<p class="rei-keys">WASD or arrows to move · Shift to run · Space to jump · N for night<br>' +
-      "Click a door to swing it open · Esc releases the mouse · Esc again returns to the title</p>";
     this.root.appendChild(this.pause);
+    this.setTouch(false);
 
     document.body.appendChild(this.root);
+  }
+
+  /**
+   * Swap the copy for a finger. A phone has no mouse to lock, no keys to
+   * press and no Esc, so telling it to "click to walk" is worse than
+   * useless — it is the whole reason the mode looked broken there.
+   */
+  setTouch(touch: boolean): void {
+    this.touchMode = touch;
+    this.root.classList.toggle("touch", touch);
+    this.cross.hidden = touch;
+    this.hint.textContent = touch
+      ? "Left thumb walks · drag to look · tap a door"
+      : "WASD walk · Shift run · Space jump · N night · click doors · Esc menu";
+    this.pause.innerHTML = touch
+      ? "<h1>Dust: Reimagined</h1>" +
+        "<p>Tap to walk Diamondback.</p>" +
+        '<p class="rei-keys">Left thumb is a stick — push it to walk, all the way to run<br>' +
+        "Drag anywhere on the right to look · tap a door to swing it open<br>" +
+        "Jump and Night are buttons · Menu returns to the title</p>"
+      : "<h1>Dust: Reimagined</h1>" +
+        "<p>Click to walk Diamondback.</p>" +
+        '<p class="rei-keys">WASD or arrows to move · Shift to run · Space to jump · N for night<br>' +
+        "Click a door to swing it open · Esc releases the mouse · Esc again returns to the title</p>";
   }
 
   setPlace(name: string): void {
@@ -157,7 +197,7 @@ export class Hud {
 
   setPaused(paused: boolean): void {
     this.pause.hidden = !paused;
-    this.cross.hidden = paused;
+    this.cross.hidden = paused || this.touchMode;
     if (paused) {
       this.prompt.hidden = true;
     }

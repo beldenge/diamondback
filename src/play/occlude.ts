@@ -413,15 +413,34 @@ export function blitSpriteZ(
   }
 }
 
-/** Read the 8-bit Z plane from a grayscale (or RGB) image of the still. */
+/**
+ * Read the 8-bit Z plane from a grayscale (or RGB) image of the still.
+ * One 32-bit read per pixel instead of four clamped byte reads: this
+ * runs for every plate of every filmstrip, so the 135k-iteration loop
+ * was ~2 ms of the 50 ms frame budget.
+ */
 export function zPlaneFromImageData(image: ImageData): Uint8Array {
   const z = new Uint8Array(image.width * image.height);
   const src = image.data;
+  if (LITTLE_ENDIAN && src.byteOffset % 4 === 0 && src.byteLength >= z.length * 4) {
+    const words = new Uint32Array(src.buffer, src.byteOffset, z.length);
+    for (let i = 0; i < z.length; i++) {
+      z[i] = words[i] & 0xff;
+    }
+    return z;
+  }
   for (let i = 0; i < z.length; i++) {
     z[i] = src[i * 4];
   }
   return z;
 }
+
+/** Red is the low byte of an RGBA word only on a little-endian host. */
+const LITTLE_ENDIAN = (() => {
+  const probe = new Uint32Array(1);
+  new Uint8Array(probe.buffer)[0] = 1;
+  return probe[0] === 1;
+})();
 
 /**
  * Color still and SET Z must swap together. `zKnown` is `cache.has(zUrl)`
