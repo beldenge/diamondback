@@ -27,8 +27,10 @@ import { BIRD_SCALE, seedFlock, walkableTiles } from "./flock";
 
 const OUT = resolve(__dirname, "..", "..", "..", "dfextract", "out");
 const TOWN = resolve(OUT, "SET", "_TOWN");
+const HOUSE_PROPS = resolve(OUT, "PRP", "_HOUSE", "props.json");
 const HAVE_TOWN =
   existsSync(resolve(TOWN, "scenes.json")) && existsSync(resolve(TOWN, "transitions.json"));
+const HAVE_HOUSE = existsSync(HOUSE_PROPS);
 
 function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf8")) as T;
@@ -169,61 +171,61 @@ describe.skipIf(!existsSync(resolve(OUT, "CST")))("sprite paths resolve to real 
   });
 });
 
-describe.skipIf(!existsSync(resolve(OUT, "PRP", "_HOUSE", "props.json")))(
-  "PRP props the mode borrows",
-  () => {
-    interface PropRecord {
-      group?: string;
-      state?: string;
-      path?: string;
-      index?: number;
-    }
+describe.skipIf(!HAVE_HOUSE)("PRP props the mode borrows", () => {
+  interface PropRecord {
+    group?: string;
+    state?: string;
+    path?: string;
+    index?: number;
+  }
 
-    const props = readJson<PropRecord[]>(resolve(OUT, "PRP", "_HOUSE", "props.json"));
+  // Load inside the tests, not the factory: skipIf still collects the suite.
+  function houseProps(): PropRecord[] {
+    return readJson<PropRecord[]>(HOUSE_PROPS);
+  }
 
-    function states(group: string): Map<string, PropRecord[]> {
-      const out = new Map<string, PropRecord[]>();
-      for (const rec of props) {
-        if ((rec.group ?? "").toLowerCase() !== group || !rec.path) {
-          continue;
-        }
-        const state = (rec.state ?? "").toLowerCase();
-        const bag = out.get(state) ?? [];
-        bag.push(rec);
-        out.set(state, bag);
+  function states(group: string): Map<string, PropRecord[]> {
+    const out = new Map<string, PropRecord[]>();
+    for (const rec of houseProps()) {
+      if ((rec.group ?? "").toLowerCase() !== group || !rec.path) {
+        continue;
       }
-      return out;
+      const state = (rec.state ?? "").toLowerCase();
+      const bag = out.get(state) ?? [];
+      bag.push(rec);
+      out.set(state, bag);
     }
+    return out;
+  }
 
-    function allOnDisk(records: readonly PropRecord[]): boolean {
-      return records.every((r) => existsSync(resolve(OUT, "PRP", "_HOUSE", r.path!)));
-    }
+  function allOnDisk(records: readonly PropRecord[]): boolean {
+    return records.every((r) => existsSync(resolve(OUT, "PRP", "_HOUSE", r.path!)));
+  }
 
-    it("has the powder keg's 15-plate blast, not just a feather puff", () => {
-      const explode = states("powderkeg1").get("explode") ?? [];
-      expect(explode).toHaveLength(15);
-      expect(allOnDisk(explode)).toBe(true);
-    });
+  it("has the powder keg's 15-plate blast, not just a feather puff", () => {
+    const explode = states("powderkeg1").get("explode") ?? [];
+    expect(explode).toHaveLength(15);
+    expect(allOnDisk(explode)).toBe(true);
+  });
 
-    it("has a gun hand row for every aim band, fire and recoil included", () => {
-      const gun = states("gunhand");
-      for (const band of AIM_BANDS) {
-        for (const phase of ["aim", "fire", "recoil"] as const) {
-          const state = aimState(band, phase).toLowerCase();
-          const frames = gun.get(state) ?? [];
-          expect(frames.length, `gunhand/${state} is missing`).toBe(AIM_STEPS);
-          expect(allOnDisk(frames), `gunhand/${state} has missing PNGs`).toBe(true);
-        }
+  it("has a gun hand row for every aim band, fire and recoil included", () => {
+    const gun = states("gunhand");
+    for (const band of AIM_BANDS) {
+      for (const phase of ["aim", "fire", "recoil"] as const) {
+        const state = aimState(band, phase).toLowerCase();
+        const frames = gun.get(state) ?? [];
+        expect(frames.length, `gunhand/${state} is missing`).toBe(AIM_STEPS);
+        expect(allOnDisk(frames), `gunhand/${state} has missing PNGs`).toBe(true);
       }
-    });
+    }
+  });
 
-    it("indexes each gun band 0..12 with no gaps", () => {
-      const frames = states("gunhand").get("mid") ?? [];
-      const seen = frames.map((f) => f.index ?? -1).sort((a, b) => a - b);
-      expect(seen).toEqual(Array.from({ length: AIM_STEPS }, (_, i) => i));
-    });
-  },
-);
+  it("indexes each gun band 0..12 with no gaps", () => {
+    const frames = states("gunhand").get("mid") ?? [];
+    const seen = frames.map((f) => f.index ?? -1).sort((a, b) => a - b);
+    expect(seen).toEqual(Array.from({ length: AIM_STEPS }, (_, i) => i));
+  });
+});
 
 describe.skipIf(!existsSync(resolve(OUT, "SND")))("sound effects exist", () => {
   function clipPath(clip: { folder: string; name: string }): string {
