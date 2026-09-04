@@ -575,10 +575,19 @@ body.landing #landing {
   animation: trail-fade 0.2s ease;
 }
 
+/*
+ * `visible`, not `auto`. With `overflow: auto` **and** `height: auto`, the
+ * root becomes its own scroll container sized to its own content — so it
+ * has nothing to scroll internally, and because its overflow is not
+ * `visible` it never propagates to the viewport either. The result is a
+ * page that reports `scrollHeight > clientHeight` and still refuses to
+ * move, by wheel or by `scrollTop`. Four cards always fit, so nothing
+ * overflowed and the bug stayed hidden until the fifth card landed.
+ */
 body.landing,
 html:has(body.landing),
 body.landing #app {
-  overflow: auto;
+  overflow: visible;
   height: auto;
   min-height: 100%;
 }
@@ -1220,4 +1229,173 @@ body.gallery #landing {
     border-right: 0;
     border-bottom: 1px solid #6f3826;
   }
+}
+
+/* ── The Sideshow ────────────────────────────────────────────────────
+   Non-canon attractions. Self-contained: nothing above this line
+   depends on these rules, and they touch no play/gallery selector. */
+
+/*
+ * A banner under the four titles: half the height of a title card, so the
+ * Sideshow reads as secondary without looking crushed.
+ *
+ * The height comes from the still's own 512x264, never from a `max-height`
+ * cap. Capping it crops the plate to a letterbox sliver while the copy —
+ * which only needs about 50px — floats in the leftover space, and the two
+ * fight. `.landing-inner` bounds the column, so the card cannot run away
+ * on a wide monitor.
+ */
+.landing-card-wide {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.landing-card-wide img {
+  width: 34%;
+  flex: 0 0 34%;
+  height: auto;
+  aspect-ratio: 512 / 264;
+  object-fit: cover;
+}
+
+.landing-card-wide .landing-card-copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+  padding: 16px 22px 18px;
+}
+
+.landing-card-wide .landing-badge {
+  background: #7a4bb8;
+  border-color: #e0c9ff;
+  box-shadow:
+    0 0 0 1px #2f145c inset,
+    0 0 14px rgba(140, 70, 220, 0.5),
+    0 2px 8px rgba(0, 0, 0, 0.55);
+  text-shadow: 0 1px 2px rgba(30, 6, 60, 0.85);
+}
+
+body.sideshow,
+html:has(body.sideshow),
+body.sideshow #app {
+  overflow: hidden;
+  height: 100%;
+}
+
+body.sideshow #viewport,
+body.sideshow #hud,
+body.sideshow #landing {
+  display: none;
+}
+
+#sideshow {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: #120c08;
+  color: #f3e6c8;
+  overflow: auto;
+}
+
+#sideshow[hidden] {
+  display: none;
+}
+
+.sideshow-inner {
+  width: min(920px, 100%);
+  margin: 0 auto;
+  padding: clamp(28px, 7vh, 72px) 16px 40px;
+}
+
+.sideshow-back {
+  display: inline-block;
+  margin-bottom: 22px;
+  color: #c4a15a;
+  font-family: "IM Fell English", Palatino, serif;
+  font-size: 15px;
+  text-decoration: none;
+}
+
+.sideshow-back:hover {
+  color: #f3e6c8;
+}
+
+.sideshow-inner h1 {
+  margin: 0;
+  font-family: Rye, Palatino, serif;
+  font-size: clamp(28px, 5vw, 44px);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  color: #f3e6c8;
+}
+
+.sideshow-sub {
+  margin: 8px 0 26px;
+  font-family: "IM Fell English", Palatino, serif;
+  font-size: 17px;
+  font-style: italic;
+  color: #c4a15a;
+}
+
+.sideshow-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px;
+}
+
+/* A real line out of the extract, above the attraction's own blurb. */
+.landing-card .sideshow-quote {
+  margin: 6px 0 0;
+  font-family: "IM Fell English", Palatino, serif;
+  font-size: 15px;
+  font-style: italic;
+  line-height: 1.3;
+  color: #c4a15a;
+}
+
+.landing-card .sideshow-quote span {
+  font-style: normal;
+  font-size: 13px;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+.sideshow-soon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 140px;
+  padding: 20px;
+  border: 2px dashed #52331f;
+  color: #8a6f4d;
+  font-family: "IM Fell English", Palatino, serif;
+  font-size: 15px;
+  font-style: italic;
+  text-align: center;
+}
+
+/* Blaster: the 512x264 stage, letterboxed on black. */
+#blaster {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: #000;
+  cursor: crosshair;
+  touch-action: none;
+  overscroll-behavior: none;
+}
+
+#blaster[hidden] {
+  display: none;
+}
+
+#blaster canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
 }

@@ -17,6 +17,9 @@ describe("clientMode", () => {
     expect(clientMode("?mode=reimagined")).toBe("reimagined");
     expect(clientMode("mode=REIMAGINED")).toBe("reimagined");
     expect(clientMode("?mode=reimagined&tx=6&ty=6")).toBe("reimagined");
+    expect(clientMode("?mode=sideshow")).toBe("sideshow");
+    expect(clientMode("mode=SIDESHOW")).toBe("sideshow");
+    expect(clientMode("?mode=sideshow&show=blaster")).toBe("sideshow");
   });
 
   it("ignores unknown modes", () => {
@@ -26,6 +29,9 @@ describe("clientMode", () => {
     expect(clientMode("?mode=renewed")).toBe("landing");
     expect(clientMode("?mode=3d")).toBe("landing");
     expect(clientMode("?clock=2")).toBe("landing");
+    // The attraction is `&show=`, never a mode of its own.
+    expect(clientMode("?mode=blaster")).toBe("landing");
+    expect(clientMode("?show=blaster")).toBe("landing");
   });
 });
 

@@ -19,7 +19,8 @@
           mode === "movies" ||
           mode === "resurrected" ||
           mode === "unlocked" ||
-          mode === "reimagined"
+          mode === "reimagined" ||
+          mode === "sideshow"
         ) {
           document.documentElement.classList.add("boot-hidden");
         }
@@ -94,6 +95,14 @@
               <div class="landing-card-copy">
                 <h2>The Picture Show</h2>
                 <p>Openings, endings, the days between, and coming attractions.</p>
+              </div>
+            </a>
+            <a class="landing-card landing-card-wide" href="?mode=sideshow">
+              <img src="/landing/sideshow.jpg" alt="" />
+              <span class="landing-badge">Non-canon</span>
+              <div class="landing-card-copy">
+                <h2>The Sideshow</h2>
+                <p>A Tale of the Weird West.</p>
               </div>
             </a>
           </div>

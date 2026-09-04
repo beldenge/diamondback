@@ -2,7 +2,7 @@
 
 Browser rebuild of *Dust: A Tale of the Wired West*, plus a DreamFactory extractor.
 
-Non-commercial fan reconstruction. Not a port of CyberFlix’s engine C. Playable client is Three.js. Game logic will run extracted DreamFactory tokens in a TypeScript VM. https://diamondback.town is a title chooser: **Dust: Resurrected**, **Dust: Unlocked**, **Dust: Reimagined**, and **The Picture Show**.
+Non-commercial fan reconstruction. Not a port of CyberFlix’s engine C. Playable client is Three.js. Game logic will run extracted DreamFactory tokens in a TypeScript VM. https://diamondback.town is a title chooser: **Dust: Resurrected**, **Dust: Unlocked**, **Dust: Reimagined**, **The Picture Show**, and **The Sideshow**.
 
 Hosted: **https://diamondback.town** (GitHub Pages + CloudFront extract).
 
@@ -20,7 +20,7 @@ npm test
 npm run dev
 ```
 
-Open http://localhost:5173 — title chooser (four cards). Cards switch in-page; they do not reload the document. Vite serves stills from `dfextract/out/` at `/extract/…`.
+Open http://localhost:5173 — title chooser (four titles plus The Sideshow). Cards switch in-page; they do not reload the document. Vite serves stills from `dfextract/out/` at `/extract/…`.
 
 **Dust: Resurrected** (`/?mode=resurrected`): the VM game (Day 1 night through Day 5 endings). Original dashboard, CST sprites, PUP talking-heads. Skull HUD is the extracted `score` flat (Save / Open / Quit / Credits). Save writes a `.json` file (picker, or a named download). Open loads a `.json` / old `.rtd` file. `localStorage` is autosave only — Continue (`/?mode=resurrected&continue=1`) and a refresh of the play page restore it. When an autosave exists, New Game on the title (with a confirm) starts over. Needs a full extract (PUP/CST/FLT/PRP, not just SET stills). Boot skips intros unless `&intro=1`. Playback notes: [`src/play/README.md`](src/play/README.md).
 
@@ -29,6 +29,8 @@ Open http://localhost:5173 — title chooser (four cards). Cards switch in-page;
 **Dust: Reimagined** (`/?mode=reimagined`): 3D free-roam of Diamondback. Pointer-lock FPS, empty town, clickable swing doors, `N` day/night. Esc releases the look; Esc again returns to the chooser. On a phone it is a virtual stick under the left thumb, a drag on the right to look, a tap to open a door, and Jump / Night / Menu buttons — no pointer lock, no keys. Isolated from Resurrected / Unlocked — no VM, no SET stills. Details: [`src/reimagined/README.md`](src/reimagined/README.md).
 
 **The Picture Show** (`/?mode=movies`): extracted `playmovie` reels in the browser (not `movplay.py`). Opening is selected first. `/?mode=movies&reel=intro3` picks another. Not INVEN inspectables or stairs. **Underground** is the Yunni cave payoffs (fountain, skeleton, snake, flute, chest, tumble). **Coming attractions** lists the CD `INFO/` attract reels (Jump Raven, Lunicus, Skull Cracker, Titanic).
+
+**The Sideshow** (`/?mode=sideshow`): non-canon attractions, none of which touch the engine reconstruction. One landing card holds all of them; the attraction is `&show=`. First attraction is **Chicken Blaster** (`/?mode=sideshow&show=blaster`): the filmed streets, full of chickens, a finite belt of shells, and a cascade that travels tile by tile when you shoot one. A boss every fifth wave, drawn from the animals whose pose sets the extract actually has. Isolated from the play modes by an import wall (`src/sideshow/boundary.test.ts`); needs SET `_TOWN`, CST `_EXTRA`/`_TARGET`/`_GANG` and `SND`. Design and rationale: [`SIDESHOW.md`](SIDESHOW.md).
 
 | Key / click | Touch | Action |
 |---|---|---|

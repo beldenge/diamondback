@@ -25,6 +25,8 @@ let storyGame: PlayGame | null = null;
 let sandboxGame: PlayGame | null = null;
 let reimagined: import("./reimagined/game").ReimaginedGame | null = null;
 let reimaginedLoading = false;
+let sideshow: import("./sideshow").Sideshow | null = null;
+let sideshowLoading = false;
 
 function fillLandingCards(): void {
   for (const img of document.querySelectorAll<HTMLImageElement>("#landing img[data-extract]")) {
@@ -69,10 +71,59 @@ function showLanding(): void {
   sandboxGame?.hide();
   gallery?.hide();
   reimagined?.hide();
+  disposeSideshow();
   document.body.classList.add("landing");
-  document.body.classList.remove("gallery", "play");
+  document.body.classList.remove("gallery", "play", "sideshow");
   landing?.removeAttribute("hidden");
   document.title = "Dust — Diamondback";
+}
+
+function disposeSideshow(): void {
+  sideshow?.dispose();
+  sideshow = null;
+}
+
+function quitSideshowToTitle(): void {
+  disposeSideshow();
+  const nextHref = `${window.location.pathname}`;
+  const here = `${window.location.pathname}${window.location.search}`;
+  if (nextHref !== here) {
+    history.pushState(null, "", nextHref);
+  }
+  applyRoute();
+}
+
+/**
+ * Non-canon attractions. Lazy so the joke modes cost the four real
+ * titles nothing, and self-routing so `&show=` never reaches `core/`.
+ */
+function showSideshow(): void {
+  storyGame?.hide();
+  sandboxGame?.hide();
+  gallery?.hide();
+  reimagined?.hide();
+  hideLanding();
+  document.body.classList.add("sideshow");
+  document.body.classList.remove("gallery", "play");
+  document.title = "The Sideshow — Diamondback";
+  if (sideshow) {
+    sideshow.show();
+    sideshow.apply(window.location.search);
+    return;
+  }
+  if (sideshowLoading) {
+    return;
+  }
+  sideshowLoading = true;
+  void import("./sideshow").then(({ Sideshow }) => {
+    sideshowLoading = false;
+    if (clientMode(window.location.search) !== "sideshow" || sideshow) {
+      return;
+    }
+    sideshow = new Sideshow();
+    sideshow.onQuit = quitSideshowToTitle;
+    sideshow.apply(window.location.search);
+  });
 }
 
 function showMovies(): void {
@@ -192,7 +243,14 @@ function applyRoute(): void {
   documentRoute = false;
   closeLandingDialogs();
   refreshResurrectedActions();
-  switch (currentMode()) {
+  const mode = currentMode();
+  // Leaving the Sideshow tears it down: it holds a rAF loop and an
+  // AudioContext, and none of the four real titles should pay for that.
+  if (mode !== "sideshow") {
+    disposeSideshow();
+    document.body.classList.remove("sideshow");
+  }
+  switch (mode) {
     case "movies":
       showMovies();
       break;
@@ -204,6 +262,9 @@ function applyRoute(): void {
       break;
     case "reimagined":
       showReimagined();
+      break;
+    case "sideshow":
+      showSideshow();
       break;
     default:
       showLanding();

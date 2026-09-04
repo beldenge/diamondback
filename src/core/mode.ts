@@ -3,11 +3,15 @@ export type ClientMode =
   | "unlocked"
   | "resurrected"
   | "movies"
-  | "reimagined";
+  | "reimagined"
+  | "sideshow";
 
 /**
  * Query `mode`. Empty or unknown URL is the title chooser. `reimagined`
- * is the 3D free-roam card. No aliases (`renewed`, `free`, … all land).
+ * is the 3D free-roam card. `sideshow` is the non-canon attraction
+ * chooser — which attraction (`&show=`) is parsed inside `src/sideshow/`,
+ * so a new attraction never touches `core/`. No aliases (`renewed`,
+ * `free`, … all land).
  */
 export function clientMode(search: string): ClientMode {
   const query = search.startsWith("?") ? search.slice(1) : search;
@@ -16,7 +20,8 @@ export function clientMode(search: string): ClientMode {
     mode === "resurrected" ||
     mode === "unlocked" ||
     mode === "movies" ||
-    mode === "reimagined"
+    mode === "reimagined" ||
+    mode === "sideshow"
   ) {
     return mode;
   }
