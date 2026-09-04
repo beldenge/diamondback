@@ -7,9 +7,13 @@ import {
   MemorySavePort,
   decodeSaveText,
   encodeSaveBlob,
+  navigationType,
   parseSaveBlob,
+  saveBlobToDisk,
   saveFileName,
   saveSlotId,
+  saveTitleFromGlobals,
+  shouldRestoreAutosave,
   storyContinueFromSearch,
   valueToSaveJson,
   saveJsonToValue,
@@ -44,10 +48,19 @@ function dayHost() {
 }
 
 describe("save blob", () => {
-  it("normalizes Dust 0.3 and dust 0.3 to one slot", () => {
+  it("names JSON files from day and clock, not dust 0.3.rtd", () => {
     expect(saveSlotId("Dust 0.3")).toBe("dust 0.3");
-    expect(saveSlotId("dust 0.3")).toBe("dust 0.3");
-    expect(saveFileName("Dust 0.3")).toBe("dust-0.3.rtd");
+    expect(saveTitleFromGlobals({ day: 1, clock: 3 })).toBe("Day 1 night");
+    const { host, vm } = dayHost();
+    vm.globals.set("day", 1);
+    vm.globals.set("clock", 3);
+    const blob = host.captureSnapshot(vm, DEFAULT_SAVE_TITLE);
+    expect(saveFileName(blob)).toBe("day-1-night.json");
+    vm.globals.set("day", 2);
+    vm.globals.set("clock", 2);
+    expect(saveFileName(host.captureSnapshot(vm, "x"))).toBe("day-2-afternoon.json");
+    vm.globals.set("clock", 1);
+    expect(saveFileName(host.captureSnapshot(vm, "x"))).toBe("day-2-morning.json");
   });
 
   it("roundtrips numbers, strings, and points", () => {
@@ -82,6 +95,95 @@ describe("story continue query", () => {
     expect(storyContinueFromSearch("?mode=resurrected")).toBe(false);
     expect(storyContinueFromSearch("?mode=resurrected&continue=1")).toBe(true);
     expect(storyContinueFromSearch("?continue=1&mode=resurrected")).toBe(true);
+  });
+
+  it("restores autosave on Continue or a refresh, not a fresh card click", () => {
+    expect(shouldRestoreAutosave("?mode=resurrected", "navigate")).toBe(false);
+    expect(shouldRestoreAutosave("?mode=resurrected", "reload")).toBe(true);
+    expect(shouldRestoreAutosave("?mode=resurrected&continue=1", "navigate")).toBe(true);
+    // Landing F5 leaves type `reload` for later in-page card clicks.
+    expect(shouldRestoreAutosave("?mode=resurrected", "reload", "in-page")).toBe(false);
+    expect(
+      shouldRestoreAutosave("?mode=resurrected&continue=1", "reload", "in-page"),
+    ).toBe(true);
+  });
+
+  it("reads reload from PerformanceNavigationTiming or the old API", () => {
+    expect(
+      navigationType({
+        getEntriesByType: () => [{ type: "reload" }] as never,
+      }),
+    ).toBe("reload");
+    expect(
+      navigationType({
+        getEntriesByType: () => [] as never,
+        navigation: { type: 1 },
+      }),
+    ).toBe("reload");
+    expect(
+      navigationType({
+        getEntriesByType: () => [{ type: "navigate" }] as never,
+      }),
+    ).toBe("navigate");
+  });
+});
+
+describe("saveBlobToDisk", () => {
+  it("uses the file picker, treats AbortError as cancel, and falls back to download", async () => {
+    const { host, vm } = dayHost();
+    vm.globals.set("day", 1);
+    vm.globals.set("clock", 3);
+    const blob = host.captureSnapshot(vm, "x");
+    const g = globalThis as {
+      showSaveFilePicker?: (opts: unknown) => Promise<{
+        name?: string;
+        createWritable: () => Promise<{
+          write: (data: string) => Promise<void>;
+          close: () => Promise<void>;
+        }>;
+      }>;
+    };
+    const previous = g.showSaveFilePicker;
+    const writes: string[] = [];
+    try {
+      g.showSaveFilePicker = async () => ({
+        name: "day-1-night.json",
+        createWritable: async () => ({
+          write: async (data: string) => {
+            writes.push(data);
+          },
+          close: async () => {},
+        }),
+      });
+      await expect(saveBlobToDisk(blob)).resolves.toEqual({
+        ok: true,
+        via: "picker",
+        name: "day-1-night.json",
+      });
+      expect(writes[0]).toContain('"engine": "diamondback"');
+      g.showSaveFilePicker = async () => {
+        const err = new Error("cancel");
+        err.name = "AbortError";
+        throw err;
+      };
+      await expect(saveBlobToDisk(blob)).resolves.toEqual({
+        ok: false,
+        cancelled: true,
+        name: "day-1-night.json",
+      });
+      delete g.showSaveFilePicker;
+      await expect(saveBlobToDisk(blob)).resolves.toEqual({
+        ok: true,
+        via: "download",
+        name: "day-1-night.json",
+      });
+    } finally {
+      if (previous) {
+        g.showSaveFilePicker = previous;
+      } else {
+        delete g.showSaveFilePicker;
+      }
+    }
   });
 });
 
@@ -122,6 +224,42 @@ describe("savegame / opengame", () => {
     expect(host.namedActor("leroy").x).toBe(1740);
     expect(host.namedProp("gun").owner).toBe("stranger");
     expect(host.view?.pose).toEqual({ x: 7, y: 6, facing: "E" });
+    expect((host.savePort as MemorySavePort).autosave?.globals.day).toBe(3);
+  });
+
+  it("Save cancel does not write autosave", async () => {
+    const { host, vm } = dayHost();
+    vm.globals.set("day", 2);
+    host.view = {
+      ...host.view!,
+      async exportSave() {
+        return false;
+      },
+    };
+    await host.call("savegame", ["dust 0.3"], vm);
+    expect((host.savePort as MemorySavePort).autosave).toBeUndefined();
+  });
+
+  it("file Open cancel leaves the current game; a load replaces autosave", async () => {
+    const { host, vm } = dayHost();
+    vm.globalNames.add("day");
+    vm.globals.set("day", 2);
+    await host.call("savegame", ["dust 0.3"], vm);
+    vm.globals.set("day", 5);
+    host.view = {
+      ...host.view!,
+      async importSave() {
+        return { kind: "cancel" as const };
+      },
+    };
+    await host.call("opengame", ["dust 0.3"], vm);
+    expect(vm.globals.get("day")).toBe(5);
+    const loaded = host.captureSnapshot(vm, "x");
+    loaded.globals.day = 4;
+    host.view.importSave = async () => ({ kind: "ok", blob: loaded });
+    await host.call("opengame", ["dust 0.3"], vm);
+    expect(vm.globals.get("day")).toBe(4);
+    expect((host.savePort as MemorySavePort).autosave?.globals.day).toBe(4);
   });
 
   it("questiondialog is false without a view hook so quit does not save", async () => {

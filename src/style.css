@@ -370,7 +370,6 @@ body.play #app {
   inset: 0;
   z-index: 60;
   background: #000;
-  cursor: pointer;
   touch-action: none;
 }
 
@@ -379,7 +378,13 @@ body.play #app {
   z-index: 80;
 }
 
-#play-flat > img {
+#play-flat-visual {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+#play-flat-visual > img {
   display: block;
   width: 100%;
   height: 100%;
@@ -444,7 +449,6 @@ body.play #app {
   background: #000;
   z-index: 70;
   image-rendering: pixelated;
-  cursor: url("/rsrc/cursors/arrow.cur"), pointer;
 }
 
 #play-hand {
@@ -663,38 +667,55 @@ body.landing #hud {
   flex-direction: column;
 }
 
-.landing-continue {
+.landing-card-actions {
   position: absolute;
   z-index: 3;
-  left: 14px;
-  right: 14px;
-  bottom: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 36px;
-  padding: 6px 12px;
-  border: 1px solid #c4a15a;
-  background: #6f3826;
-  color: #f3e6c8;
-  font-family: Rye, Palatino, "Palatino Linotype", serif;
-  font-size: 13px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  text-decoration: none;
-  box-shadow: 0 0 0 1px #3a2214 inset;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  gap: 8px;
 }
 
-.landing-continue[hidden] {
+.landing-card-actions[hidden] {
   display: none;
 }
 
-.landing-card-stack:has(.landing-continue:not([hidden])) .landing-card-copy {
+.landing-card-stack:has(.landing-card-actions:not([hidden])) .landing-card-copy {
   padding-bottom: 52px;
 }
 
+.landing-continue,
+.landing-new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 0;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 1px solid #c4a15a;
+  color: #f3e6c8;
+  font-family: Rye, Palatino, "Palatino Linotype", serif;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  text-align: center;
+}
+
+.landing-continue {
+  background: #6f3826;
+  box-shadow: 0 0 0 1px #3a2214 inset;
+}
+
+.landing-new {
+  background: rgba(18, 12, 8, 0.72);
+}
+
 .landing-continue:hover,
-.landing-continue:focus-visible {
+.landing-continue:focus-visible,
+.landing-new:hover,
+.landing-new:focus-visible {
   filter: brightness(1.12);
   outline: none;
 }
@@ -811,7 +832,7 @@ body.landing #hud {
   color: #e8d3a4;
 }
 
-#unlocked-spoilers {
+.landing-dialog {
   width: min(28rem, calc(100vw - 2rem));
   max-width: 100%;
   margin: auto;
@@ -821,11 +842,11 @@ body.landing #hud {
   color: #f3e6c8;
 }
 
-#unlocked-spoilers::backdrop {
+.landing-dialog::backdrop {
   background: rgba(8, 5, 3, 0.78);
 }
 
-#unlocked-spoilers[open] {
+.landing-dialog[open] {
   animation: trail-fade 0.18s ease;
 }
 
@@ -848,7 +869,7 @@ body.landing #hud {
   color: #c4a15a;
 }
 
-#unlocked-spoilers h2 {
+.landing-dialog h2 {
   margin: 0;
   font-family: Rye, Palatino, "Palatino Linotype", serif;
   font-size: clamp(26px, 5vw, 34px);
@@ -858,7 +879,7 @@ body.landing #hud {
   text-shadow: 0 2px 0 #3a2214;
 }
 
-#unlocked-spoilers-copy {
+.landing-dialog-copy {
   margin: 14px 0 0;
   font-family: "IM Fell English", Palatino, "Palatino Linotype", serif;
   font-size: 17px;
@@ -931,14 +952,10 @@ body.landing #hud {
 }
 
 @media (max-width: 480px) {
-  .landing-dialog-actions {
-    flex-direction: column;
-  }
-
   .landing-dialog-actions button,
   .landing-dialog-enter {
-    flex: 1 1 auto;
-    width: 100%;
+    flex: 1 1 0;
+    min-width: 0;
   }
 }
 

@@ -24,6 +24,7 @@ import {
   movieRecStopsReel,
   movieHotspotPlaysClip,
   movieHotspotSegmentEnd,
+  movieHoverCursor,
   movieIndexAt,
   movieWaitSetsSkipClick,
   pickMovieHotspot,
@@ -278,6 +279,27 @@ describe("spotmovie SFX commands", () => {
     expect(movieClickToStill(10, 10, { left: 0, top: 0, width: 512, height: 264 }, 512, 264)).toEqual(
       { x: 10, y: 10 },
     );
+  });
+
+  it("help.mov OK hotspot is the 512×384 wait still and uses the touch cursor", () => {
+    const path = resolve("dfextract/out/MOV/_HELP/timeline.json");
+    if (!existsSync(path)) {
+      return;
+    }
+    const timeline = JSON.parse(readFileSync(path, "utf8")) as MovieTimeline;
+    const wait = timeline.frames.find((frame) => frame.wait);
+    const ok = wait?.hotspots?.[0];
+    expect(ok).toEqual({
+      top: 314,
+      left: 382,
+      bottom: 349,
+      right: 466,
+      dest: 2,
+      channel: "",
+    });
+    expect(movieHoverCursor(400, 330, wait?.hotspots)).toBe("touch");
+    expect(movieHoverCursor(40, 40, wait?.hotspots)).toBe("arrow");
+    expect(movieHoverCursor(400, 330, undefined)).toBe("arrow");
   });
 
   it("padre A2 script names only towerup.mov", () => {

@@ -104,10 +104,12 @@ import {
   defaultSavePort,
   downloadSaveBlob,
   facingFromSave,
-  pickSaveFile,
+  saveFileName,
   saveJsonToValue,
+  saveTitleFromGlobals,
   valueToSaveJson,
   type ActorSnap,
+  type PickSaveResult,
   type PropSnap,
   type SaveBlob,
   type SavePort,
@@ -336,6 +338,11 @@ export interface WorldView {
   cutToBlack?(): void;
   /** Dust `mixclut` amount 0–255 as a full-stage fade (hub darkness). */
   setFadeOpacity?(opacity: number): void;
+  /**
+   * `visualeffect (barndooropen|barndoorclose|wipeleft|…, n)`.
+   * Missing → sleep `n` ticks (plain is a no-op).
+   */
+  playVisualEffect?(effect: string, ticks: number): Promise<void>;
   /** SALGAMES / other FLT boards covering the 512×384 stage. */
   showPuzzle?(board: PuzzleBoard | null): void;
   /** TARGET.FLT `drawstring` scores on the range HUD (not a puzzle flat). */
@@ -347,9 +354,10 @@ export interface WorldView {
   questionDialog?(prompt: string): Promise<boolean>;
   noteDialog?(prompt: string): Promise<void>;
   quitToTitle?(): void;
-  /** Score Open: import a downloaded `.rtd`. Cancel falls back to the slot. */
-  importSave?(): Promise<SaveBlob | undefined>;
-  exportSave?(blob: SaveBlob): Promise<void>;
+  /** Score Open: pick a `.json` / `.rtd` file. Cancel stays in the current game. */
+  importSave?(): Promise<PickSaveResult>;
+  /** Score Save: file picker, or a named download. `false` = cancelled. */
+  exportSave?(blob: SaveBlob): Promise<boolean>;
 }
 
 /** Scene dumps that actually contain scripts (not every cell in the 225 table). */
@@ -839,13 +847,19 @@ export class DustHost implements OpcodeHost {
         return 0;
       case "visualeffect": {
         // DF.EXE `FUN_00433270`: redraw, one walk/loop pump, then the
-        // transition (`plain`, `wipeleft`, …) over `n` ticks (1…1000).
-        if (isPuzzleStage(this.currentStageName)) {
+        // named wipe (`barndooropen`, `wipeleft`, …) over `n` ticks
+        // (clamped 1…1000). Barn-door is 8 vertical strips
+        // (`FUN_0040eec0` / `FUN_0040edf0`).
+        if (isPuzzleStage(this.currentStageName) || this.menuBoardUp()) {
           this.syncPuzzleView();
         }
         await this.pumpOnce(ctx);
         const effect = str(args[0]).toLowerCase();
         const ticks = Math.min(1000, Math.max(1, Math.trunc(num(args[1] ?? 1))));
+        if (this.view?.playVisualEffect) {
+          await this.view.playVisualEffect(effect, ticks);
+          return 0;
+        }
         if (effect && effect !== "plain" && effect !== "0") {
           await sleep(dustTicksToMs(ticks));
         }
@@ -3293,6 +3307,7 @@ export class DustHost implements OpcodeHost {
         stillUrl,
         items: this.menuFlatItems(),
         labels: this.puzzleLabels,
+        menu: true,
       });
       return;
     }
@@ -3593,10 +3608,11 @@ export class DustHost implements OpcodeHost {
       animTick: prop.animTick,
       openedAt: prop.openedAt,
     }));
+    const clockTitle = saveTitleFromGlobals(globals);
     return {
       format: SAVE_FORMAT,
       engine: SAVE_ENGINE,
-      title: title.trim() || DEFAULT_SAVE_TITLE,
+      title: clockTitle || title.trim() || DEFAULT_SAVE_TITLE,
       savedAt: new Date().toISOString(),
       globals,
       globalNames: [...ctx.globalNames],
@@ -3716,40 +3732,43 @@ export class DustHost implements OpcodeHost {
 
   async saveGame(ctx: VM, title: string): Promise<void> {
     const blob = this.captureSnapshot(ctx, title);
-    await this.savePort.write(title, blob);
     if (this.view?.exportSave) {
-      await this.view.exportSave(blob);
+      const ok = await this.view.exportSave(blob);
+      if (!ok) {
+        this.view?.log("save cancelled");
+        return;
+      }
     } else {
       downloadSaveBlob(blob);
     }
-    this.view?.log(`saved ${blob.title}`);
+    await this.savePort.writeAutosave(blob);
+    this.view?.log(`saved ${saveFileName(blob)}`);
   }
 
-  async openGame(ctx: VM, title: string): Promise<void> {
-    let blob: SaveBlob | undefined;
+  async openGame(ctx: VM, _title: string): Promise<void> {
+    let picked: PickSaveResult;
     if (this.view?.importSave) {
-      blob = await this.view.importSave();
+      picked = await this.view.importSave();
     } else {
-      blob =
-        (await pickSaveFile()) ??
-        (await this.savePort.read(title)) ??
-        (await this.savePort.latest?.());
+      const blob = await this.savePort.readAutosave();
+      picked = blob ? { kind: "ok", blob } : { kind: "cancel" };
     }
-    if (!blob) {
-      await this.view?.noteDialog?.("No saved game.");
-      this.view?.log("no saved game");
+    if (picked.kind === "cancel") {
       return;
     }
-    await this.restoreSnapshot(ctx, blob);
-    this.view?.log(`loaded ${blob.title}`);
+    if (picked.kind === "invalid") {
+      await this.view?.noteDialog?.("Couldn't read that save.");
+      this.view?.log("invalid save");
+      return;
+    }
+    await this.savePort.clearAutosave();
+    await this.restoreSnapshot(ctx, picked.blob);
+    await this.savePort.writeAutosave(picked.blob);
+    this.view?.log(`loaded ${picked.blob.title}`);
   }
 
-  async hasSave(title = DEFAULT_SAVE_TITLE): Promise<boolean> {
-    const slot = await this.savePort.read(title);
-    if (slot) {
-      return true;
-    }
-    return Boolean(await this.savePort.latest?.());
+  async hasSave(): Promise<boolean> {
+    return Boolean(await this.savePort.readAutosave());
   }
 
   /**

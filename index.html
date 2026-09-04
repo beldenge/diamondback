@@ -60,9 +60,12 @@
                   <p>The original game, faithfully rewritten.</p>
                 </div>
               </a>
-              <a class="landing-continue" href="?mode=resurrected&continue=1" hidden
-                >Continue</a
-              >
+              <div class="landing-card-actions" hidden>
+                <a class="landing-new" href="?mode=resurrected">New Game</a>
+                <a class="landing-continue" href="?mode=resurrected&continue=1"
+                  >Continue</a
+                >
+              </div>
             </div>
             <a class="landing-card" href="?mode=unlocked">
               <img
@@ -97,20 +100,42 @@
         </div>
         <dialog
           id="unlocked-spoilers"
+          class="landing-dialog"
           aria-labelledby="unlocked-spoilers-title"
           aria-describedby="unlocked-spoilers-copy"
         >
           <div class="landing-dialog-panel">
             <p class="landing-dialog-kicker">Dust: Unlocked</p>
             <h2 id="unlocked-spoilers-title">Spoilers ahead</h2>
-            <p id="unlocked-spoilers-copy">
+            <p id="unlocked-spoilers-copy" class="landing-dialog-copy">
               Every door in Diamondback stands open — including places, people,
               and puzzles the story would otherwise keep for later. If you have
               not finished Dust: Resurrected, this mode will spoil it.
             </p>
             <form method="dialog" class="landing-dialog-actions">
-              <button type="submit" value="cancel">Go back</button>
               <a class="landing-dialog-enter" href="?mode=unlocked">Enter Unlocked</a>
+              <button type="submit" value="cancel">Go back</button>
+            </form>
+          </div>
+        </dialog>
+        <dialog
+          id="new-game-confirm"
+          class="landing-dialog"
+          aria-labelledby="new-game-confirm-title"
+          aria-describedby="new-game-confirm-copy"
+        >
+          <div class="landing-dialog-panel">
+            <p class="landing-dialog-kicker">Dust: Resurrected</p>
+            <h2 id="new-game-confirm-title">Start over?</h2>
+            <p id="new-game-confirm-copy" class="landing-dialog-copy">
+              Start a new game? Browser progress will be replaced. Files you
+              saved are unchanged.
+            </p>
+            <form method="dialog" class="landing-dialog-actions">
+              <a class="landing-dialog-enter" href="?mode=resurrected"
+                >Start new game</a
+              >
+              <button type="submit" value="cancel">Cancel</button>
             </form>
           </div>
         </dialog>

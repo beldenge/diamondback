@@ -1269,6 +1269,28 @@ describe("fade does not halt theme", () => {
     expect(host.currentTheme).toBe("none");
   });
 
+  it("runs barndoor visualeffect through the view wipe", async () => {
+    const host = new DustHost({} as PuppetUi);
+    const seen: string[] = [];
+    host.view = {
+      pose: { x: 6, y: 14, facing: "N" },
+      world: "town",
+      graph: { scenes: new Map(), cameraTiles: new Set(), transitions: [], byFrom: new Map() },
+      walk() {},
+      async setPose() {},
+      log() {},
+      refreshActors() {},
+      async playVisualEffect(effect, ticks) {
+        seen.push(`${effect}:${ticks}`);
+      },
+    };
+    const vm = new VM({
+      call: (name, args, ctx) => host.call(name, args, ctx),
+    });
+    await host.call("visualeffect", ["barndooropen", 30], vm);
+    expect(seen).toEqual(["barndooropen:30"]);
+  });
+
   it("runs screentoblack then blacktoscreen with the script tick counts", async () => {
     const fades: string[] = [];
     const host = new DustHost({} as PuppetUi);

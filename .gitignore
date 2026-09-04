@@ -23,3 +23,5 @@ screenshots
 
 # Local Firefox Profiler dumps (tens of MB)
 Firefox *.json
+
+.playwright-mcp

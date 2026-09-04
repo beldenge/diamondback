@@ -373,6 +373,8 @@ export function samePuzzleLabels(
 
 export class FlatOverlay {
   readonly root: HTMLDivElement;
+  /** Painted still + props. Barn-door `clip-path` lives here, not on `root`, so clipped doors do not eat hits (Subtitles sits right of center). */
+  readonly visual: HTMLDivElement;
   private readonly img: HTMLImageElement;
   private boardUrl = "";
   private boardItems: FlatItem[] = [];
@@ -389,11 +391,15 @@ export class FlatOverlay {
   onInfo: (() => void) | null = null;
   /** SALGAMES / other FLT boards: stage-pixel pointerdown (not dismiss). */
   onBoardDown: ((x: number, y: number) => void) | null = null;
+  /** Map still / avatar OK: extracted `barndoorclose`. */
+  onDismiss: (() => void) | null = null;
 
   constructor() {
     this.root = document.createElement("div");
     this.root.id = "play-flat";
     this.root.hidden = true;
+    this.visual = document.createElement("div");
+    this.visual.id = "play-flat-visual";
     this.img = document.createElement("img");
     this.img.alt = "";
     this.img.draggable = false;
@@ -403,7 +409,8 @@ export class FlatOverlay {
     this.itemsEl.id = "play-flat-items";
     this.labelsEl = document.createElement("div");
     this.labelsEl.id = "play-flat-labels";
-    this.root.append(this.img, this.itemsEl, this.labelsEl, this.cash);
+    this.visual.append(this.img, this.itemsEl, this.labelsEl, this.cash);
+    this.root.append(this.visual);
     // Dust FLT buttons are `mousedown` + `trackbut`. A `click` after
     // `#play-stage` pointerdown can lose the first press (no click, or
     // the leftover click is skipNextClick). Fire on pointerdown.
@@ -416,6 +423,10 @@ export class FlatOverlay {
 
   get board(): boolean {
     return this.kind === "board";
+  }
+
+  get hudKind(): string | null {
+    return this.kind;
   }
 
   show(kind: "map" | "avatar" | "score", cash = 0, items: FlatItem[] = []): void {
@@ -516,14 +527,19 @@ export class FlatOverlay {
     }
   }
 
-  close(): void {
-    const wasBoard = this.kind === "board";
+  /** Hide without `onClose` — barn-door close already ran `gotoflat`. */
+  dismiss(): void {
     this.kind = null;
     this.root.classList.remove("board", "reader");
     this.boardUrl = "";
     this.clearItemCache();
     this.setLabels([]);
     this.root.hidden = true;
+  }
+
+  close(): void {
+    const wasBoard = this.kind === "board";
+    this.dismiss();
     if (!wasBoard) {
       this.onClose?.();
     }
@@ -564,12 +580,16 @@ export class FlatOverlay {
         event.target instanceof HTMLElement ? event.target.dataset.item : undefined;
       const action = avatarFlatAction(x, y, item);
       if (action?.kind === "ok") {
-        this.close();
+        this.onDismiss?.();
       } else if (action?.kind === "info") {
         this.onInfo?.();
       } else if (action?.kind === "item") {
         this.onSelect?.(action.name);
       }
+      return;
+    }
+    if (this.kind === "map") {
+      this.onDismiss?.();
       return;
     }
     this.close();

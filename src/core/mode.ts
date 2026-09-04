@@ -31,3 +31,23 @@ export function needsUnlockedSpoilerWarning(
 ): boolean {
   return from === "landing" && to === "unlocked" && !confirmed;
 }
+
+/**
+ * Title-chooser New Game (not Continue) when an autosave exists, before
+ * the start-over dialog is confirmed.
+ */
+export function needsNewGameWarning(
+  from: ClientMode,
+  to: ClientMode,
+  hasSave: boolean,
+  continueLink: boolean,
+  confirmed: boolean,
+): boolean {
+  return (
+    from === "landing" &&
+    to === "resurrected" &&
+    hasSave &&
+    !continueLink &&
+    !confirmed
+  );
+}

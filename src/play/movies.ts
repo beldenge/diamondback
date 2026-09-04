@@ -486,6 +486,18 @@ export function pickMovieHotspot(
   return spots.find((spot) => macRectContains(x, y, spot));
 }
 
+/** Wait-still hotspot under the pointer is Dust `touch`; the rest of the reel is arrow. */
+export function movieHoverCursor(
+  x: number,
+  y: number,
+  spots: readonly MovieHotspot[] | undefined,
+): "touch" | "arrow" {
+  if (!spots?.length) {
+    return "arrow";
+  }
+  return pickMovieHotspot(x, y, spots) ? "touch" : "arrow";
+}
+
 /**
  * Bell/pots: a real group-A slot plays the clang and a dest segment,
  * then the wait still. Slot 0 or a junk u16 (SAFEBOX 65516) is a

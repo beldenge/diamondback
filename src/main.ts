@@ -1,13 +1,25 @@
 import "./style.css";
-import { clientMode, needsUnlockedSpoilerWarning, type ClientMode } from "./core/mode";
+import {
+  clientMode,
+  needsNewGameWarning,
+  needsUnlockedSpoilerWarning,
+  type ClientMode,
+} from "./core/mode";
 import { MovieGallery } from "./play/gallery";
 import { PlayGame } from "./play/game";
 import { startPrecache } from "./core/precache";
-import { browserHasSave } from "./play/save";
+import {
+  browserHasSave,
+  navigationType,
+  shouldRestoreAutosave,
+  storyContinueFromSearch,
+  type SaveRestoreSource,
+} from "./play/save";
 import { extractUrl } from "./world/set/extract";
 
 const landing = document.getElementById("landing");
 const unlockedSpoilers = document.getElementById("unlocked-spoilers");
+const newGameConfirm = document.getElementById("new-game-confirm");
 let gallery: MovieGallery | null = null;
 let storyGame: PlayGame | null = null;
 let sandboxGame: PlayGame | null = null;
@@ -23,14 +35,23 @@ function fillLandingCards(): void {
   }
 }
 
-function spoilerDialog(): HTMLDialogElement | null {
-  return unlockedSpoilers instanceof HTMLDialogElement ? unlockedSpoilers : null;
+function asDialog(el: HTMLElement | null): HTMLDialogElement | null {
+  return el instanceof HTMLDialogElement ? el : null;
 }
 
-function closeUnlockedSpoilers(): void {
-  const dialog = spoilerDialog();
-  if (dialog?.open) {
-    dialog.close();
+function spoilerDialog(): HTMLDialogElement | null {
+  return asDialog(unlockedSpoilers);
+}
+
+function newGameDialog(): HTMLDialogElement | null {
+  return asDialog(newGameConfirm);
+}
+
+function closeLandingDialogs(): void {
+  for (const dialog of [spoilerDialog(), newGameDialog()]) {
+    if (dialog?.open) {
+      dialog.close();
+    }
   }
 }
 
@@ -78,14 +99,23 @@ function quitStoryToTitle(): void {
   applyRoute();
 }
 
-function showResurrected(): void {
+function showResurrected(source: SaveRestoreSource): void {
   sandboxGame?.hide();
   gallery?.hide();
   reimagined?.hide();
   hideLanding();
   document.title = "Dust: Resurrected — Diamondback";
+  const resumeAutosave = shouldRestoreAutosave(
+    window.location.search,
+    navigationType(),
+    source,
+  );
+  if (storyGame && !resumeAutosave) {
+    storyGame.dispose();
+    storyGame = null;
+  }
   if (!storyGame) {
-    storyGame = new PlayGame("story");
+    storyGame = new PlayGame("story", { resumeAutosave });
     storyGame.onQuit = quitStoryToTitle;
     storyGame.start();
   } else {
@@ -143,23 +173,31 @@ function showReimagined(): void {
   });
 }
 
-function refreshContinueLink(): void {
-  const link = document.querySelector(".landing-continue");
-  if (!(link instanceof HTMLElement)) {
-    return;
+function refreshResurrectedActions(): void {
+  const hasSave = browserHasSave();
+  const actions = document.querySelector(".landing-card-actions");
+  const card = document.querySelector(".landing-card-stack > .landing-card");
+  if (actions instanceof HTMLElement) {
+    actions.hidden = !hasSave;
   }
-  link.hidden = !browserHasSave();
+  if (card instanceof HTMLAnchorElement) {
+    card.href = hasSave ? "?mode=resurrected&continue=1" : "?mode=resurrected";
+  }
 }
 
+let documentRoute = true;
+
 function applyRoute(): void {
-  closeUnlockedSpoilers();
-  refreshContinueLink();
+  const source: SaveRestoreSource = documentRoute ? "document" : "in-page";
+  documentRoute = false;
+  closeLandingDialogs();
+  refreshResurrectedActions();
   switch (currentMode()) {
     case "movies":
       showMovies();
       break;
     case "resurrected":
-      showResurrected();
+      showResurrected(source);
       break;
     case "unlocked":
       showUnlocked();
@@ -204,11 +242,29 @@ document.addEventListener("click", (event) => {
     return;
   }
   const confirmedSpoilers = Boolean(anchor.closest("#unlocked-spoilers"));
-  const dialog = spoilerDialog();
-  if (dialog && needsUnlockedSpoilerWarning(hereMode, next, confirmedSpoilers)) {
+  const spoilers = spoilerDialog();
+  if (spoilers && needsUnlockedSpoilerWarning(hereMode, next, confirmedSpoilers)) {
     event.preventDefault();
-    if (!dialog.open) {
-      dialog.showModal();
+    if (!spoilers.open) {
+      spoilers.showModal();
+    }
+    return;
+  }
+  const confirmedNewGame = Boolean(anchor.closest("#new-game-confirm"));
+  const newGame = newGameDialog();
+  if (
+    newGame &&
+    needsNewGameWarning(
+      hereMode,
+      next,
+      browserHasSave(),
+      storyContinueFromSearch(url.search),
+      confirmedNewGame,
+    )
+  ) {
+    event.preventDefault();
+    if (!newGame.open) {
+      newGame.showModal();
     }
     return;
   }
@@ -225,11 +281,13 @@ window.addEventListener("popstate", () => {
   applyRoute();
 });
 
-unlockedSpoilers?.addEventListener("click", (event) => {
-  if (event.target === unlockedSpoilers) {
-    closeUnlockedSpoilers();
-  }
-});
+for (const dialog of [unlockedSpoilers, newGameConfirm]) {
+  dialog?.addEventListener("click", (event) => {
+    if (event.target === dialog) {
+      asDialog(dialog)?.close();
+    }
+  });
+}
 
 fillLandingCards();
 applyRoute();

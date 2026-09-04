@@ -134,11 +134,30 @@ describe("extracted later-day story", () => {
       return;
     }
     expect(horn).toMatch(/gotoflat \(4\)/);
+    expect(horn).toMatch(/visualeffect \(barndooropen, 30\)/);
     expect(save).toMatch(/savegame \("dust 0\.3"\)/);
     expect(open).toMatch(/opengame \("dust 0\.3"\)/);
     expect(quit).toMatch(/questiondialog \("Are you sure you want to quit\?"\)/);
     expect(credits).toMatch(/openstagefile \("credits\.flt"\)/);
     expect(isMenuFlat("score")).toBe(true);
+  });
+
+  it("map and inventory HUD flats use the same barn-door wipe as the skull", () => {
+    const mapOpen = loadTxt("FLT/_NEW/mousedown _arg__17.txt");
+    const mapClose = loadTxt("FLT/_NEW/mousedown _arg__20.txt");
+    const invenOpen = loadTxt("FLT/_NEW/mousedown _arg__19.txt");
+    const invenClose = loadTxt("FLT/_NEW/mousedown _arg__23.txt");
+    const scoreClose = loadTxt("FLT/_NEW/mousedown _arg__22.txt");
+    if (!mapOpen || !mapClose || !invenOpen || !invenClose || !scoreClose) {
+      return;
+    }
+    expect(mapOpen).toMatch(/gotoflat \(2\)/);
+    expect(mapOpen).toMatch(/visualeffect \(barndooropen, 30\)/);
+    expect(mapClose).toMatch(/visualeffect \(barndoorclose, 30\)/);
+    expect(invenOpen).toMatch(/gotoflat \(3\)/);
+    expect(invenOpen).toMatch(/visualeffect \(barndooropen, 30\)/);
+    expect(invenClose).toMatch(/visualeffect \(barndoorclose, 30\)/);
+    expect(scoreClose).toMatch(/visualeffect \(barndoorclose, 30\)/);
   });
 
   it("credits shop scrolls HOUSE-style name plates", () => {

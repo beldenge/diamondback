@@ -2,10 +2,9 @@ import { Color, Timer, WebGLRenderer } from "three";
 import { isClockSlot, toggleDayNight, type ClockSlot } from "../core/time";
 import { VM, type Point } from "../vm/runtime";
 import {
-  DEFAULT_SAVE_TITLE,
-  downloadSaveBlob,
   pickSaveFile,
-  storyContinueFromSearch,
+  saveBlobToDisk,
+  type PickSaveResult,
   type SaveBlob,
 } from "./save";
 import {
@@ -115,6 +114,7 @@ import {
   AVATAR_SLOT,
   examineHandName,
   FlatOverlay,
+  FLAT_STILL,
   HAND_SLOT,
   actorLayerVisibility,
   hitMacRect,
@@ -145,12 +145,19 @@ import {
 } from "./lock";
 import { type PuzzleBoard, type PuzzleLabel } from "./puzzle";
 import {
+  applyBarnDoorClip,
+  BARN_DOOR_STEPS,
+  barnDoorStepTicks,
+  clearBarnDoorClip,
+} from "./wipe";
+import {
   clipUrl as movieClipUrl,
   fallbackTimeline,
   frameUrl as movieStillUrl,
   movieClickToStill,
   movieClipsStarting,
   movieFolder,
+  movieHoverCursor,
   movieTableEndSec,
   playMovieRecAudio,
   movieFrameWaitsForAudio,
@@ -293,6 +300,13 @@ export class PlayGame implements WorldView {
   private pendingKey: { arg: string; repeat: boolean } | null = null;
 
   private booting = true;
+  private lastAutosaveMs = 0;
+  private readonly onPageHide = (): void => {
+    if (typeof document !== "undefined" && document.visibilityState === "visible") {
+      return;
+    }
+    this.maybeAutosave(true);
+  };
   private visible = true;
   private dialogEl: HTMLDialogElement | null = null;
   private dialogCopy: HTMLParagraphElement | null = null;
@@ -341,6 +355,13 @@ export class PlayGame implements WorldView {
   private readonly movieCtx: CanvasRenderingContext2D;
   private readonly movieImages = new Map<string, HTMLImageElement>();
   private readonly movieBed = { gen: 0 };
+  /** Live wait-still hotspots (`help.mov` OK, grocpots, bells). */
+  private movieHotspots: MovieHotspot[] = [];
+  private movieHotspotStop: (() => void) | null = null;
+  private pointerClient: { x: number; y: number } | null = null;
+  /** Skull/death overlay is up; barn-door close must keep it until the wipe. */
+  private menuBoardShowing = false;
+  private barnDoorKind: "open" | "close" | null = null;
   private readonly handEl: HTMLCanvasElement;
   private readonly handCtx: CanvasRenderingContext2D;
   private handSrc = "";
@@ -349,6 +370,8 @@ export class PlayGame implements WorldView {
   /** `stdmouse` drag started on pointerdown; ignore the leftover click. */
   private skipNextClick = false;
   private readonly kind: PlayKind;
+  /** Set by the title router; do not re-read sticky `navigationType()`. */
+  private readonly resumeAutosave: boolean;
   private lastDayClock: ClockSlot = 2;
   private hoverPoint: Point | null = null;
   private cursorPointKey = "";
@@ -361,8 +384,9 @@ export class PlayGame implements WorldView {
   private cursorOn = "";
   private stageScale = 1;
 
-  constructor(kind: PlayKind = "story") {
+  constructor(kind: PlayKind = "story", opts: { resumeAutosave?: boolean } = {}) {
     this.kind = kind;
+    this.resumeAutosave = Boolean(opts.resumeAutosave);
     this.canvas = document.createElement("canvas");
     this.canvas.id = "play-world";
     document.body.classList.add("play");
@@ -456,8 +480,14 @@ export class PlayGame implements WorldView {
     this.flats.onClose = () => {
       void this.closeHudFlat();
     };
+    this.flats.onDismiss = () => {
+      if (this.talking) {
+        return;
+      }
+      const button = this.flats.hudKind === "avatar" ? "ok" : "untitled";
+      void this.runHudFlatButton(button);
+    };
     this.flats.onBoardDown = (x, y) => {
-      this.host.stillDown = true;
       const point: Point = { kind: "point", x, y, z: 0 };
       this.host.pointer = point;
       this.hoverPoint = point;
@@ -516,6 +546,7 @@ export class PlayGame implements WorldView {
     this.actorLayer.addEventListener("mousemove", (event) => this.onMove(event));
     this.stageEl.addEventListener("mouseleave", () => {
       this.hoverPoint = null;
+      this.pointerClient = null;
       this.applyCursor();
     });
     window.addEventListener("keydown", (event) => this.onKey(event));
@@ -528,6 +559,8 @@ export class PlayGame implements WorldView {
     window.addEventListener("resize", () => this.layoutStage());
     window.visualViewport?.addEventListener("resize", () => this.layoutStage());
     window.visualViewport?.addEventListener("scroll", () => this.layoutStage());
+    document.addEventListener("visibilitychange", this.onPageHide);
+    window.addEventListener("pagehide", this.onPageHide);
   }
 
   /**
@@ -545,12 +578,37 @@ export class PlayGame implements WorldView {
 
   showPuzzle(board: PuzzleBoard | null): void {
     if (!board) {
+      if (this.menuBoardShowing) {
+        // Horn/death `gotoflat (1)` then `barndoorclose`: keep the overlay
+        // so the town can show through the closing doors.
+        this.barnDoorKind = "close";
+        this.setWorldVisible(true);
+        this.applyCursor();
+        return;
+      }
       if (this.flats.board) {
         this.flats.close();
       }
+      clearBarnDoorClip(this.flats.visual);
       this.setWorldVisible(true);
+      this.applyCursor();
       return;
     }
+    if (board.menu) {
+      const first = !this.menuBoardShowing && !this.flats.board;
+      // Town stays under the clipped overlay — that is the "from" still.
+      this.setWorldVisible(true);
+      this.flats.showBoard(board.stillUrl, board.items, board.labels, board.reader);
+      if (first) {
+        this.menuBoardShowing = true;
+        this.barnDoorKind = "open";
+        this.flats.root.style.background = "transparent";
+        applyBarnDoorClip(this.flats.visual, "open", 0);
+      }
+      this.applyCursor();
+      return;
+    }
+    this.finishBarnDoor(true);
     // `playagame` `setvisible (false)` then BitBlts the FLT still.
     this.setWorldVisible(false);
     this.flats.showBoard(board.stillUrl, board.items, board.labels, board.reader);
@@ -560,15 +618,17 @@ export class PlayGame implements WorldView {
     if (board.reader) {
       this.setFadeOpacity(0);
     }
+    this.applyCursor();
   }
 
   showHudFlat(name: string): void {
     if (name === "avatar") {
-      void this.openHudFlat("self");
+      this.presentHudFlat("avatar");
+      void this.fillAvatarItems();
       return;
     }
     if (name === "map") {
-      void this.openHudFlat("map");
+      this.presentHudFlat("map");
     }
   }
 
@@ -688,6 +748,7 @@ export class PlayGame implements WorldView {
 
   hide(): void {
     this.visible = false;
+    this.maybeAutosave(true);
     this.renderer.setAnimationLoop(null);
     this.stageEl.hidden = true;
     this.captionEl.hidden = true;
@@ -696,6 +757,8 @@ export class PlayGame implements WorldView {
   }
 
   dispose(): void {
+    document.removeEventListener("visibilitychange", this.onPageHide);
+    window.removeEventListener("pagehide", this.onPageHide);
     this.hide();
     this.renderer.dispose();
     this.stageEl.remove();
@@ -719,30 +782,19 @@ export class PlayGame implements WorldView {
     this.onQuit?.();
   }
 
-  async importSave(): Promise<SaveBlob | undefined> {
-    const has = await this.host.hasSave();
-    if (!has) {
-      return pickSaveFile();
-    }
-    const choice = await this.askDialog("Open a saved game?", [
-      { id: "load", label: "Load" },
-      { id: "import", label: "Import…" },
-      { id: "cancel", label: "Cancel" },
-    ]);
-    if (choice === "import") {
-      return pickSaveFile();
-    }
-    if (choice === "load") {
-      return (
-        (await this.host.savePort.latest?.()) ??
-        (await this.host.savePort.read(DEFAULT_SAVE_TITLE))
-      );
-    }
-    return undefined;
+  async importSave(): Promise<PickSaveResult> {
+    return pickSaveFile();
   }
 
-  async exportSave(blob: SaveBlob): Promise<void> {
-    downloadSaveBlob(blob);
+  async exportSave(blob: SaveBlob): Promise<boolean> {
+    const result = await saveBlobToDisk(blob);
+    if (!result.ok) {
+      return false;
+    }
+    if (result.via === "download") {
+      await this.noteDialog(`Saved ${result.name} to your downloads.`);
+    }
+    return true;
   }
 
   log(message: string): void {
@@ -920,6 +972,105 @@ export class PlayGame implements WorldView {
     }
   }
 
+  /**
+   * DF.EXE `FUN_0040ec90`: `barndooropen` grows the dest still from the
+   * center; `barndoorclose` lets it take the edges. Eight strips.
+   */
+  async playVisualEffect(effect: string, ticks: number): Promise<void> {
+    const name = effect.trim().toLowerCase();
+    if (name === "barndooropen" || name === "barndoorclose") {
+      await this.animateBarnDoor(name === "barndooropen" ? "open" : "close", ticks);
+      return;
+    }
+    if (this.barnDoorKind) {
+      this.finishBarnDoor();
+    }
+    if (name && name !== "plain" && name !== "0") {
+      await this.sleepWipe(dustTicksToMs(ticks));
+    }
+  }
+
+  private async animateBarnDoor(kind: "open" | "close", ticks: number): Promise<void> {
+    this.barnDoorKind = kind;
+    this.flats.root.style.background = "transparent";
+    this.setWorldVisible(true);
+    const stepMs = this.wipeStepMs(ticks);
+    for (let step = 1; step <= BARN_DOOR_STEPS; step += 1) {
+      applyBarnDoorClip(this.flats.visual, kind, step);
+      if (stepMs > 0) {
+        await this.sleepWipe(stepMs);
+      }
+    }
+    this.finishBarnDoor();
+  }
+
+  private finishBarnDoor(keepOverlay = false): void {
+    const kind = this.barnDoorKind;
+    this.barnDoorKind = null;
+    this.flats.root.style.background = "";
+    clearBarnDoorClip(this.flats.visual);
+    if (keepOverlay) {
+      this.menuBoardShowing = false;
+      return;
+    }
+    if (kind === "close") {
+      this.menuBoardShowing = false;
+      this.flats.dismiss();
+      this.setWorldVisible(true);
+      this.restoreHandSlot();
+    } else if (kind === "open" || this.menuBoardShowing) {
+      this.menuBoardShowing = true;
+      this.setWorldVisible(false);
+    }
+    this.applyCursor();
+  }
+
+  private wipeStepMs(ticks: number): number {
+    const inVitest = Boolean(
+      (globalThis as { process?: { env?: { VITEST?: string } } }).process?.env?.VITEST,
+    );
+    if (inVitest) {
+      return 0;
+    }
+    return dustTicksToMs(barnDoorStepTicks(ticks));
+  }
+
+  /**
+   * Quiet-frame autosave. Skip movies, speech, barn-door, and the VM lock.
+   * `force` is hide / refresh — still skip a mid-movie snapshot.
+   */
+  private maybeAutosave(force: boolean): void {
+    if (this.host.sandbox || this.booting || !this.scriptsReady) {
+      return;
+    }
+    if (
+      this.talking ||
+      this.busy ||
+      this.host.scriptBusy ||
+      this.barnDoorKind ||
+      this.host.currentPuppet !== "none" ||
+      this.dialogEl?.open
+    ) {
+      return;
+    }
+    const now = performance.now();
+    if (!force && now - this.lastAutosaveMs < 10_000) {
+      return;
+    }
+    this.lastAutosaveMs = now;
+    const blob = this.host.captureSnapshot(this.vm, "autosave");
+    void this.host.savePort.writeAutosave(blob);
+  }
+
+  private sleepWipe(ms: number): Promise<void> {
+    if (ms <= 0) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
+  }
+
   async playMovie(
     frames: {
       url: string;
@@ -969,6 +1120,7 @@ export class PlayGame implements WorldView {
     const clipUrls = clips.map((clip) => clip.url);
     await voices.preload(clipUrls);
     this.movieEl.hidden = false;
+    this.applyCursor();
     let ok = true;
     try {
       if (
@@ -991,12 +1143,15 @@ export class PlayGame implements WorldView {
   }
 
   endMovie(): void {
+    this.movieHotspotStop?.();
     this.movieEl.hidden = true;
+    this.movieHotspots = [];
     this.movieBed.gen += 1;
     voices.stopAllFx();
     this.movieImages.clear();
     this.busy = false;
     this.needsRender = true;
+    this.applyCursor();
   }
 
   /**
@@ -1233,7 +1388,16 @@ export class PlayGame implements WorldView {
   }
 
   private waitMovieHotspot(spots: MovieHotspot[]): Promise<MovieHotspot | undefined> {
+    this.movieHotspots = spots;
+    this.applyCursor();
     return new Promise((resolve) => {
+      let settled = false;
+      const stop = (): void => {
+        window.removeEventListener("pointerdown", finish, true);
+        this.movieHotspotStop = null;
+        this.movieHotspots = [];
+        this.applyCursor();
+      };
       const finish = (event: Event): void => {
         if (!("clientX" in event) || !("clientY" in event)) {
           return;
@@ -1251,9 +1415,21 @@ export class PlayGame implements WorldView {
         }
         event.preventDefault();
         event.stopPropagation();
-        window.removeEventListener("pointerdown", finish, true);
+        if (settled) {
+          return;
+        }
+        settled = true;
+        stop();
         this.skipNextClick = movieWaitSetsSkipClick(event.type);
         resolve(hit);
+      };
+      this.movieHotspotStop = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        stop();
+        resolve(undefined);
       };
       window.addEventListener("pointerdown", finish, true);
     });
@@ -1264,11 +1440,28 @@ export class PlayGame implements WorldView {
     spots: MovieHotspot[],
     holdSec: number,
   ): Promise<MovieHotspot | undefined> {
+    this.movieHotspots = spots;
+    this.applyCursor();
     return new Promise((resolve) => {
+      let settled = false;
       const ms = Math.max(0, holdSec * 1000);
-      const timer = window.setTimeout(() => {
+      const stop = (): void => {
+        window.clearTimeout(timer);
         window.removeEventListener("pointerdown", finish, true);
-        resolve(undefined);
+        this.movieHotspotStop = null;
+        this.movieHotspots = [];
+        this.applyCursor();
+      };
+      const done = (hit: MovieHotspot | undefined): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        stop();
+        resolve(hit);
+      };
+      const timer = window.setTimeout(() => {
+        done(undefined);
       }, ms);
       const finish = (event: Event): void => {
         if (!("clientX" in event) || !("clientY" in event)) {
@@ -1287,10 +1480,11 @@ export class PlayGame implements WorldView {
         }
         event.preventDefault();
         event.stopPropagation();
-        window.clearTimeout(timer);
-        window.removeEventListener("pointerdown", finish, true);
         this.skipNextClick = movieWaitSetsSkipClick(event.type);
-        resolve(hit);
+        done(hit);
+      };
+      this.movieHotspotStop = () => {
+        done(undefined);
       };
       window.addEventListener("pointerdown", finish, true);
     });
@@ -1350,18 +1544,14 @@ export class PlayGame implements WorldView {
       this.host.skipBootBlack = this.host.skipMovies;
       await this.host.installLibrary(this.vm);
       const resume =
-        !this.host.sandbox &&
-        storyContinueFromSearch(location.search) &&
-        (await this.host.hasSave());
+        !this.host.sandbox && this.resumeAutosave && (await this.host.hasSave());
       this.host.skipStoryAdvance = resume;
       const boot = this.host.index.lookup(["boot"], "boot");
       if (boot) {
         await this.vm.inObject("boot", "", () => this.vm.runProc(boot));
       }
       if (resume) {
-        const blob =
-          (await this.host.savePort.latest?.()) ??
-          (await this.host.savePort.read(DEFAULT_SAVE_TITLE));
+        const blob = await this.host.savePort.readAutosave();
         if (blob) {
           await this.host.restoreSnapshot(this.vm, blob);
         }
@@ -1378,6 +1568,7 @@ export class PlayGame implements WorldView {
       this.loadEl.hidden = true;
       this.preloadNeighbors();
       await this.host.onArrive(this.vm);
+      this.maybeAutosave(true);
       if (this.host.sandbox) {
         const fight = sandboxFightFromSearch(location.search);
         if (fight) {
@@ -1459,6 +1650,9 @@ export class PlayGame implements WorldView {
     }
     this.applyCursor();
     this.ui.tick(dt);
+    if (scriptsLive) {
+      this.maybeAutosave(false);
+    }
     if (this.needsRender) {
       this.renderer.render(this.view.scene, this.view.camera);
       if (!this.anim) {
@@ -1468,6 +1662,7 @@ export class PlayGame implements WorldView {
   }
 
   private onMove(event: MouseEvent): void {
+    this.notePointerClient(event.clientX, event.clientY);
     this.hoverPoint = this.stageFromPointer(event);
     this.applyCursor();
   }
@@ -1487,15 +1682,20 @@ export class PlayGame implements WorldView {
     // talking-head is arrow so choices can highlight. `walktopuppet`
     // still uses watch via `cursor ("watch")` / talking.
     if (!this.movieEl.hidden) {
-      this.setCursor("arrow");
+      this.setCursor(this.moviePointerCursor());
       return;
     }
     if (this.ui.speaking) {
       this.setCursor("watch");
       return;
     }
-    if (this.host.currentPuppet !== "none" || this.flats.open) {
+    if (this.host.currentPuppet !== "none") {
       this.setCursor("arrow");
+      return;
+    }
+    if (this.flats.open) {
+      const point = this.hoverPoint;
+      this.setCursor(point && this.host.hitHudButton(point.x, point.y) ? "touch" : "arrow");
       return;
     }
     const point = this.hoverPoint;
@@ -1582,18 +1782,42 @@ export class PlayGame implements WorldView {
   }
 
   private setCursor(name: string): void {
-    if (this.cursorOn === name) {
-      return;
-    }
-    this.cursorOn = name;
     const value = cursorCss(name);
-    this.canvas.style.cursor = value;
-    this.actorLayer.style.cursor = value;
-    this.stageEl.style.cursor = value;
-    this.hudEl.style.cursor = value;
+    if (this.cursorOn !== name) {
+      this.cursorOn = name;
+      this.canvas.style.cursor = value;
+      this.actorLayer.style.cursor = value;
+      this.stageEl.style.cursor = value;
+      this.hudEl.style.cursor = value;
+    }
+    this.movieEl.style.cursor = value;
+    this.flats.root.style.cursor = value;
+  }
+
+  private moviePointerCursor(): "touch" | "arrow" {
+    const client = this.pointerClient;
+    if (!client || !this.movieHotspots.length) {
+      return "arrow";
+    }
+    const still = movieClickToStill(
+      client.x,
+      client.y,
+      this.movieEl.getBoundingClientRect(),
+      this.movieEl.width || STILL_WIDTH,
+      this.movieEl.height || STILL_HEIGHT,
+    );
+    if (!still) {
+      return "arrow";
+    }
+    return movieHoverCursor(still.x, still.y, this.movieHotspots);
+  }
+
+  private notePointerClient(clientX: number, clientY: number): void {
+    this.pointerClient = { x: clientX, y: clientY };
   }
 
   private onHudMove(event: MouseEvent): void {
+    this.notePointerClient(event.clientX, event.clientY);
     this.hoverPoint = this.stageFromPointer(event);
     this.applyCursor();
   }
@@ -1643,34 +1867,83 @@ export class PlayGame implements WorldView {
   }
 
   private async openHudFlat(name: string): Promise<void> {
-    const cash = numGlobal(this.vm, "playercash");
     if (name === "map") {
-      this.host.currentFlatName = "map";
+      this.presentHudFlat("map");
+    } else if (name === "horn") {
+      this.presentHudFlat("score");
+    } else if (name === "self") {
+      this.presentHudFlat("avatar");
+      void this.fillAvatarItems();
+    } else {
+      return;
+    }
+    if (!this.scriptsReady) {
+      this.finishBarnDoor();
+      return;
+    }
+    const button = name === "self" ? "self" : name;
+    this.talking = true;
+    try {
+      this.host.pointer = { kind: "point", x: 256, y: 330, z: 0 };
+      await this.vm.inObject("button", button, () => this.vm.evalCall("mousedown", []));
+      if (name === "self") {
+        await this.fillAvatarItems();
+      }
+    } finally {
+      this.talking = false;
+      this.syncHud();
+      this.applyCursor();
+    }
+  }
+
+  /**
+   * NEW.FLT map / avatar / score: arm the barn-door clip on first show so
+   * `visualeffect (barndooropen, 30)` has a from-image (the town still).
+   */
+  private presentHudFlat(kind: "map" | "avatar" | "score"): void {
+    const cash = numGlobal(this.vm, "playercash");
+    const first = !this.menuBoardShowing && !this.flats.open;
+    this.setWorldVisible(true);
+    if (kind === "score") {
+      this.flats.showBoard(FLAT_STILL.score);
+    } else if (kind === "map") {
       this.flats.show("map", cash, this.mapCrossIcon());
-      return;
-    }
-    if (name === "horn") {
-      if (!this.scriptsReady) {
-        this.flats.show("score", cash);
-        return;
-      }
-      this.talking = true;
-      try {
-        this.host.pointer = { kind: "point", x: 256, y: 330, z: 0 };
-        await this.vm.inObject("button", "horn", () => this.vm.evalCall("mousedown", []));
-      } finally {
-        this.talking = false;
-        this.syncHud();
-      }
-      return;
-    }
-    if (name === "self") {
-      this.host.currentFlatName = "avatar";
+    } else {
       this.flats.show("avatar", cash, []);
-      const items = await this.inventoryIcons();
-      if (this.flats.open) {
-        this.flats.setItems(items);
-      }
+    }
+    if (first) {
+      this.menuBoardShowing = true;
+      this.barnDoorKind = "open";
+      this.flats.root.style.background = "transparent";
+      applyBarnDoorClip(this.flats.visual, "open", 0);
+    }
+    this.applyCursor();
+  }
+
+  private async fillAvatarItems(): Promise<void> {
+    const items = await this.inventoryIcons();
+    if (this.flats.open) {
+      this.flats.setItems(items);
+    }
+  }
+
+  private async runHudFlatButton(name: string): Promise<void> {
+    if (this.talking) {
+      return;
+    }
+    if (!this.scriptsReady) {
+      this.barnDoorKind = "close";
+      this.finishBarnDoor();
+      return;
+    }
+    this.talking = true;
+    try {
+      await this.vm.inObject("button", name, () => this.vm.evalCall("mousedown", []));
+    } finally {
+      this.talking = false;
+      this.restoreHandSlot();
+      this.syncHud();
+      this.applyCursor();
     }
   }
 
@@ -1929,15 +2202,18 @@ export class PlayGame implements WorldView {
     if (!this.visible) {
       return;
     }
-    const bounds = this.flats.board
-      ? this.flats.root.getBoundingClientRect()
-      : this.stageEl.getBoundingClientRect();
+    this.notePointerClient(event.clientX, event.clientY);
+    const bounds =
+      !this.movieEl.hidden || !this.flats.board
+        ? this.stageEl.getBoundingClientRect()
+        : this.flats.root.getBoundingClientRect();
     const at = stageFromClient(event.clientX, event.clientY, bounds);
     if (at) {
       const point: Point = { kind: "point", x: at.x, y: at.y, z: 0 };
       this.host.pointer = point;
       this.hoverPoint = point;
     }
+    this.applyCursor();
   }
 
   private async onPointerUp(event: PointerEvent): Promise<void> {
@@ -2014,6 +2290,9 @@ export class PlayGame implements WorldView {
           });
     if (gate === "ignore") {
       return;
+    }
+    if (kind === "board") {
+      this.host.stillDown = true;
     }
     this.talking = true;
     this.cursorGen += 1;

@@ -1,18 +1,27 @@
 /**
- * Remake save blobs. Dust `savegame` / `opengame` write `*.rtd`; that
- * layout is unknown, so we store JSON the VM can restore (globals,
- * actors, props, pose). Browser slot is localStorage; Save also
- * downloads a `.rtd` and Open can import one.
+ * Remake saves are JSON the VM can restore (globals, actors, props, pose).
+ * Dust `savegame` / `opengame` used `*.rtd` (DreamFactory RTDO); that
+ * binary is unknown, so we write `.json` and still read old `.rtd`
+ * downloads (they were JSON with a fake extension). Browser
+ * `localStorage` is **autosave only** (refresh / Continue). Explicit
+ * Save/Open are files.
+ *
+ * Blob `format` is 1. Story playback is not fully proven, so a later
+ * fix may need a different snapshot — bump `SAVE_FORMAT` on a breaking
+ * change rather than silently reading old files. No migration reader
+ * until then.
  */
 
 import type { Value } from "../vm/runtime";
 import type { Dir } from "../world/set/types";
 
+/** Snapshot shape. Bump on a breaking blob change; no migration yet. */
 export const SAVE_FORMAT = 1;
 export const SAVE_ENGINE = "diamondback";
 export const DEFAULT_SAVE_TITLE = "dust 0.3";
 export const SAVE_STORAGE_PREFIX = "diamondback.save.";
 export const SAVE_LATEST_KEY = "diamondback.save.latest";
+export const AUTOSAVE_KEY = "diamondback.autosave";
 
 export type SaveJson =
   | number
@@ -89,18 +98,38 @@ export interface SaveBlob {
 }
 
 export interface SavePort {
-  write(title: string, blob: SaveBlob): Promise<void>;
-  read(title: string): Promise<SaveBlob | undefined>;
-  latest?(): Promise<SaveBlob | undefined>;
+  writeAutosave(blob: SaveBlob): Promise<void>;
+  readAutosave(): Promise<SaveBlob | undefined>;
+  clearAutosave(): Promise<void>;
 }
 
 export function saveSlotId(title: string): string {
   return title.trim().toLowerCase().replace(/\s+/g, " ") || DEFAULT_SAVE_TITLE;
 }
 
-export function saveFileName(title: string): string {
-  const stem = saveSlotId(title).replace(/[^\w.]+/g, "-");
-  return `${stem || "dust-0.3"}.rtd`;
+/** Clock-based download name: `day-1-night.json`. */
+export function saveFileStem(globals: Record<string, SaveJson>): string {
+  const day = Math.trunc(Number(globals.day));
+  const clock = Math.trunc(Number(globals.clock));
+  const slot = clock === 1 ? "morning" : clock === 3 ? "night" : "afternoon";
+  if (Number.isFinite(day) && day >= 1) {
+    return `day-${day}-${slot}`;
+  }
+  return "dust";
+}
+
+export function saveTitleFromGlobals(globals: Record<string, SaveJson>): string {
+  const day = Math.trunc(Number(globals.day));
+  const clock = Math.trunc(Number(globals.clock));
+  const slot = clock === 1 ? "morning" : clock === 3 ? "night" : "afternoon";
+  if (Number.isFinite(day) && day >= 1) {
+    return `Day ${day} ${slot}`;
+  }
+  return "Dust";
+}
+
+export function saveFileName(blob: SaveBlob): string {
+  return `${saveFileStem(blob.globals)}.json`;
 }
 
 export function valueToSaveJson(value: Value): SaveJson {
@@ -192,45 +221,93 @@ export function storyContinueFromSearch(search: string): boolean {
   return raw === "1" || raw === "true" || raw === "";
 }
 
+/** `PerformanceNavigationTiming.type`, or `"reload"` from the old API. */
+export function navigationType(
+  perf: Pick<Performance, "getEntriesByType"> & {
+    navigation?: { type?: number };
+  } = performance,
+): string | undefined {
+  const nav = perf.getEntriesByType?.("navigation")?.[0] as { type?: string } | undefined;
+  if (nav?.type) {
+    return nav.type;
+  }
+  if (perf.navigation?.type === 1) {
+    return "reload";
+  }
+  return undefined;
+}
+
+/**
+ * How the play URL was reached. Cards use in-page `pushState`; a landing
+ * F5 still reports PerformanceNavigationTiming `reload` for the whole
+ * document, so that type must not restore on a later card click.
+ */
+export type SaveRestoreSource = "document" | "in-page";
+
+/**
+ * Continue link always restores. A document reload of the play page
+ * restores. An in-page Resurrected card click does not — even after an
+ * F5 of the title.
+ */
+export function shouldRestoreAutosave(
+  search: string,
+  nav = navigationType(),
+  source: SaveRestoreSource = "document",
+): boolean {
+  if (storyContinueFromSearch(search)) {
+    return true;
+  }
+  return source === "document" && nav === "reload";
+}
+
 export class MemorySavePort implements SavePort {
-  readonly slots = new Map<string, SaveBlob>();
-  latestId = "";
+  autosave: SaveBlob | undefined;
 
-  async write(title: string, blob: SaveBlob): Promise<void> {
-    const id = saveSlotId(title);
-    this.slots.set(id, blob);
-    this.latestId = id;
+  async writeAutosave(blob: SaveBlob): Promise<void> {
+    this.autosave = blob;
   }
 
-  async read(title: string): Promise<SaveBlob | undefined> {
-    return this.slots.get(saveSlotId(title));
+  async readAutosave(): Promise<SaveBlob | undefined> {
+    return this.autosave;
   }
 
-  async latest(): Promise<SaveBlob | undefined> {
-    return this.latestId ? this.slots.get(this.latestId) : undefined;
+  async clearAutosave(): Promise<void> {
+    this.autosave = undefined;
   }
 }
 
 export class BrowserSavePort implements SavePort {
-  async write(title: string, blob: SaveBlob): Promise<void> {
-    const id = saveSlotId(title);
-    const text = encodeSaveBlob(blob);
-    localStorage.setItem(`${SAVE_STORAGE_PREFIX}${id}`, text);
-    localStorage.setItem(SAVE_LATEST_KEY, id);
+  async writeAutosave(blob: SaveBlob): Promise<void> {
+    localStorage.setItem(AUTOSAVE_KEY, encodeSaveBlob(blob));
   }
 
-  async read(title: string): Promise<SaveBlob | undefined> {
-    const text = localStorage.getItem(`${SAVE_STORAGE_PREFIX}${saveSlotId(title)}`);
-    return text ? decodeSaveText(text) : undefined;
+  async readAutosave(): Promise<SaveBlob | undefined> {
+    const text = localStorage.getItem(AUTOSAVE_KEY);
+    if (text) {
+      return decodeSaveText(text);
+    }
+    return migrateLegacySlot();
   }
 
-  async latest(): Promise<SaveBlob | undefined> {
+  async clearAutosave(): Promise<void> {
+    localStorage.removeItem(AUTOSAVE_KEY);
+  }
+}
+
+function migrateLegacySlot(): SaveBlob | undefined {
+  try {
     const id = localStorage.getItem(SAVE_LATEST_KEY);
     if (!id) {
       return undefined;
     }
     const text = localStorage.getItem(`${SAVE_STORAGE_PREFIX}${id}`);
-    return text ? decodeSaveText(text) : undefined;
+    const blob = text ? decodeSaveText(text) : undefined;
+    if (blob) {
+      localStorage.setItem(AUTOSAVE_KEY, encodeSaveBlob(blob));
+    }
+    return blob;
+  } catch {
+    return undefined;
   }
 }
 
@@ -247,6 +324,9 @@ export function defaultSavePort(): SavePort {
 
 export function browserHasSave(): boolean {
   try {
+    if (localStorage.getItem(AUTOSAVE_KEY)) {
+      return true;
+    }
     const id = localStorage.getItem(SAVE_LATEST_KEY);
     return Boolean(id && localStorage.getItem(`${SAVE_STORAGE_PREFIX}${id}`));
   } catch {
@@ -254,51 +334,117 @@ export function browserHasSave(): boolean {
   }
 }
 
-export function downloadSaveBlob(blob: SaveBlob): void {
+export function downloadSaveBlob(blob: SaveBlob): string {
+  const name = saveFileName(blob);
   if (typeof document === "undefined") {
-    return;
+    return name;
   }
   const href = URL.createObjectURL(
     new Blob([encodeSaveBlob(blob)], { type: "application/json" }),
   );
   const link = document.createElement("a");
   link.href = href;
-  link.download = saveFileName(blob.title);
+  link.download = name;
   document.body.append(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(href);
+  return name;
 }
 
-export function pickSaveFile(): Promise<SaveBlob | undefined> {
+type SaveFilePicker = (opts: {
+  suggestedName?: string;
+  types?: { description?: string; accept: Record<string, string[]> }[];
+}) => Promise<{
+  name?: string;
+  createWritable: () => Promise<{
+    write: (data: string) => Promise<void>;
+    close: () => Promise<void>;
+  }>;
+}>;
+
+export type SaveToDiskResult =
+  | { ok: true; via: "picker" | "download"; name: string }
+  | { ok: false; cancelled: true; name: string };
+
+export async function saveBlobToDisk(blob: SaveBlob): Promise<SaveToDiskResult> {
+  const name = saveFileName(blob);
+  const picker = (globalThis as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
+  if (typeof picker === "function") {
+    try {
+      const handle = await picker({
+        suggestedName: name,
+        types: [
+          {
+            description: "Dust save",
+            accept: { "application/json": [".json"] },
+          },
+        ],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(encodeSaveBlob(blob));
+      await writable.close();
+      return { ok: true, via: "picker", name: handle.name || name };
+    } catch (err) {
+      if (err && typeof err === "object" && "name" in err && (err as { name: string }).name === "AbortError") {
+        return { ok: false, cancelled: true, name };
+      }
+    }
+  }
+  downloadSaveBlob(blob);
+  return { ok: true, via: "download", name };
+}
+
+export type PickSaveResult =
+  | { kind: "ok"; blob: SaveBlob }
+  | { kind: "cancel" }
+  | { kind: "invalid" };
+
+export function pickSaveFile(): Promise<PickSaveResult> {
   if (typeof document === "undefined") {
-    return Promise.resolve(undefined);
+    return Promise.resolve({ kind: "cancel" });
   }
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".rtd,.json,application/json";
+    input.accept = ".json,.rtd,application/json";
     let settled = false;
-    const finish = (blob?: SaveBlob): void => {
+    let focusTimer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (result: PickSaveResult): void => {
       if (settled) {
         return;
       }
       settled = true;
+      if (focusTimer !== undefined) {
+        clearTimeout(focusTimer);
+      }
       window.removeEventListener("focus", onFocus);
       input.remove();
-      resolve(blob);
+      resolve(result);
     };
     const onFocus = (): void => {
-      window.setTimeout(() => finish(undefined), 400);
+      focusTimer = setTimeout(() => {
+        if (!input.files?.length) {
+          finish({ kind: "cancel" });
+        }
+      }, 500);
     };
     input.addEventListener("change", () => {
+      if (focusTimer !== undefined) {
+        clearTimeout(focusTimer);
+        focusTimer = undefined;
+      }
       const file = input.files?.[0];
       if (!file) {
-        finish(undefined);
+        finish({ kind: "cancel" });
         return;
       }
-      void file.text().then((text) => finish(decodeSaveText(text)));
+      void file.text().then((text) => {
+        const blob = decodeSaveText(text);
+        finish(blob ? { kind: "ok", blob } : { kind: "invalid" });
+      });
     });
+    input.addEventListener("cancel", () => finish({ kind: "cancel" }));
     window.addEventListener("focus", onFocus);
     input.click();
   });

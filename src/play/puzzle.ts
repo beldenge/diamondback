@@ -44,6 +44,8 @@ export interface PuzzleBoard {
   labels: PuzzleLabel[];
   /** Sit above `#play-fade` — these scripts never `blacktoscreen`. */
   reader?: boolean;
+  /** NEW.FLT score / death: barn-door wipe over the town still. */
+  menu?: boolean;
 }
 
 export function pointInMacRect(

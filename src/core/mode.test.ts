@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clientMode, needsUnlockedSpoilerWarning } from "./mode";
+import { clientMode, needsNewGameWarning, needsUnlockedSpoilerWarning } from "./mode";
 
 describe("clientMode", () => {
   it("opens the landing chooser with no query", () => {
@@ -43,5 +43,21 @@ describe("needsUnlockedSpoilerWarning", () => {
     expect(needsUnlockedSpoilerWarning("unlocked", "unlocked", false)).toBe(false);
     expect(needsUnlockedSpoilerWarning("resurrected", "unlocked", false)).toBe(false);
     expect(needsUnlockedSpoilerWarning("movies", "unlocked", false)).toBe(false);
+  });
+});
+
+describe("needsNewGameWarning", () => {
+  it("gates a New Game click when an autosave exists", () => {
+    expect(needsNewGameWarning("landing", "resurrected", true, false, false)).toBe(true);
+    expect(needsNewGameWarning("landing", "resurrected", true, false, true)).toBe(false);
+  });
+
+  it("does not gate Continue, a first run, or other titles", () => {
+    expect(needsNewGameWarning("landing", "resurrected", true, true, false)).toBe(false);
+    expect(needsNewGameWarning("landing", "resurrected", false, false, false)).toBe(false);
+    expect(needsNewGameWarning("landing", "unlocked", true, false, false)).toBe(false);
+    expect(needsNewGameWarning("resurrected", "resurrected", true, false, false)).toBe(
+      false,
+    );
   });
 });
